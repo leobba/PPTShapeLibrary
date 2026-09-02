@@ -104,6 +104,12 @@
         openFolder: function (id) { return send("openFolder", { id: id }); },
         getSettings: function () { return send("getSettings"); },
         saveSettings: function (patch) { return send("saveSettings", { patch: patch }); },
+        undo: function () { return send("undo", {}); },
+        scanDuplicates: function () { return send("scanDuplicates", {}); },
+        renameTag: function (oldTag, newTag) { return send("renameTag", { oldTag: oldTag, newTag: newTag }); },
+        deleteTag: function (tag) { return send("deleteTag", { tag: tag }); },
+        exportPack: function (ids, saveAs) { return send("exportPack", { ids: ids, saveAs: saveAs }); },
+        importPack: function (openFrom) { return send("importPack", { openFrom: openFrom }); },
         log: function (level, message) { return send("log", { level: level, message: message }); }
     };
 })();

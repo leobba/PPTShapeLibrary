@@ -18,7 +18,8 @@
         selectedOrder: [],
         loading: false,
         adjustVisible: false,
-        lastInsertedId: null
+        lastInsertedId: null,
+        recentTop: []         // 全库最近使用 Top6（init 下发）
     };
 
     // ---------------- 工具 ----------------
@@ -49,6 +50,7 @@
         Bridge.init().then(function (data) {
             state.settings = data;
             state.categoryCounts = data.categoryCounts || {};
+            state.recentTop = data.recentTop || [];
             applyTheme(data.theme || "light");
             applyCardSize(data.cardSize || "compact");
             renderCategories(data.categories || []);
@@ -59,7 +61,15 @@
     });
 
     // 订阅 C# 下行推送
-    Bridge.on("refresh", function () { reload(); });
+    Bridge.on("refresh", function () {
+        // 数据变了：重拉元数据（recentTop/分类/计数），再刷新列表
+        Bridge.init().then(function (data) {
+            state.recentTop = data.recentTop || [];
+            state.categoryCounts = data.categoryCounts || {};
+            renderCategories(data.categories || []);
+        }).catch(function () {});
+        reload();
+    });
     Bridge.on("settingsChanged", function (s) {
         state.settings = s;
         applyTheme(s.theme || "light");
@@ -104,6 +114,15 @@
         var status = el("div", "status-row");
         var cnt = el("span"); cnt.id = "lblCount";
         status.appendChild(cnt);
+        var mgmtBtn = el("button", "theme-toggle");
+        mgmtBtn.id = "mgmtToggle";
+        mgmtBtn.innerHTML = '<span class="ico">\uE713</span>';
+        mgmtBtn.title = "库管理：标签管理 / 去重清理 / 导入素材包";
+        mgmtBtn.addEventListener("click", function () {
+            closeContextMenu();
+            showMgmtMenu(mgmtBtn);
+        });
+        status.appendChild(mgmtBtn);
         var themeBtn = el("button", "theme-toggle");
         themeBtn.id = "themeToggle";
         themeBtn.innerHTML = '<span class="ico">\uE793</span>';
@@ -132,6 +151,14 @@
         var adjust = el("div", "float-bar");
         adjust.id = "adjustBar";
         adjust.hidden = true;
+        var undoBtn = el("button", "bar-btn", "\uE7A7");
+        undoBtn.title = "撤销上一步（插入/微调/应用样式）";
+        undoBtn.addEventListener("click", function () {
+            Bridge.undo().catch(function (e) { toast(e.message, true); });
+        });
+        adjust.appendChild(undoBtn);
+        var sep1 = el("span", "bar-sep");
+        adjust.appendChild(sep1);
         [
             ["\uE7E8", "rotateL", "左转15°"], ["\uE7E9", "rotateR", "右转15°"],
             ["透明-", "opacityDown", ""], ["透明+", "opacityUp", ""],
@@ -309,42 +336,37 @@
         var oldRecent = $("#recentSection");
         if (oldRecent) oldRecent.remove();
 
-        // 无筛选时：顶部展示"最近使用"横向条；已在横条中的条目不再进主网格，避免重复
+        // 无筛选时：顶部展示"最近使用"横向条（数据来自 init 的全库 Top6，A6）
         var recentExcluded = {};
-        if (!state.filter && state.category === "全部" && state.sort !== "最近使用") {
-            var recent = state.items.filter(function (m) { return m.LastUsedAt || m.lastUsedAt; })
-                .sort(function (a, b) {
-                    return (b.lastUsedAt || "").localeCompare(a.lastUsedAt || "");
-                }).slice(0, 6);
-            if (recent.length >= 2) {
-                var sec = el("div");
-                sec.id = "recentSection";
-                var title = el("div", "section-title");
-                title.appendChild(ico("\uE818"));
-                title.appendChild(el("span", "", "最近使用"));
-                var more = el("button", "more", "查看全部 ›");
-                more.addEventListener("click", function () {
-                    $("#sortSelect").value = "最近使用";
-                    state.sort = "最近使用";
-                    reload();
-                });
-                title.appendChild(more);
-                sec.appendChild(title);
+        if (!state.filter && state.category === "全部" && state.sort !== "最近使用"
+            && state.recentTop && state.recentTop.length >= 2) {
+            var sec = el("div");
+            sec.id = "recentSection";
+            var title = el("div", "section-title");
+            title.appendChild(ico("\uE818"));
+            title.appendChild(el("span", "", "最近使用"));
+            var more = el("button", "more", "查看全部 ›");
+            more.addEventListener("click", function () {
+                $("#sortSelect").value = "最近使用";
+                state.sort = "最近使用";
+                reload();
+            });
+            title.appendChild(more);
+            sec.appendChild(title);
 
-                var row = el("div", "card-grid");
-                row.style.gridTemplateColumns = "repeat(auto-fill, minmax(84px, 1fr))";
-                recent.forEach(function (m) {
-                    recentExcluded[m.id] = true;
-                    row.appendChild(createCard(m));
-                });
-                sec.appendChild(row);
-                grid.parentElement.insertBefore(sec, grid);
+            var row = el("div", "card-grid");
+            row.style.gridTemplateColumns = "repeat(auto-fill, minmax(84px, 1fr))";
+            state.recentTop.forEach(function (m) {
+                recentExcluded[m.id] = true;
+                row.appendChild(createCard(m));
+            });
+            sec.appendChild(row);
+            grid.parentElement.insertBefore(sec, grid);
 
-                // 最近区与主网格之间加分隔
-                var gap = el("div");
-                gap.style.height = "14px";
-                sec.appendChild(gap);
-            }
+            // 最近区与主网格之间加分隔
+            var gap = el("div");
+            gap.style.height = "14px";
+            sec.appendChild(gap);
         }
 
         if (state.items.length === 0) {
@@ -598,17 +620,23 @@
         }
         function sep() { menu.appendChild(el("div", "sep")); }
 
-        mi("插入到当前页", function () { doInsert(meta, findCard(meta.id)); });
-        mi("应用样式到选中形状", function () {
-            Bridge.applyStyle(meta.id).then(function () {
-                Bridge.touch(meta.id); toast("样式已应用");
-            }).catch(function (e) { toast(e.message, true); });
-        });
-        mi("应用到本页同类形状", function () {
-            Bridge.applyStyleSameType(meta.id).then(function () {
-                Bridge.touch(meta.id);
-            }).catch(function (e) { toast(e.message, true); });
-        });
+        var isStyle = meta.kind === "Style";
+
+        // 形状卡：插入到当前页；样式卡：应用样式到选中/本页同类
+        if (!isStyle) {
+            mi("插入到当前页", function () { doInsert(meta, findCard(meta.id)); });
+        } else {
+            mi("应用样式到选中形状", function () {
+                Bridge.applyStyle(meta.id).then(function () {
+                    toast("样式已应用");
+                }).catch(function (e) { toast(e.message, true); });
+            });
+            mi("应用到本页同类形状", function () {
+                Bridge.applyStyleSameType(meta.id).then(function () {
+                    toast("已应用到本页同类形状");
+                }).catch(function (e) { toast(e.message, true); });
+            });
+        }
         mi("预览大图…", function () { showPreview(meta); });
         sep();
         mi("移动到分类…", function () {
@@ -637,6 +665,7 @@
         });
         sep();
         mi("打开收藏文件夹", function () { Bridge.openFolder(meta.id); });
+        mi("导出到素材包…", function () { exportPackPrompt([meta.id], meta.name); });
 
         document.body.appendChild(menu);
 
@@ -806,10 +835,183 @@
         document.documentElement.dataset.cardsize = size || "compact";
     }
 
-    // ---------------- TouchUsed 兼容桥 ----------------
-    // C# 的 insert/applyStyle 处理器已内置 TouchUsed，无需单独消息；
-    // 此处补一个空实现避免 bridge.js 里 Bridge.touch 未定义报错。
-    if (!Bridge.touch) {
-        Bridge.touch = function () {};
+    // ---------------- 库管理（… 菜单） ----------------
+    function showMgmtMenu(anchor) {
+        closeMgmtMenu();
+        var menu = el("div", "ctx-menu");
+        menu.id = "mgmtMenu";
+        menu.style.position = "fixed";
+        function mi(text, fn) {
+            var b = el("button", "mi", text);
+            b.addEventListener("click", function () { closeMgmtMenu(); fn(); });
+            menu.appendChild(b);
+        }
+        mi("标签管理…", showTagManager);
+        mi("去重清理…", showDuplicateCleaner);
+        mi("导入素材包…", importPackPrompt);
+        document.body.appendChild(menu);
+
+        var r = anchor.getBoundingClientRect();
+        menu.style.left = Math.max(4, r.right - menu.offsetWidth) + "px";
+        menu.style.top = (r.bottom + 4) + "px";
+        setTimeout(function () {
+            document.addEventListener("click", closeMgmtMenu, { once: true });
+        }, 10);
+    }
+    function closeMgmtMenu() {
+        var m = $("#mgmtMenu");
+        if (m) m.remove();
+    }
+
+    // ---------------- 标签管理器（Web） ----------------
+    function showTagManager() {
+        Bridge.init().then(function (data) {
+            state._tagCounts = data.tagCounts || {};
+            openTagManagerModal();
+        }).catch(function (e) { toast(e.message, true); });
+    }
+
+    function openTagManagerModal() {
+        closeModal();
+        var mask = el("div", "modal-mask");
+        mask.id = "modal";
+        var modal = el("div", "modal");
+        modal.style.width = "300px";
+        modal.appendChild(el("div", "modal-title", "标签管理"));
+        var body = el("div");
+        var list = el("div", "tag-mgr-list");
+        list.id = "tagList";
+        body.appendChild(list);
+        modal.appendChild(body);
+        var actions = el("div", "modal-actions");
+        var closeBtn = el("button", "bar-btn primary", "关闭");
+        actions.appendChild(closeBtn);
+        modal.appendChild(actions);
+        mask.appendChild(modal);
+        document.body.appendChild(mask);
+        closeBtn.addEventListener("click", function () { closeModal(); refreshAll(); });
+        mask.addEventListener("click", function (e) { if (e.target === mask) closeModal(); });
+
+        renderTagList(list);
+    }
+
+    function renderTagList(list) {
+        list.innerHTML = "";
+        state._tagCounts = state._tagCounts || {};
+        var tags = Object.keys(state._tagCounts).sort();
+        if (tags.length === 0) {
+            list.appendChild(el("div", "modal-msg", "暂无标签。\n右键卡片「编辑标签」即可添加。"));
+            return;
+        }
+        tags.forEach(function (tag) {
+            var row = el("div", "tag-mgr-row");
+            row.appendChild(el("span", "tag-mgr-name", tag + "（" + state._tagCounts[tag] + " 项）"));
+            var rn = el("button", "tag-mgr-btn", "重命名");
+            rn.addEventListener("click", function () {
+                inputModal("重命名标签", "新的标签名：", tag, function (v) {
+                    if (!v || v === tag) return;
+                    Bridge.renameTag(tag, v).then(function () {
+                        refreshAll(); toast("已重命名标签");
+                    }).catch(function (e) { toast(e.message, true); });
+                });
+            });
+            var dl = el("button", "tag-mgr-btn danger", "删除");
+            dl.addEventListener("click", function () {
+                confirmModal("从所有收藏中删除标签「" + tag + "」？", function () {
+                    Bridge.deleteTag(tag).then(function () {
+                        refreshAll(); toast("已删除标签");
+                    }).catch(function (e) { toast(e.message, true); });
+                });
+            });
+            row.appendChild(rn);
+            row.appendChild(dl);
+            list.appendChild(row);
+        });
+    }
+
+    // ---------------- 去重清理 ----------------
+    function showDuplicateCleaner() {
+        closeModal();
+        Bridge.scanDuplicates().then(function (data) {
+            var dups = data.duplicates || [];
+            var mask = el("div", "modal-mask");
+            mask.id = "modal";
+            var modal = el("div", "modal");
+            modal.style.width = "320px";
+            modal.appendChild(el("div", "modal-title", "去重清理"));
+            var body = el("div");
+            if (dups.length === 0) {
+                body.appendChild(el("div", "modal-msg", "未发现完全重复的收藏。\n（同类型、同数量、同尺寸判定）"));
+            } else {
+                body.appendChild(el("div", "modal-msg", "发现 " + dups.length + " 条可能完全重复（保留最早）："));
+                var list = el("div", "dup-list");
+                dups.forEach(function (d) {
+                    var row = el("div", "tag-mgr-row");
+                    var lbl = el("label", "dup-item");
+                    var cb = el("input");
+                    cb.type = "checkbox";
+                    cb.checked = true;
+                    cb.dataset.id = d.id;
+                    lbl.appendChild(cb);
+                    lbl.appendChild(el("span", "", d.name + "（" + (d.kind === "Style" ? "样式" : "形状") + "）"));
+                    row.appendChild(lbl);
+                    list.appendChild(row);
+                });
+                body.appendChild(list);
+            }
+            modal.appendChild(body);
+            var actions = el("div", "modal-actions");
+            if (dups.length > 0) {
+                var delBtn = el("button", "bar-btn danger", "删除所选");
+                delBtn.addEventListener("click", function () {
+                    var ids = Array.prototype.map.call(list.querySelectorAll("input:checked"), function (c) { return c.dataset.id; });
+                    if (ids.length === 0) return;
+                    Bridge.del(ids).then(function () {
+                        closeModal(); refreshAll(); toast("已删除 " + ids.length + " 条重复项");
+                    }).catch(function (e) { toast(e.message, true); });
+                });
+                actions.appendChild(delBtn);
+            }
+            var closeBtn = el("button", "bar-btn", "关闭");
+            closeBtn.addEventListener("click", function () { closeModal(); refreshAll(); });
+            actions.appendChild(closeBtn);
+            modal.appendChild(actions);
+            mask.appendChild(modal);
+            document.body.appendChild(mask);
+            mask.addEventListener("click", function (e) { if (e.target === mask) { closeModal(); refreshAll(); } });
+        }).catch(function (e) { toast(e.message, true); });
+    }
+
+    // ---------------- 素材包 ----------------
+    // 素材包文件存放在 %APPDATA%\PPTShapeLibrary\packs\ 目录（纯文件名输入，C# 侧拼路径）
+    function exportPackPrompt(ids, hintName) {
+        var name = (hintName || "素材包").replace(/[\\/:*?"<>|]/g, "_");
+        inputModal("导出素材包", "素材包文件名（将保存到收藏库 packs 目录）：", name, function (v) {
+            if (!v) return;
+            Bridge.exportPack(ids, v).then(function () {
+                toast("已导出素材包到 packs 目录");
+            }).catch(function (e) { toast(e.message, true); });
+        });
+    }
+
+    function importPackPrompt() {
+        inputModal("导入素材包", "素材包文件名（从收藏库 packs 目录导入，如 MyPack）：", "", function (v) {
+            if (!v) return;
+            Bridge.importPack(v).then(function (d) {
+                refreshAll();
+                toast("已导入 " + (d.imported || 0) + " 个收藏");
+            }).catch(function (e) { toast(e.message, true); });
+        });
+    }
+
+    function refreshAll() {
+        Bridge.init().then(function (data) {
+            state.settings = data;
+            state.recentTop = data.recentTop || [];
+            state.categoryCounts = data.categoryCounts || {};
+            state._tagCounts = data.tagCounts || {};
+            renderCategories(data.categories || []);
+            reload();
+        }).catch(function () { reload(); });
     }
 })();

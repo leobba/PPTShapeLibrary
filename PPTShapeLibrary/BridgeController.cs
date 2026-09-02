@@ -197,15 +197,27 @@ namespace PPTShapeLibrary
                         }
                     case "exportPack":
                         {
-                            string saveAs = ToStr(payload, "saveAs");
+                            // saveAs 为纯文件名（不含扩展名），实际落盘到 %APPDATA%\PPTShapeLibrary\packs\
+                            string name = SanitizeFileName(ToStr(payload, "saveAs"));
+                            if (name.Length == 0) name = "素材包_" + DateTime.Now.ToString("yyyyMMdd-HHmmss");
+                            string dir = System.IO.Path.Combine(ShapeLibraryService.RootDir, "packs");
+                            try { System.IO.Directory.CreateDirectory(dir); } catch { }
+                            string saveAs = System.IO.Path.Combine(dir, name + ".ppack.zip");
                             bool ok = PackService.ExportPack(GetIds(payload), saveAs, out string pkErr);
-                            Result(reqId, ok, ok ? new Dictionary<string, object>() : null, ok ? null : pkErr);
+                            Result(reqId, ok,
+                                   ok ? new Dictionary<string, object> { { "path", saveAs } } : null,
+                                   ok ? null : pkErr);
                             break;
                         }
                     case "importPack":
                         {
-                            string openFrom = ToStr(payload, "openFrom");
-                            int n = PackService.ImportPack(openFrom, out string impErr);
+                            // openFrom 为纯文件名；从 packs 目录读取（也兼容用户手工拷贝到此目录）
+                            string name = SanitizeFileName(ToStr(payload, "openFrom"));
+                            string dir = System.IO.Path.Combine(ShapeLibraryService.RootDir, "packs");
+                            string full = name.EndsWith(".ppack.zip", StringComparison.OrdinalIgnoreCase)
+                                ? System.IO.Path.Combine(dir, name)
+                                : System.IO.Path.Combine(dir, name + ".ppack.zip");
+                            int n = PackService.ImportPack(full, out string impErr);
                             bool ok = impErr == null;
                             Result(reqId, ok, ok ? new Dictionary<string, object> { { "imported", n } } : null,
                                    ok ? null : impErr);
@@ -243,6 +255,7 @@ namespace PPTShapeLibrary
             var all = ShapeLibraryService.LoadAllItems();
             d["categories"] = ShapeLibraryService.GetAllCategories();
             d["tags"] = ShapeLibraryService.GetAllTags();
+            d["tagCounts"] = ShapeLibraryService.GetTagCounts();
             d["total"] = all.Count;
 
             // 分类计数（前端胶囊徽标）
@@ -420,6 +433,22 @@ namespace PPTShapeLibrary
         private static string ToStr(Dictionary<string, object> d, string key)
         {
             return d.ContainsKey(key) && d[key] != null ? d[key].ToString() : "";
+        }
+
+        /// <summary>文件名净化：去掉路径分隔符与非法字符，防止路径穿越。</summary>
+        private static string SanitizeFileName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return "";
+            string s = name.Trim();
+            var invalid = System.IO.Path.GetInvalidFileNameChars();
+            var chars = new List<char>();
+            foreach (char c in s)
+            {
+                chars.Add(Array.IndexOf(invalid, c) >= 0 ? '_' : c);
+            }
+            string result = new string(chars.ToArray()).Trim();
+            if (result == "." || result == "..") return "";
+            return result.Length > 80 ? result.Substring(0, 80) : result;
         }
 
         private static int ToInt(Dictionary<string, object> d, string key)

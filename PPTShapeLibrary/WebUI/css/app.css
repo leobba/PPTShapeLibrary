@@ -640,6 +640,36 @@ html, body {
 .modal .modal-msg { font-size: 11.5px; color: var(--text); line-height: 1.7; margin-bottom: 4px; }
 .modal .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 
+/* ============ 库管理：标签管理器 / 去重清理 ============ */
+.tag-mgr-list { max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.tag-mgr-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    border-radius: 6px;
+    background: var(--bg);
+    border: 1px solid transparent;
+}
+.tag-mgr-row:hover { border-color: var(--border); }
+.tag-mgr-name { flex: 1; font-size: 11.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag-mgr-btn {
+    border: none;
+    border-radius: 5px;
+    padding: 2px 8px;
+    font-size: 10.5px;
+    cursor: pointer;
+    background: var(--accent-soft);
+    color: var(--accent);
+    flex-shrink: 0;
+}
+.tag-mgr-btn:hover { filter: brightness(1.05); }
+.tag-mgr-btn.danger { background: rgba(209,52,56,.12); color: var(--danger); }
+.dup-item { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text); cursor: pointer; flex: 1; min-width: 0; }
+.dup-item input { accent-color: var(--accent); }
+.dup-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-sep { width: 1px; height: 18px; background: var(--border); flex-shrink: 0; }
+
 /* ============ Toast ============ */
 .toast-wrap {
     position: fixed;
