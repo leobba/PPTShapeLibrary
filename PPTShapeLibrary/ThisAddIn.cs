@@ -224,6 +224,20 @@ namespace PPTShapeLibrary
             if (_paneControl != null) _paneControl.RefreshLibrary();
         }
 
+        /// <summary>把 Web 面板切到"工具"视图（Ribbon「小工具」）。</summary>
+        public void ShowToolsView()
+        {
+            ShowTaskPane();
+            if (_paneControl is WebPaneHost web) web.SwitchView("tools");
+        }
+
+        /// <summary>把 Web 面板切到"设置"视图（Ribbon「设置」）。</summary>
+        public void ShowSettingsView()
+        {
+            ShowTaskPane();
+            if (_paneControl is WebPaneHost web) web.SwitchView("settings");
+        }
+
         #region VSTO generated code
 
         /// <summary>

@@ -265,10 +265,8 @@ namespace PPTShapeLibrary
         {
             try
             {
-                using (var frm = new ToolsHubForm())
-                {
-                    frm.ShowDialog();
-                }
+                // Web 工具视图为主入口（FallbackPane 降级时该方法仅显示提示页，不报错）
+                Globals.ThisAddIn.ShowToolsView();
             }
             catch (Exception ex)
             {
@@ -278,7 +276,10 @@ namespace PPTShapeLibrary
 
         private void OnSettings(object sender, RibbonControlEventArgs e)
         {
-            try { Globals.ThisAddIn.DoSettings(); }
+            try
+            {
+                Globals.ThisAddIn.ShowSettingsView();
+            }
             catch (Exception ex) { Log.Error(ex, "Ribbon Settings"); }
         }
     }

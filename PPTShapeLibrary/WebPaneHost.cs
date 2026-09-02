@@ -167,5 +167,21 @@ namespace PPTShapeLibrary
                 Log.Error(ex, "WebPaneHost.ApplySettings");
             }
         }
+
+        /// <summary>切换前端视图（library/tools/settings）——供 Ribbon 直达按钮使用。</summary>
+        public void SwitchView(string view)
+        {
+            try
+            {
+                if (_initialized && _bridge != null)
+                {
+                    _bridge.PushSwitchView(view);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "WebPaneHost.SwitchView");
+            }
+        }
     }
 }

@@ -37,6 +37,11 @@ namespace PPTShapeLibrary
             Post(new Dictionary<string, object> { { "type", "settingsChanged" }, { "payload", SettingsDict(s) } });
         }
 
+        public void PushSwitchView(string view)
+        {
+            Post(new Dictionary<string, object> { { "type", "switchView" }, { "payload", new Dictionary<string, object> { { "view", view } } } });
+        }
+
         // ---------------- 上行处理 ----------------
 
         public void HandleWebMessage(string raw)
