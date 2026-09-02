@@ -140,6 +140,7 @@
     <Compile Include="ShapeExporter.cs" />
     <Compile Include="ShapeStyleExtractor.cs" />
     <Compile Include="PackService.cs" />
+    <Compile Include="TextToolService.cs" />
     <Compile Include="InputDialog.cs" />
     <Compile Include="ILibraryPane.cs" />
     <Compile Include="WebPaneHost.cs" />

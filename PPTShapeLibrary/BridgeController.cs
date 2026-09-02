@@ -193,6 +193,61 @@ namespace PPTShapeLibrary
                             Ok(reqId, new Dictionary<string, object>());
                             break;
                         }
+                    // ---------------- PPT 工具（Web 工具页） ----------------
+                    case "toolGetFonts":
+                        {
+                            Ok(reqId, new Dictionary<string, object>
+                            {
+                                { "fonts", TextToolService.GetDocumentFonts() },
+                                { "hasPresentation", TextToolService.HasPresentation() }
+                            });
+                            break;
+                        }
+                    case "applyTextStyle":
+                        {
+                            var r = TextToolService.ApplyTextStyle(
+                                ToStr(payload, "scope"),
+                                ToStr(payload, "fontName"),
+                                ToFloatNullable(payload, "fontSize"),
+                                ToBoolNullable(payload, "bold"),
+                                ToBoolNullable(payload, "italic"),
+                                ToIntNullable(payload, "color"),
+                                ToStr(payload, "align"));
+                            Result(reqId, r.Ok, r.Ok ? new Dictionary<string, object> { { "changed", r.Changed } } : null,
+                                   r.Ok ? null : r.Message);
+                            break;
+                        }
+                    case "replaceFont":
+                        {
+                            bool allSlides = ToBoolNullable(payload, "allSlides") ?? true;   // 默认整稿
+                            var r = TextToolService.ReplaceFont(
+                                ToStr(payload, "fromFont"),
+                                ToStr(payload, "toFont"),
+                                allSlides);
+                            Result(reqId, r.Ok, r.Ok ? new Dictionary<string, object> { { "changed", r.Changed } } : null,
+                                   r.Ok ? null : r.Message);
+                            break;
+                        }
+                    case "findReplace":
+                        {
+                            var r = TextToolService.FindReplace(
+                                ToStr(payload, "find"),
+                                ToStr(payload, "replace"),
+                                true == ToBoolNullable(payload, "matchCase"),
+                                true == ToBoolNullable(payload, "allSlides"));
+                            Result(reqId, r.Ok, r.Ok ? new Dictionary<string, object> { { "changed", r.Changed } } : null,
+                                   r.Ok ? null : r.Message);
+                            break;
+                        }
+                    case "cleanText":
+                        {
+                            var r = TextToolService.CleanText(
+                                true == ToBoolNullable(payload, "trimWhitespace"),
+                                true == ToBoolNullable(payload, "unifyPunctuation"));
+                            Result(reqId, r.Ok, r.Ok ? new Dictionary<string, object> { { "changed", r.Changed } } : null,
+                                   r.Ok ? null : r.Message);
+                            break;
+                        }
                     case "scanDuplicates":
                         {
                             // 全库扫描"完全重复"（同类型/同数量/同尺寸；保留最早，返回可删的重复项）
@@ -497,6 +552,40 @@ namespace PPTShapeLibrary
                 try { return Convert.ToInt32(Convert.ToDouble(d[key])); } catch { }
             }
             return 0;
+        }
+
+        private static float? ToFloatNullable(Dictionary<string, object> d, string key)
+        {
+            if (d.ContainsKey(key) && d[key] != null)
+            {
+                try
+                {
+                    float v = Convert.ToSingle(Convert.ToDouble(d[key]));
+                    return v > 0 ? (float?)v : null;
+                }
+                catch { }
+            }
+            return null;
+        }
+
+        private static bool? ToBoolNullable(Dictionary<string, object> d, string key)
+        {
+            if (d.ContainsKey(key) && d[key] != null)
+            {
+                bool b;
+                if (bool.TryParse(d[key].ToString(), out b)) return b;
+                if (d[key].ToString() == "1") return true;
+            }
+            return null;
+        }
+
+        private static int? ToIntNullable(Dictionary<string, object> d, string key)
+        {
+            if (d.ContainsKey(key) && d[key] != null)
+            {
+                try { return Convert.ToInt32(Convert.ToDouble(d[key])); } catch { }
+            }
+            return null;
         }
 
         private Dictionary<string, object> SettingsDict(Settings s)
