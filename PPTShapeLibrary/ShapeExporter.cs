@@ -104,8 +104,118 @@ namespace PPTShapeLibrary
             }
         }
 
+        /// <summary>
+        /// 批量收藏整份演示文稿：每页所有非占位形状打包为一个收藏（跳过空页）。
+        /// 使用安静模式：不去重弹框、不逐个询问命名（命名统一为 "第N页 {自动名}"）。
+        /// 返回成功收藏数。
+        /// </summary>
+        public static int CollectAllSlides()
+        {
+            EnsurePresentation();
+            var pres = App.ActivePresentation;
+            if (pres == null) return 0;
+            int okCount = 0;
+            try
+            {
+                for (int s = 1; s <= pres.Slides.Count; s++)
+                {
+                    var slide = pres.Slides[s];
+                    var idx = new System.Collections.Generic.List<int>();
+                    for (int i = 1; i <= slide.Shapes.Count; i++)
+                    {
+                        if (!IsPlaceholder(slide.Shapes[i])) idx.Add(i);
+                    }
+                    if (idx.Count == 0) continue;
+                    var range = slide.Shapes.Range(idx.ToArray());
+                    string nm = "第" + s + "页 " + GetAutoName(range) + " " + DateTime.Now.ToString("MM-dd HH:mm");
+                    string id = CollectRangeQuiet(range, nm);
+                    if (id != null) okCount++;
+                }
+                return okCount;
+            }
+            catch (Exception ex)
+            {
+                System.Windows.Forms.MessageBox.Show("批量收藏失败：" + ex.Message, "PPT形状库");
+                return okCount;
+            }
+        }
+
+        /// <summary>
+        /// 从剪贴板收藏：不要求预先选中形状。将剪贴板内容粘贴到临时空白页后整组收藏。
+        /// 支持 PPT 形状、图片等（经 PowerPoint 剪贴板粘贴）。返回收藏 id，无可粘贴内容返回 null。
+        /// </summary>
+        public static string CollectClipboard()
+        {
+            EnsurePresentation();
+            PowerPoint.Presentation tempPres = null;
+            try
+            {
+                // 剪贴板无内容直接放弃
+                if (!System.Windows.Forms.Clipboard.ContainsData("PowerPoint Shapedata")
+                    && !System.Windows.Forms.Clipboard.ContainsImage()
+                    && !System.Windows.Forms.Clipboard.ContainsFileDropList()
+                    && !System.Windows.Forms.Clipboard.ContainsText())
+                {
+                    System.Windows.Forms.MessageBox.Show("剪贴板中没有可收藏的内容。", "PPT形状库");
+                    return null;
+                }
+
+                tempPres = App.Presentations.Add(MsoTriState.msoFalse);
+                tempPres.PageSetup.SlideSize = PowerPoint.PpSlideSizeType.ppSlideSizeOnScreen;
+                var slide = tempPres.Slides.Add(1, PowerPoint.PpSlideLayout.ppLayoutBlank);
+
+                // 剪贴板内容直接粘贴到临时页（Paste 返回 ShapeRange；带重试应对 Office 异步剪贴板）
+                PowerPoint.ShapeRange pasted = null;
+                Exception lastErr = null;
+                for (int attempt = 1; attempt <= 5; attempt++)
+                {
+                    try
+                    {
+                        pasted = slide.Shapes.Paste();
+                        if (pasted != null && pasted.Count > 0) break;
+                    }
+                    catch (Exception ex)
+                    {
+                        lastErr = ex;
+                        System.Threading.Thread.Sleep(120 * attempt);
+                    }
+                }
+                if (pasted == null || pasted.Count == 0)
+                {
+                    System.Windows.Forms.MessageBox.Show(
+                        "剪贴板内容无法粘贴为形状" + (lastErr != null ? "：" + lastErr.Message : "") +
+                        "\n请先在 PowerPoint 中复制形状/图片后再试。", "PPT形状库");
+                    return null;
+                }
+                return CollectRangeQuiet(pasted, null);
+            }
+            catch (Exception ex)
+            {
+                System.Windows.Forms.MessageBox.Show("剪贴板收藏失败：" + ex.Message, "PPTShapeLibrary");
+                return null;
+            }
+            finally
+            {
+                if (tempPres != null)
+                {
+                    try { tempPres.Close(); } catch { }
+                }
+            }
+        }
+
         /// <summary>收藏任意 ShapeRange 的核心实现。</summary>
         public static string CollectRange(PowerPoint.ShapeRange range, string name)
+        {
+            return CollectRangeCore(range, name, false);
+        }
+
+        /// <summary>安静模式收藏（批量入库用）：不弹去重确认，不做命名询问，缩略图失败静默。</summary>
+        public static string CollectRangeQuiet(PowerPoint.ShapeRange range, string name)
+        {
+            return CollectRangeCore(range, name, true);
+        }
+
+        private static string CollectRangeCore(PowerPoint.ShapeRange range, string name, bool quiet)
         {
             if (range == null || range.Count == 0) return null;
 
@@ -114,22 +224,25 @@ namespace PPTShapeLibrary
 
             try
             {
-                // 去重提示
-                try
+                // 去重提示（quiet 模式跳过）
+                if (!quiet)
                 {
-                    string dup = ShapeLibraryService.FindDuplicate(range);
-                    if (dup != null)
+                    try
                     {
-                        if (System.Windows.Forms.MessageBox.Show(
-                            "检测到可能重复的收藏：「" + dup + "」。仍要收藏吗？",
-                            "PPT形状库", System.Windows.Forms.MessageBoxButtons.YesNo,
-                            System.Windows.Forms.MessageBoxIcon.Question) != System.Windows.Forms.DialogResult.Yes)
+                        string dup = ShapeLibraryService.FindDuplicate(range);
+                        if (dup != null)
                         {
-                            return null;
+                            if (System.Windows.Forms.MessageBox.Show(
+                                "检测到可能重复的收藏：「" + dup + "」。仍要收藏吗？",
+                                "PPT形状库", System.Windows.Forms.MessageBoxButtons.YesNo,
+                                System.Windows.Forms.MessageBoxIcon.Question) != System.Windows.Forms.DialogResult.Yes)
+                            {
+                                return null;
+                            }
                         }
                     }
+                    catch { }
                 }
-                catch { }
 
                 // 0. 创建收藏目录
                 ShapeLibraryService.CreateItemDir(id);
@@ -199,7 +312,10 @@ namespace PPTShapeLibrary
             }
             catch (Exception ex)
             {
-                System.Windows.Forms.MessageBox.Show("收藏失败：" + ex.Message, "PPTShapeLibrary");
+                if (!quiet)
+                {
+                    System.Windows.Forms.MessageBox.Show("收藏失败：" + ex.Message, "PPTShapeLibrary");
+                }
                 return null;
             }
             finally
@@ -505,6 +621,78 @@ namespace PPTShapeLibrary
                 if (showError)
                 {
                     System.Windows.Forms.MessageBox.Show("已应用到 " + applied + " 个同类型形状。", "PPT形状库");
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = "批量应用失败：" + ex.Message;
+                if (showError) System.Windows.Forms.MessageBox.Show(error, "PPT形状库");
+                return false;
+            }
+        }
+
+        /// <summary>把样式应用到整份演示文稿中所有与来源同类型的形状。失败弹框提示。</summary>
+        public static bool ApplyStyleToSameTypeAllSlides(string id)
+        {
+            return ApplyStyleToSameTypeAllSlides(id, true, out _);
+        }
+
+        /// <summary>静默版：Web 桥路径。</summary>
+        public static bool ApplyStyleToSameTypeAllSlides(string id, bool showError, out string error)
+        {
+            error = null;
+            var meta = ShapeLibraryService.LoadMeta(id);
+            string json = ShapeLibraryService.LoadStyleJson(id);
+            if (meta == null || json == null || meta.Kind != "Style")
+            {
+                error = "这不是样式收藏。";
+                if (showError) System.Windows.Forms.MessageBox.Show(error, "PPT形状库");
+                return false;
+            }
+            var preset = ShapeStyleExtractor.FromJson(json);
+            if (preset == null)
+            {
+                error = "样式解析失败。";
+                return false;
+            }
+            if (meta.SourceAutoType <= 0)
+            {
+                error = "该样式未记录来源形状类型，无法批量应用。";
+                if (showError) System.Windows.Forms.MessageBox.Show(error, "PPT形状库");
+                return false;
+            }
+            try
+            {
+                var pres = App.ActivePresentation;
+                int applied = 0;
+                foreach (PowerPoint.Slide slide in pres.Slides)
+                {
+                    for (int i = 1; i <= slide.Shapes.Count; i++)
+                    {
+                        var s = slide.Shapes[i];
+                        try
+                        {
+                            if ((int)s.AutoShapeType == meta.SourceAutoType)
+                            {
+                                var range = slide.Shapes.Range(new[] { i });
+                                AdaptPresetToTheme(preset);
+                                ShapeStyleExtractor.Apply(range, preset);
+                                applied++;
+                            }
+                        }
+                        catch { }
+                    }
+                }
+                if (applied == 0)
+                {
+                    error = "整份演示文稿中没有找到同类型的形状。";
+                    if (showError) System.Windows.Forms.MessageBox.Show(error, "PPT形状库");
+                    return false;
+                }
+                if (showError)
+                {
+                    System.Windows.Forms.MessageBox.Show("已在 " + applied + " 个同类型形状上应用样式。", "PPT形状库");
                 }
                 return true;
             }
