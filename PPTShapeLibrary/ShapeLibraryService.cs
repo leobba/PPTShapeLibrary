@@ -128,6 +128,7 @@ namespace PPTShapeLibrary
             {
                 ser.WriteObject(fs, meta);
             }
+            InvalidateCache();
         }
 
         public static LibraryMeta LoadMeta(string id)
@@ -148,20 +149,56 @@ namespace PPTShapeLibrary
             }
         }
 
+        // ---------------- 进程内缓存（B 组优化） ----------------
+        // 收藏列表按目录扫描 + meta.json 反序列化生成，高频调用（list/搜索/分类计数/标签
+        // 列表）代价高。此处以"2 秒 TTL + 任意写操作置脏"缓存 LoadAllItems 结果。
+        // 注意：仅缓存"已排序列表的快照引用"；meta 对象只读共享，任何写路径都先 LoadMeta
+        // 读文件、SaveMeta 落盘后置脏，绝不原地修改缓存中的 meta（防止脏读）。
+
+        private static readonly object CacheLock = new object();
+        private static List<LibraryMeta> _allCache;
+        private static DateTime _allCacheTime;
+        private static bool _allDirty = true;
+
+        private static void InvalidateCache()
+        {
+            lock (CacheLock)
+            {
+                _allDirty = true;
+            }
+        }
+
+        private const int CacheTtlMs = 2000;
+
+        /// <summary>全部收藏（CreatedAt 倒序）。带 2s TTL 进程内缓存，写操作自动失效。</summary>
         public static List<LibraryMeta> LoadAllItems()
         {
-            var list = new List<LibraryMeta>();
-            if (!Directory.Exists(ItemsDir)) return list;
-            foreach (var dir in Directory.GetDirectories(ItemsDir))
+            lock (CacheLock)
             {
-                string id = Path.GetFileName(dir);
-                var meta = LoadMeta(id);
-                if (meta != null)
+                if (!_allDirty && _allCache != null
+                    && (DateTime.UtcNow - _allCacheTime).TotalMilliseconds < CacheTtlMs)
                 {
-                    list.Add(meta);
+                    return new List<LibraryMeta>(_allCache); // 浅拷贝防调用方误改缓存本体
                 }
+
+                var list = new List<LibraryMeta>();
+                if (Directory.Exists(ItemsDir))
+                {
+                    foreach (var dir in Directory.GetDirectories(ItemsDir))
+                    {
+                        string id = Path.GetFileName(dir);
+                        var meta = LoadMeta(id);
+                        if (meta != null)
+                        {
+                            list.Add(meta);
+                        }
+                    }
+                }
+                _allCache = list.OrderByDescending(m => m.CreatedAt).ToList();
+                _allCacheTime = DateTime.UtcNow;
+                _allDirty = false;
+                return new List<LibraryMeta>(_allCache);
             }
-            return list.OrderByDescending(m => m.CreatedAt).ToList();
         }
 
         public static void DeleteItem(string id)
@@ -171,6 +208,7 @@ namespace PPTShapeLibrary
             {
                 Directory.Delete(dir, true);
             }
+            InvalidateCache();
         }
 
         public static void RenameItem(string id, string newName)
@@ -179,6 +217,7 @@ namespace PPTShapeLibrary
             if (meta == null) return;
             meta.Name = newName;
             SaveMeta(meta);
+            InvalidateCache();
         }
 
         public static void SaveStyleJson(string id, string json)
@@ -222,6 +261,7 @@ namespace PPTShapeLibrary
             if (meta == null) return;
             meta.Category = string.IsNullOrWhiteSpace(category) ? "未分类" : category.Trim();
             SaveMeta(meta);
+            InvalidateCache();
         }
 
         public static void SetTags(string id, string tags)
@@ -230,6 +270,7 @@ namespace PPTShapeLibrary
             if (meta == null) return;
             meta.Tags = tags == null ? "" : tags.Trim();
             SaveMeta(meta);
+            InvalidateCache();
         }
 
         /// <summary>记录最近使用时间与使用次数。</summary>
@@ -240,6 +281,7 @@ namespace PPTShapeLibrary
             meta.LastUsedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
             meta.UseCount++;
             SaveMeta(meta);
+            InvalidateCache();
         }
 
         public static void SetSortOrder(string id, int order)
@@ -248,6 +290,7 @@ namespace PPTShapeLibrary
             if (meta == null) return;
             meta.SortOrder = order;
             SaveMeta(meta);
+            InvalidateCache();
         }
 
         public static List<string> GetAllTags()
@@ -261,6 +304,61 @@ namespace PPTShapeLibrary
                 }
             }
             return list.OrderBy(t => t).ToList();
+        }
+
+        /// <summary>标签使用计数（供标签管理器显示）。</summary>
+        public static Dictionary<string, int> GetTagCounts()
+        {
+            var counts = new Dictionary<string, int>();
+            foreach (var meta in LoadAllItems())
+            {
+                foreach (var t in meta.GetTags())
+                {
+                    counts.TryGetValue(t, out int n);
+                    counts[t] = n + 1;
+                }
+            }
+            return counts;
+        }
+
+        /// <summary>全局重命名标签：把所有收藏中的 oldTag 替换为 newTag（已存在则合并）。</summary>
+        public static int RenameTagAll(string oldTag, string newTag)
+        {
+            if (string.IsNullOrWhiteSpace(oldTag) || string.IsNullOrWhiteSpace(newTag)) return 0;
+            if (oldTag == newTag) return 0;
+            int touched = 0;
+            foreach (var meta in LoadAllItems())
+            {
+                var tags = meta.GetTags().ToList();
+                if (tags.Contains(oldTag))
+                {
+                    tags.Remove(oldTag);
+                    if (!tags.Contains(newTag)) tags.Add(newTag);
+                    SetTags(meta.Id, string.Join(",", tags));
+                    touched++;
+                }
+            }
+            if (touched > 0) InvalidateCache();
+            return touched;
+        }
+
+        /// <summary>全局删除标签：从所有收藏中移除。返回受影响条目数。</summary>
+        public static int DeleteTagAll(string tag)
+        {
+            if (string.IsNullOrWhiteSpace(tag)) return 0;
+            int touched = 0;
+            foreach (var meta in LoadAllItems())
+            {
+                var tags = meta.GetTags().ToList();
+                if (tags.Contains(tag))
+                {
+                    tags.Remove(tag);
+                    SetTags(meta.Id, string.Join(",", tags));
+                    touched++;
+                }
+            }
+            if (touched > 0) InvalidateCache();
+            return touched;
         }
 
         // ---------------- 设置 ----------------
@@ -399,6 +497,7 @@ namespace PPTShapeLibrary
                 }
                 Directory.CreateDirectory(items);
                 System.IO.Compression.ZipFile.ExtractToDirectory(zipPath, items);
+                InvalidateCache();
                 return true;
             }
             catch
