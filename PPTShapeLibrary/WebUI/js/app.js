@@ -51,6 +51,7 @@
             state.settings = data;
             state.categoryCounts = data.categoryCounts || {};
             state.recentTop = data.recentTop || [];
+            state._tagCounts = data.tagCounts || {};
             applyTheme(data.theme || "light");
             applyCardSize(data.cardSize || "compact");
             renderCategories(data.categories || []);
@@ -189,6 +190,13 @@
         var bMove = el("button", "bar-btn", "移动分类");
         bMove.addEventListener("click", function () { batchMovePrompt(); });
         batch.appendChild(bMove);
+        var bPack = el("button", "bar-btn", "导出素材包");
+        bPack.addEventListener("click", function () {
+            var ids = Object.keys(state.selected);
+            if (ids.length === 0) return;
+            exportPackPrompt(ids, "素材包_" + ids.length + "项");
+        });
+        batch.appendChild(bPack);
         var bDel = el("button", "bar-btn danger", "删除");
         bDel.addEventListener("click", batchDelete);
         batch.appendChild(bDel);
@@ -908,6 +916,7 @@
             row.appendChild(el("span", "tag-mgr-name", tag + "（" + state._tagCounts[tag] + " 项）"));
             var rn = el("button", "tag-mgr-btn", "重命名");
             rn.addEventListener("click", function () {
+                closeModal();
                 inputModal("重命名标签", "新的标签名：", tag, function (v) {
                     if (!v || v === tag) return;
                     Bridge.renameTag(tag, v).then(function () {
@@ -917,6 +926,7 @@
             });
             var dl = el("button", "tag-mgr-btn danger", "删除");
             dl.addEventListener("click", function () {
+                closeModal();
                 confirmModal("从所有收藏中删除标签「" + tag + "」？", function () {
                     Bridge.deleteTag(tag).then(function () {
                         refreshAll(); toast("已删除标签");
