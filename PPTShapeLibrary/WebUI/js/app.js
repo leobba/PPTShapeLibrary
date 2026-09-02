@@ -83,10 +83,50 @@
         reload();
     });
 
+    // C#（Ribbon 按钮/设置对话框）请求切换到某视图
+    Bridge.on("switchView", function (payload) {
+        var view = (payload && payload.view) || "library";
+        switchView(view);
+        var navTabs = document.querySelectorAll(".app-nav-tabs .nav-tab");
+        navTabs.forEach(function (x) {
+            x.classList.toggle("active", x.dataset.view === view);
+        });
+    });
+
     // ---------------- 骨架 ----------------
     function buildSkeleton() {
         var app = $("#app");
         app.innerHTML = "";
+
+        // ⓪ 顶部导航条（素材库 | 工具）
+        var nav = el("div", "app-nav");
+        var brand = el("div", "app-brand", "\uE8A5 素材库");
+        brand.title = "PPT 素材库";
+        nav.appendChild(brand);
+        var navTabs = el("div", "app-nav-tabs");
+        var tabLib = el("button", "nav-tab active", "\uE8A5 素材库");
+        var tabTools = el("button", "nav-tab", "\uE7C4 工具");
+        var tabSet = el("button", "nav-tab", "\uE713 设置");
+        tabLib.dataset.view = "library";
+        tabTools.dataset.view = "tools";
+        tabSet.dataset.view = "settings";
+        function activate(btn) {
+            navTabs.querySelectorAll(".nav-tab").forEach(function (x) { x.classList.remove("active"); });
+            btn.classList.add("active");
+        }
+        tabLib.addEventListener("click", function () { activate(tabLib); switchView("library"); });
+        tabTools.addEventListener("click", function () { activate(tabTools); switchView("tools"); });
+        tabSet.addEventListener("click", function () { activate(tabSet); switchView("settings"); });
+        navTabs.appendChild(tabLib);
+        navTabs.appendChild(tabTools);
+        navTabs.appendChild(tabSet);
+        nav.appendChild(navTabs);
+        app.appendChild(nav);
+
+        // ⓪.1 主内容包装：素材库视图内容都放进 #libView；工具/设置为覆盖面板
+        var libView = el("div", "lib-view");
+        libView.id = "libView";
+        app.appendChild(libView);
 
         // ① 头部
         var header = el("div", "header");
@@ -109,7 +149,7 @@
         sort.id = "sortSelect";
         hrow.appendChild(sort);
         header.appendChild(hrow);
-        app.appendChild(header);
+        libView.appendChild(header);
 
         // ② 分类条
         var catBar = el("div", "category-bar");
@@ -234,8 +274,306 @@
         batch.appendChild(bDel);
         app.appendChild(batch);
 
-        // Toast 容器
-        app.appendChild(el("div", "toast-wrap"));
+        // Toast 容器（放 #app 顶层，全视图可见）
+        var toastWrap = el("div", "toast-wrap");
+        toastWrap.className = "toast-wrap";
+        app.appendChild(toastWrap);
+
+        // 除 nav 与 toast-wrap 外，把已直接 append 到 #app 的内容收进 #libView
+        var libViewBox = $("#libView");
+        Array.prototype.slice.call(app.children).forEach(function (c) {
+            if (c === libViewBox) return;
+            if (c.classList && c.classList.contains("app-nav")) return;
+            if (c.classList && c.classList.contains("toast-wrap")) return;
+            libViewBox.appendChild(c);
+        });
+
+        // 工具 / 设置视图面板（覆盖层，默认隐藏）
+        buildToolsPanel(app);
+        buildSettingsPanel(app);
+    }
+
+    // ---------------- 视图切换 ----------------
+    var currentView = "library";
+    function switchView(name) {
+        currentView = name;
+        var lib = $("#libView");
+        var tools = $("#toolsPanel");
+        var set = $("#settingsPanel");
+        if (lib) lib.style.display = (name === "library") ? "" : "none";
+        if (tools) tools.style.display = (name === "tools") ? "" : "none";
+        if (set) set.style.display = (name === "settings") ? "" : "none";
+        if (name === "library") { reload(); }
+        if (name === "tools") { onToolsPanelShown(); }
+        if (name === "settings") { renderSettingsForm(); }
+    }
+
+    // ---------------- 工具面板 ----------------
+    var toolState = { fonts: [], hasPres: false };
+
+    function buildToolsPanel(app) {
+        var panel = el("div", "view-panel");
+        panel.id = "toolsPanel";
+        panel.style.display = "none";
+
+        var head = el("div", "view-panel-head");
+        head.appendChild(el("div", "view-panel-title", "\uE7C4 工具"));
+        var backLib = el("button", "bar-btn", "\uE711 返回素材库");
+        backLib.addEventListener("click", function () { switchView("library"); });
+        head.appendChild(backLib);
+        panel.appendChild(head);
+
+        var body = el("div", "view-panel-body");
+        body.id = "toolsBody";
+        // ① 文字样式
+        var card1 = buildToolCard("批量修改文字样式", buildTextStyleControls());
+        // ② 一键换字体
+        var card2 = buildToolCard("一键更换字体", buildFontReplaceControls());
+        // ③ 查找替换
+        var card3 = buildToolCard("查找 / 替换（保留格式）", buildFindReplaceControls());
+        // ④ 文字清理
+        var card4 = buildToolCard("文字清理", buildCleanControls());
+
+        body.appendChild(card1);
+        body.appendChild(card2);
+        body.appendChild(card3);
+        body.appendChild(card4);
+        panel.appendChild(body);
+        app.appendChild(panel);
+    }
+
+    function buildToolCard(title, content) {
+        var card = el("div", "tool-card");
+        card.appendChild(el("div", "tool-card-title", title));
+        card.appendChild(content);
+        return card;
+    }
+
+    /** 通用表单行：label + 控件 */
+    function fld(label, ctl) {
+        var row = el("div", "fld");
+        row.appendChild(el("div", "fld-label", label));
+        row.appendChild(ctl);
+        return row;
+    }
+    function makeSelect(items, selIdx) {
+        var s = el("select", "ctl");
+        items.forEach(function (it, i) {
+            var o = el("option", "", it); o.value = it; s.appendChild(o);
+        });
+        if (selIdx != null) s.selectedIndex = selIdx;
+        return s;
+    }
+    function makeInput(ph, val) {
+        var i = el("input", "ctl");
+        i.placeholder = ph || "";
+        if (val != null) i.value = val;
+        return i;
+    }
+    function makeCheck(label, checked) {
+        var l = el("label", "chk");
+        var c = el("input"); c.type = "checkbox"; c.checked = !!checked;
+        l.appendChild(c);
+        l.appendChild(el("span", "", label));
+        return l;
+    }
+    function runBtn(text, fn) {
+        var b = el("button", "bar-btn primary run-btn", text);
+        b.addEventListener("click", function () {
+            var self = this;
+            self.disabled = true;
+            fn().catch(function (e) { toast(e.message, true); })
+                .then(function () { self.disabled = false; });
+        });
+        return b;
+    }
+
+    // ① 文字样式
+    function buildTextStyleControls() {
+        var box = el("div", "tool-card-body");
+        var scope = makeSelect(["选中形状", "当前页", "全部页面"], 1);
+        var font = makeInput("字体名（留空不改）");
+        var size = makeInput("字号（留空不改）");
+        var bold = makeSelect(["加粗：不改", "加粗", "取消加粗"], 0);
+        var align = makeSelect(["对齐：不改", "左对齐", "居中", "右对齐"], 0);
+        var run = runBtn("应用", function () {
+            return Bridge.applyTextStyle({
+                scope: scope.selectedIndex === 0 ? "selection" : scope.selectedIndex === 1 ? "page" : "all",
+                fontName: font.value.trim(),
+                fontSize: parseFloat(size.value) || 0,
+                bold: bold.selectedIndex === 1 ? true : bold.selectedIndex === 2 ? false : null,
+                italic: null,
+                color: 0,
+                align: align.selectedIndex === 1 ? "left" : align.selectedIndex === 2 ? "center" : align.selectedIndex === 3 ? "right" : ""
+            }).then(function (d) { toast(d && d.changed != null ? "已处理 " + d.changed + " 个文字形状。" : "完成"); });
+        });
+        box.appendChild(fld("作用范围", scope));
+        box.appendChild(fld("字体", font));
+        box.appendChild(fld("字号", size));
+        box.appendChild(fld("加粗", bold));
+        box.appendChild(fld("对齐", align));
+        box.appendChild(fld("", run));
+        return box;
+    }
+
+    // ② 一键换字体
+    function buildFontReplaceControls() {
+        var box = el("div", "tool-card-body");
+        var from = el("select", "ctl"); from.id = "frFromFont";
+        var to = el("select", "ctl"); to.id = "frToFont";
+        var common = ["微软雅黑", "宋体", "黑体", "仿宋", "楷体", "等线", "Arial", "Times New Roman", "Calibri", "Segoe UI", "Georgia", "Verdana"];
+        var scope = makeSelect(["整份演示文稿", "当前页"], 0);
+        var run = runBtn("开始替换", function () {
+            return Bridge.replaceFont({ fromFont: from.value, toFont: to.value, allSlides: scope.selectedIndex === 0 })
+                .then(function (d) { toast(d && d.message ? d.message : "完成"); });
+        });
+        box.appendChild(fld("原字体", from));
+        box.appendChild(fld("新字体", to));
+        box.appendChild(fld("范围", scope));
+        box.appendChild(fld("", run));
+        return box;
+    }
+
+    // ③ 查找替换
+    function buildFindReplaceControls() {
+        var box = el("div", "tool-card-body");
+        var find = makeInput("查找内容");
+        var rep = makeInput("替换为");
+        var scope = makeSelect(["整份演示文稿", "当前页"], 0);
+        var matchCase = makeCheck("区分大小写", false);
+        var run = runBtn("替换全部", function () {
+            if (!find.value) { toast("请输入查找内容。", true); return Promise.resolve(); }
+            return Bridge.findReplace({
+                find: find.value, replace: rep.value,
+                matchCase: matchCase.querySelector("input").checked,
+                allSlides: scope.selectedIndex === 0
+            }).then(function (d) { toast(d && d.message ? d.message : "完成"); });
+        });
+        box.appendChild(fld("查找", find));
+        box.appendChild(fld("替换为", rep));
+        box.appendChild(fld("范围", scope));
+        box.appendChild(fld("", matchCase));
+        box.appendChild(fld("", run));
+        return box;
+    }
+
+    // ④ 文字清理
+    function buildCleanControls() {
+        var box = el("div", "tool-card-body");
+        var ws = makeCheck("去多余空白（全角空格/连续空格/行首尾）", true);
+        var punct = makeCheck("中文间西文标点转全角", false);
+        var note = el("div", "tool-note", "作用于整份演示文稿。文本会按首字符格式统一。");
+        var run = runBtn("开始清理", function () {
+            return Bridge.cleanText({
+                trimWhitespace: ws.querySelector("input").checked,
+                unifyPunctuation: punct.querySelector("input").checked
+            }).then(function (d) { toast(d && d.message ? d.message : "完成"); });
+        });
+        box.appendChild(fld("", ws));
+        box.appendChild(fld("", punct));
+        box.appendChild(note);
+        box.appendChild(fld("", run));
+        return box;
+    }
+
+    function onToolsPanelShown() {
+        // 刷新字体下拉
+        Bridge.toolGetFonts().then(function (d) {
+            toolState.fonts = d.fonts || [];
+            toolState.hasPres = !!d.hasPresentation;
+            fillSelect($("#frFromFont"), toolState.fonts, true);
+            fillSelect($("#frToFont"), ["微软雅黑", "宋体", "黑体", "仿宋", "楷体", "等线", "Arial", "Times New Roman", "Calibri", "Segoe UI", "Georgia", "Verdana"], false);
+        }).catch(function () {});
+    }
+    function fillSelect(sel, items, keepEmpty) {
+        if (!sel) return;
+        sel.innerHTML = "";
+        if (keepEmpty) {
+            var o = el("option", "", "（文档中出现的字体）"); o.value = "";
+            sel.appendChild(o);
+        }
+        items.forEach(function (it) {
+            var o = el("option", "", it); o.value = it; sel.appendChild(o);
+        });
+        if (sel.options.length > 0 && !keepEmpty) sel.selectedIndex = 0;
+    }
+
+    // ---------------- 设置面板 ----------------
+    function buildSettingsPanel(app) {
+        var panel = el("div", "view-panel");
+        panel.id = "settingsPanel";
+        panel.style.display = "none";
+        var head = el("div", "view-panel-head");
+        head.appendChild(el("div", "view-panel-title", "\uE713 设置"));
+        var backLib2 = el("button", "bar-btn", "\uE711 返回素材库");
+        backLib2.addEventListener("click", function () { switchView("library"); });
+        head.appendChild(backLib2);
+        panel.appendChild(head);
+        var body = el("div", "view-panel-body");
+        body.id = "settingsBody";
+        panel.appendChild(body);
+        app.appendChild(panel);
+    }
+
+    function renderSettingsForm() {
+        var body = $("#settingsBody");
+        if (!body) return;
+        var s = state.settings || {};
+        body.innerHTML = "";
+
+        var card = el("div", "tool-card");
+        card.appendChild(el("div", "tool-card-title", "偏好设置"));
+
+        var theme = makeSelect(["浅色", "深色"], s.theme === "dark" ? 1 : 0);
+        var insert = makeSelect(["页面居中", "原始位置"], s.insertPosition === "original" ? 1 : 0);
+        var cardSize = makeSelect(["紧凑", "标准", "大图"],
+            s.cardSize === "large" ? 2 : s.cardSize === "standard" ? 1 : 0);
+        var pageSize = makeInput("每页数量", s.pageSize || 200);
+        var autoName = makeCheck("按形状类型自动命名", !!s.autoName);
+        var clickToInsert = makeCheck("单击卡片直接插入（取消则单击预览、双击插入）", s.clickToInsert !== false);
+        var themeAdapt = makeCheck("应用样式时把主色映射到当前文档主题色", !!s.themeAdaptStyle);
+        var widthNum = makeInput("面板宽度", s.paneWidth || 300);
+
+        var save = runBtn("保存设置", function () {
+            return Bridge.saveSettings({
+                theme: theme.selectedIndex === 1 ? "dark" : "light",
+                insertPosition: insert.selectedIndex === 1 ? "original" : "center",
+                cardSize: cardSize.selectedIndex === 2 ? "large" : cardSize.selectedIndex === 1 ? "standard" : "compact",
+                pageSize: parseInt(pageSize.value, 10) || 200,
+                autoName: autoName.querySelector("input").checked,
+                clickToInsert: clickToInsert.querySelector("input").checked,
+                themeAdaptStyle: themeAdapt.querySelector("input").checked,
+                paneWidth: parseInt(widthNum.value, 10) || 300
+            }).then(function (d) {
+                state.settings = d;
+                applyTheme(d.theme); applyCardSize(d.cardSize);
+                toast("设置已保存");
+            });
+        });
+
+        card.appendChild(fld("主题", theme));
+        card.appendChild(fld("插入位置", insert));
+        card.appendChild(fld("卡片大小", cardSize));
+        card.appendChild(fld("分页数量", pageSize));
+        card.appendChild(fld("面板宽度", widthNum));
+        card.appendChild(fld("", autoName));
+        card.appendChild(fld("", clickToInsert));
+        card.appendChild(fld("", themeAdapt));
+        card.appendChild(fld("", save));
+        body.appendChild(card);
+
+        var libCard = el("div", "tool-card");
+        libCard.appendChild(el("div", "tool-card-title", "库管理"));
+        var mgmtNote = el("div", "tool-note", "标签管理 / 去重清理 / 导入素材包 / 备份与导出见 Ribbon「素材库」选项卡。");
+        libCard.appendChild(mgmtNote);
+        var goLib = el("button", "bar-btn", "标签 / 去重等管理工具");
+        goLib.addEventListener("click", function () {
+            switchView("library");
+            var btn = $("#mgmtToggle");
+            if (btn) { closeContextMenu(); showMgmtMenu(btn); }
+        });
+        libCard.appendChild(goLib);
+        body.appendChild(libCard);
     }
 
     // ---------------- 事件绑定 ----------------

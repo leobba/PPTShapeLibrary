@@ -113,6 +113,12 @@
         deleteTag: function (tag) { return send("deleteTag", { tag: tag }); },
         exportPack: function (ids, saveAs) { return send("exportPack", { ids: ids, saveAs: saveAs }); },
         importPack: function (openFrom) { return send("importPack", { openFrom: openFrom }); },
+        // 工具
+        toolGetFonts: function () { return send("toolGetFonts", {}); },
+        applyTextStyle: function (p) { return send("applyTextStyle", p || {}); },
+        replaceFont: function (p) { return send("replaceFont", p || {}); },
+        findReplace: function (p) { return send("findReplace", p || {}); },
+        cleanText: function (p) { return send("cleanText", p || {}); },
         log: function (level, message) { return send("log", { level: level, message: message }); }
     };
 })();
