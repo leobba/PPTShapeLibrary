@@ -244,9 +244,9 @@ namespace PPTShapeLibrary
                             string full = name.EndsWith(".ppack.zip", StringComparison.OrdinalIgnoreCase)
                                 ? System.IO.Path.Combine(dir, name)
                                 : System.IO.Path.Combine(dir, name + ".ppack.zip");
-                            int n = PackService.ImportPack(full, out string impErr);
+                            int n = PackService.ImportPack(full, out int conflicts, out string impErr);
                             bool ok = impErr == null;
-                            Result(reqId, ok, ok ? new Dictionary<string, object> { { "imported", n } } : null,
+                            Result(reqId, ok, ok ? new Dictionary<string, object> { { "imported", n }, { "conflicts", conflicts } } : null,
                                    ok ? null : impErr);
                             PushRefresh();
                             break;

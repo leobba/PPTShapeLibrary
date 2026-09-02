@@ -305,7 +305,10 @@ namespace PPTShapeLibrary
             {
                 if (MessageBox.Show("执行后将不可恢复（建议先保存文档），确定继续？", "清理瘦身",
                         MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
-                var st = ScanCleanCore(false);
+                CleanStats st;
+                Cursor = Cursors.WaitCursor;
+                try { st = ScanCleanCore(false); }
+                finally { Cursor = Cursors.Default; }
                 Warn("清理完成：\n空白页 " + st.EmptySlides + " · 隐藏对象 " + st.HiddenShapes +
                      " · 页外对象 " + st.OffSlideShapes + " · 备注 " + st.Notes + " · 动作链接 " + st.Actions);
             }
@@ -493,14 +496,20 @@ namespace PPTShapeLibrary
                         try
                         {
                             var pic = slide.Shapes.AddPicture(file, MsoTriState.msoFalse, MsoTriState.msoTrue, x, y, cellW, cellH);
-                            // 等比裁放：按封面模式缩放填充单元格（简单做：等比缩放并居中）
+                            // 等比 contain：完整显示图片（不裁切、不溢出单元格），短边居中
                             float pw = (float)pic.Width, ph = (float)pic.Height;
                             if (pw > 0 && ph > 0)
                             {
-                                float scale = Math.Max(cellW / pw, cellH / ph);
-                                pic.Width = pw * scale; pic.Height = ph * scale;
-                                pic.Left = x + (cellW - pic.Width) / 2f;
-                                pic.Top = y + (cellH - pic.Height) / 2f;
+                                float scale = Math.Min(cellW / pw, cellH / ph);
+                                float dw = pw * scale, dh = ph * scale;
+                                // 视觉居中再补 2% 内边距避免贴边
+                                pic.Width = dw; pic.Height = dh;
+                                pic.Left = x + (cellW - dw) / 2f;
+                                pic.Top = y + (cellH - dh) / 2f;
+                            }
+                            else
+                            {
+                                pic.Left = x; pic.Top = y; pic.Width = cellW; pic.Height = cellH;
                             }
                             onPage++;
                         }

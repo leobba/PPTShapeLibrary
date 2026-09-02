@@ -1064,7 +1064,9 @@
             if (!v) return;
             Bridge.importPack(v).then(function (d) {
                 refreshAll();
-                toast("已导入 " + (d.imported || 0) + " 个收藏");
+                var conflicts = d.conflicts || 0;
+                toast("已导入 " + (d.imported || 0) + " 个收藏" +
+                      (conflicts > 0 ? "（其中 " + conflicts + " 个与本库 id 冲突已自动改名导入）" : ""));
             }).catch(function (e) { toast(e.message, true); });
         });
     }

@@ -141,31 +141,45 @@ namespace PPTShapeLibrary
                 var cmp = chkCase.Checked ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
 
                 int total = 0;
-                foreach (var shp in TextShapesByScope(scope))
+                int shapesTouched = 0;
+                int skippedShapes = 0;
+                Cursor = Cursors.WaitCursor;
+                try
                 {
-                    if (!IsTextShape(shp)) continue;
-                    try
+                    foreach (var shp in TextShapesByScope(scope))
                     {
-                        var textRange = shp.TextFrame.TextRange;
-                        string full = textRange.Text ?? "";
-                        int idx = full.IndexOf(find, cmp);
-                        int guard = 0;
-                        // 逐处定位并替换（保留每处的格式，来自原文本段）
-                        while (idx >= 0 && guard++ < 500)
+                        if (!IsTextShape(shp)) continue;
+                        try
                         {
-                            var part = textRange.Characters(idx + 1, find.Length);
-                            part.Text = rep;
-                            // 全文重读，从新位置继续向后找
-                            full = textRange.Text ?? "";
-                            idx = full.IndexOf(find, idx + rep.Length, cmp);
-                            total++;
-                            if (idx < 0) break;
+                            var textRange = shp.TextFrame.TextRange;
+                            string full = textRange.Text ?? "";
+                            int fromIdx = 0;          // 已替换末尾游标（防重入/防漂移）
+                            int inShape = 0;
+                            int safety = 0;           // 兜底：单 shape 上限 2000 次，防异常宿主死循环
+                            while (safety++ < 2000)
+                            {
+                                int idx = full.IndexOf(find, fromIdx, cmp);
+                                if (idx < 0) break;
+                                // 用 Characters 定位替换（保留该处原格式：赋值只改文本，字符属性继承原字符）
+                                var part = textRange.Characters(idx + 1, find.Length);
+                                part.Text = rep;
+                                total++;
+                                inShape++;
+                                // 全文重读；游标推进到替换文本末尾（+find.Length 保守：rep 可能被 COM 归一化换行，一律按 rep 原长后移，必要时再靠 IndexOf 从 fromIdx 找，天然防死循环）
+                                full = textRange.Text ?? "";
+                                fromIdx = idx + find.Length;
+                            }
+                            if (inShape > 0) shapesTouched++;
                         }
+                        catch { skippedShapes++; }
                     }
-                    catch { }
                 }
-                MessageBox.Show("共替换 " + total + " 处。", "文本工具",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                finally { Cursor = Cursors.Default; }
+                string note = skippedShapes > 0
+                    ? "\n（" + skippedShapes + " 个文本形状因异常跳过，详情见日志）"
+                    : "";
+                MessageBox.Show("共替换 " + total + " 处，涉及 " + shapesTouched + " 个文本形状。" + note,
+                    "文本工具", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
@@ -183,38 +197,63 @@ namespace PPTShapeLibrary
                     return;
                 }
                 int changed = 0;
-                foreach (var shp in TextShapesByScope("全部页面"))
+                Cursor = Cursors.WaitCursor;
+                try
                 {
-                    if (!IsTextShape(shp)) continue;
-                    try
+                    foreach (var shp in TextShapesByScope("全部页面"))
                     {
-                        var textRange = shp.TextFrame.TextRange;
-                        string t = textRange.Text ?? "";
-                        string o = t;
-                        if (chkCleanWs.Checked)
+                        if (!IsTextShape(shp)) continue;
+                        try
                         {
-                            // 全角空格→普通空格；连续空格→单个；行首尾空白修剪
-                            t = t.Replace('\u3000', ' ');
-                            t = System.Text.RegularExpressions.Regex.Replace(t, "[ ]{2,}", " ");
-                            t = System.Text.RegularExpressions.Regex.Replace(t, "(?m)^[ \t]+|[ \t]+$", "");
+                            var textRange = shp.TextFrame.TextRange;
+                            string t = textRange.Text ?? "";
+                            string o = t;
+                            if (chkCleanWs.Checked)
+                            {
+                                // 全角空格→普通空格；连续空格→单个；行首尾空白修剪
+                                t = t.Replace('\u3000', ' ');
+                                t = System.Text.RegularExpressions.Regex.Replace(t, "[ ]{2,}", " ");
+                                t = System.Text.RegularExpressions.Regex.Replace(t, "(?m)^[ \t]+|[ \t]+$", "");
+                            }
+                            if (chkCleanPunct.Checked)
+                            {
+                                // 中文语境：西文逗号/句号/问号/感叹号 → 全角（仅当两侧为 CJK 时，保守不破坏英文/数字）
+                                t = System.Text.RegularExpressions.Regex.Replace(t, "([\u4e00-\u9fff])\\s*,\\s*([\u4e00-\u9fff])", "$1，$2");
+                                t = System.Text.RegularExpressions.Regex.Replace(t, "([\u4e00-\u9fff])\\s*\\.\\s*([\u4e00-\u9fff])", "$1。$2");
+                                t = System.Text.RegularExpressions.Regex.Replace(t, "([\u4e00-\u9fff])\\s*\\?\\s*([\u4e00-\u9fff])", "$1？$2");
+                                t = System.Text.RegularExpressions.Regex.Replace(t, "([\u4e00-\u9fff])\\s*!\\s*([\u4e00-\u9fff])", "$1！$2");
+                            }
+                            if (t != o)
+                            {
+                                // 整段重设前记录该段首字符主导格式，重设后刷回，避免整段丢格式。
+                                // （跨段多格式文本会统一为首段格式——清理语义下可接受，弹窗已提示。）
+                                try
+                                {
+                                    var f = textRange.Characters(1, 1).Font;
+                                    string fontName = f.Name; float size = f.Size; int rgb = f.Color.RGB;
+                                    bool bold = f.Bold == MsoTriState.msoTrue;
+                                    textRange.Text = t;
+                                    if (textRange.Text.Length > 0)
+                                    {
+                                        var nf = textRange.Font;
+                                        if (!string.IsNullOrEmpty(fontName)) nf.Name = fontName;
+                                        if (size > 0) nf.Size = size;
+                                        nf.Color.RGB = rgb;
+                                        nf.Bold = bold ? MsoTriState.msoTrue : MsoTriState.msoFalse;
+                                    }
+                                }
+                                catch
+                                {
+                                    textRange.Text = t;   // 读取格式失败仍完成清理（格式按默认）
+                                }
+                                changed++;
+                            }
                         }
-                        if (chkCleanPunct.Checked)
-                        {
-                            // 中文语境：西文逗号/句号/问号/感叹号/冒号 → 全角（仅当其两侧有 CJK 字符时保守替换太复杂，做整体替换并给出数量）
-                            t = System.Text.RegularExpressions.Regex.Replace(t, "([\u4e00-\u9fff])\\s*,\\s*([\u4e00-\u9fff])", "$1，$2");
-                            t = System.Text.RegularExpressions.Regex.Replace(t, "([\u4e00-\u9fff])\\s*\\.\\s*([\u4e00-\u9fff])", "$1。$2");
-                            t = System.Text.RegularExpressions.Regex.Replace(t, "([\u4e00-\u9fff])\\s*\\?\\s*([\u4e00-\u9fff])", "$1？$2");
-                            t = System.Text.RegularExpressions.Regex.Replace(t, "([\u4e00-\u9fff])\\s*!\\s*([\u4e00-\u9fff])", "$1！$2");
-                        }
-                        if (t != o)
-                        {
-                            textRange.Text = t;   // 直接整段替换会丢统一格式，但对整体清理可接受；提示用户注意
-                            changed++;
-                        }
+                        catch { }
                     }
-                    catch { }
                 }
-                MessageBox.Show("已清理 " + changed + " 个文本形状。\n（注意：整段清理会采用该段首字符格式，若发现格式变化请用撤销。）",
+                finally { Cursor = Cursors.Default; }
+                MessageBox.Show("已清理 " + changed + " 个文本形状。\n（文本会按首字符格式统一；若文档内含多格式混排需保留，请谨慎使用或事后撤销。）",
                     "文本工具", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)

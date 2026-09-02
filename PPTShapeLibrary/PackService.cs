@@ -110,10 +110,11 @@ namespace PPTShapeLibrary
             }
         }
 
-        /// <summary>导入素材包 zip 到本地库。冲突 id 自动重写为新 id。返回导入条目数。</summary>
-        public static int ImportPack(string zipPath, out string error)
+        /// <summary>导入素材包 zip 到本地库。冲突 id 自动重写为新 id。返回导入条目数，conflicts 返回冲突重写数。</summary>
+        public static int ImportPack(string zipPath, out int conflicts, out string error)
         {
             error = null;
+            conflicts = 0;
             try
             {
                 if (!File.Exists(zipPath))
@@ -167,6 +168,7 @@ namespace PPTShapeLibrary
                                 do { destId = ShapeLibraryService.NewId(); }
                                 while (existingIds.Contains(destId));
                                 existingIds.Add(destId);
+                                conflicts++;
                             }
                             else
                             {
