@@ -35,11 +35,6 @@ namespace PPTShapeLibrary
             Controls.Add(btnClose);
         }
 
-        private static PowerPoint.Application App
-        {
-            get { return Globals.ThisAddIn.Application; }
-        }
-
         private static void Warn(string msg)
         {
             MessageBox.Show(msg, "PPT 工具", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -97,29 +92,17 @@ namespace PPTShapeLibrary
                 try
                 {
                     string dir = txtFolder.Text.Trim();
-                    if (!System.IO.Directory.Exists(dir)) { Fail("导出目录不存在。"); return; }
-                    var pres = App.ActivePresentation;
-                    if (pres == null) { Fail("没有打开的演示文稿。"); return; }
                     string ext = cmbFmt.SelectedItem as string ?? "PNG";
-                    bool isJpg = ext.Equals("JPG", StringComparison.OrdinalIgnoreCase);
                     int w = 0;
                     string scale = cmbScale.SelectedItem as string;
                     if (scale != null && scale.Contains("1280")) w = 1280;
                     if (scale != null && scale.Contains("1920")) w = 1920;
 
-                    int done = 0;
                     Cursor = Cursors.WaitCursor;
-                    try
-                    {
-                        for (int slideIdx = 1; slideIdx <= pres.Slides.Count; slideIdx++)
-                        {
-                            string file = System.IO.Path.Combine(dir, "slide" + slideIdx.ToString("D2") + "." + (isJpg ? "jpg" : "png"));
-                            pres.Slides[slideIdx].Export(file, isJpg ? "JPG" : "PNG", w, 0);
-                            done++;
-                        }
-                    }
+                    TextToolService.ToolResult r;
+                    try { r = FormatToolService.ExportImages(dir, ext, w); }
                     finally { Cursor = Cursors.Default; }
-                    Warn("已导出 " + done + " 页到：\n" + dir);
+                    if (r.Ok) Warn(r.Message); else Fail(r.Message);
                 }
                 catch (Exception ex) { Fail(ex.Message); }
             };
@@ -171,130 +154,13 @@ namespace PPTShapeLibrary
             return page;
         }
 
-        private class CleanStats { public int EmptySlides, HiddenShapes, OffSlideShapes, Notes, Actions; }
-
-        private bool HasVisibleContent(PowerPoint.Slide slide)
-        {
-            try
-            {
-                for (int i = 1; i <= slide.Shapes.Count; i++)
-                {
-                    var shp = slide.Shapes[i];
-                    try
-                    {
-                        if (shp.Visible != MsoTriState.msoTrue) continue;
-                        // 占位符且无文字视为空内容（对齐收藏逻辑的 IsPlaceholder 语义）
-                        bool isPlaceholder = false;
-                        try { isPlaceholder = shp.PlaceholderFormat != null; } catch { }
-                        if (isPlaceholder)
-                        {
-                            try
-                            {
-                                if (shp.HasTextFrame == MsoTriState.msoTrue && shp.TextFrame.HasText == MsoTriState.msoTrue
-                                    && !string.IsNullOrWhiteSpace(shp.TextFrame.TextRange.Text)) return true;
-                            }
-                            catch { }
-                            continue;
-                        }
-                        return true;   // 非占位符可见对象（含纯色块/图片/空文本框装饰）都算内容
-                    }
-                    catch { return true; }
-                }
-            }
-            catch { }
-            return false;
-        }
-
-        private CleanStats ScanCleanCore(bool dryRun)
-        {
-            var st = new CleanStats();
-            var pres = App.ActivePresentation;
-            if (pres == null) return st;
-            var slideW = (float)pres.PageSetup.SlideWidth;
-            var slideH = (float)pres.PageSetup.SlideHeight;
-
-            foreach (PowerPoint.Slide slide in pres.Slides)
-            {
-                // 空白页（无可见形状）
-                if (chkDelEmpty.Checked && !HasVisibleContent(slide)) st.EmptySlides++;
-                for (int i = slide.Shapes.Count; i >= 1; i--)
-                {
-                    var shp = slide.Shapes[i];
-                    try
-                    {
-                        if (chkDelHidden.Checked && shp.Visible == MsoTriState.msoFalse) { st.HiddenShapes++; if (!dryRun) shp.Delete(); continue; }
-                        if (chkDelOffSlide.Checked)
-                        {
-                            float l = 0, t = 0, r = 0, b = 0;
-                            try { l = (float)shp.Left; t = (float)shp.Top; r = l + (float)shp.Width; b = t + (float)shp.Height; }
-                            catch { continue; }
-                            // 完全在画布外（或超出过多）才删，避免误伤半出画布对象
-                            if (r < -5 || b < -5 || l > slideW + 5 || t > slideH + 5)
-                            {
-                                st.OffSlideShapes++;
-                                if (!dryRun) shp.Delete();
-                                continue;
-                            }
-                        }
-                        if (chkDelActions.Checked)
-                        {
-                            try
-                            {
-                                if (shp.ActionSettings != null)
-                                {
-                                    bool any = false;
-                                    // ActionSettings 按 PpMouseActivation（Click/Hover）索引
-                                    var activations = new[]
-                                    {
-                                        PowerPoint.PpMouseActivation.ppMouseClick,
-                                        PowerPoint.PpMouseActivation.ppMouseOver
-                                    };
-                                    foreach (var actKey in activations)
-                                    {
-                                        try
-                                        {
-                                            var act = shp.ActionSettings[actKey];
-                                            if (act.Action != PowerPoint.PpActionType.ppActionNone)
-                                            {
-                                                act.Action = PowerPoint.PpActionType.ppActionNone;
-                                                any = true;
-                                            }
-                                        }
-                                        catch { }
-                                    }
-                                    if (any) { st.Actions++; }
-                                }
-                            }
-                            catch { }
-                        }
-                    }
-                    catch { }
-                }
-                if (chkClearNotes.Checked)
-                {
-                    try
-                    {
-                        var notes = slide.NotesPage.Shapes.Placeholders[(int)PowerPoint.PpPlaceholderType.ppPlaceholderBody];
-                        var tr = notes.TextFrame.TextRange;
-                        if (tr != null && !string.IsNullOrWhiteSpace(tr.Text)) { st.Notes++; if (!dryRun) tr.Text = ""; }
-                    }
-                    catch { }
-                }
-            }
-            return st;
-        }
-
         private void ScanClean()
         {
             try
             {
-                var st = ScanCleanCore(true);
-                lblCleanPreview.Text =
-                    "空白页 " + st.EmptySlides +
-                    " · 隐藏对象 " + st.HiddenShapes +
-                    " · 页外对象 " + st.OffSlideShapes +
-                    " · 备注 " + st.Notes +
-                    " · 动作链接 " + st.Actions;
+                var opts = ReadCleanOptions();
+                var r = FormatToolService.ScanClean(opts);
+                lblCleanPreview.Text = r.Ok ? r.Message : ("扫描失败：" + r.Message);
             }
             catch (Exception ex) { Fail(ex.Message); }
         }
@@ -305,14 +171,26 @@ namespace PPTShapeLibrary
             {
                 if (MessageBox.Show("执行后将不可恢复（建议先保存文档），确定继续？", "清理瘦身",
                         MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
-                CleanStats st;
+                var opts = ReadCleanOptions();
                 Cursor = Cursors.WaitCursor;
-                try { st = ScanCleanCore(false); }
+                TextToolService.ToolResult r;
+                try { r = FormatToolService.RunClean(opts); }
                 finally { Cursor = Cursors.Default; }
-                Warn("清理完成：\n空白页 " + st.EmptySlides + " · 隐藏对象 " + st.HiddenShapes +
-                     " · 页外对象 " + st.OffSlideShapes + " · 备注 " + st.Notes + " · 动作链接 " + st.Actions);
+                if (r.Ok) Warn(r.Message); else Fail(r.Message);
             }
             catch (Exception ex) { Fail(ex.Message); }
+        }
+
+        private FormatToolService.CleanOptions ReadCleanOptions()
+        {
+            return new FormatToolService.CleanOptions
+            {
+                DelEmptySlides = chkDelEmpty.Checked,
+                DelHiddenShapes = chkDelHidden.Checked,
+                DelOffSlideShapes = chkDelOffSlide.Checked,
+                ClearNotes = chkClearNotes.Checked,
+                RemoveActions = chkDelActions.Checked
+            };
         }
 
         // ================= ③ 统一尺寸 =================
@@ -352,51 +230,13 @@ namespace PPTShapeLibrary
                 {
                     float? nw = ParseFloat(txtW.Text);
                     float? nh = ParseFloat(txtH.Text);
-                    if (nw == null && nh == null) { Fail("请至少填写宽度或高度。"); return; }
                     string scope = cmbScope.SelectedItem as string ?? "选中形状";
-                    var shapes = new List<PowerPoint.Shape>();
-                    if (scope == "选中形状")
-                    {
-                        var sel = App.ActiveWindow.Selection;
-                        if (sel != null && sel.Type == PowerPoint.PpSelectionType.ppSelectionShapes && sel.ShapeRange != null)
-                            for (int i = 1; i <= sel.ShapeRange.Count; i++) shapes.Add(sel.ShapeRange[i]);
-                    }
-                    else if (scope == "当前页全部形状")
-                    {
-                        var slide = App.ActivePresentation.Slides[App.ActiveWindow.View.Slide.SlideIndex];
-                        for (int i = 1; i <= slide.Shapes.Count; i++) shapes.Add(slide.Shapes[i]);
-                    }
-                    else
-                    {
-                        foreach (PowerPoint.Slide slide in App.ActivePresentation.Slides)
-                            for (int i = 1; i <= slide.Shapes.Count; i++) shapes.Add(slide.Shapes[i]);
-                    }
-                    int done = 0;
-                    foreach (var shp in shapes)
-                    {
-                        try
-                        {
-                            float w = (float)shp.Width, h = (float)shp.Height;
-                            if (w <= 0 || h <= 0) continue;
-                            bool isPic = false;
-                            try { isPic = shp.Type == MsoShapeType.msoPicture; } catch { }
-                            float scale = 1f;
-                            if (nw != null && nh != null)
-                            {
-                                if (isPic && chkImages.Checked)
-                                {
-                                    scale = Math.Min(nw.Value / w, nh.Value / h);
-                                    shp.Width = w * scale; shp.Height = h * scale;
-                                }
-                                else { shp.Width = nw.Value; shp.Height = nh.Value; }
-                            }
-                            else if (nw != null) { scale = nw.Value / w; shp.Width = nw.Value; shp.Height = h * scale; }
-                            else { scale = nh.Value / h; shp.Height = nh.Value; shp.Width = w * scale; }
-                            done++;
-                        }
-                        catch { }
-                    }
-                    Warn("已统一 " + done + " 个形状尺寸。");
+                    string scopeKey = scope == "选中形状" ? "selection" : scope == "当前页全部形状" ? "page" : "all";
+                    Cursor = Cursors.WaitCursor;
+                    TextToolService.ToolResult r;
+                    try { r = FormatToolService.ResizeShapes(scopeKey, nw, nh, chkImages.Checked); }
+                    finally { Cursor = Cursors.Default; }
+                    if (r.Ok) Warn(r.Message); else Fail(r.Message);
                 }
                 catch (Exception ex) { Fail(ex.Message); }
             };
@@ -464,61 +304,11 @@ namespace PPTShapeLibrary
                     if (fileList.Count == 0) { Fail("请先选择图片文件。"); return; }
                     int cols = (int)numCols.Value;
                     bool toNewPage = cmbInsert.SelectedIndex == 0;
-                    var pres = App.ActivePresentation;
-                    if (pres == null) { Fail("没有打开的演示文稿。"); return; }
-                    float sw = (float)pres.PageSetup.SlideWidth;
-                    float sh = (float)pres.PageSetup.SlideHeight;
-
-                    PowerPoint.Slide slide = null;
-                    if (!toNewPage)
-                    {
-                        slide = pres.Slides[App.ActiveWindow.View.Slide.SlideIndex];
-                    }
-                    const float margin = 12f, gap = 8f;
-                    int perPage = cols * 4;   // 默认每页 4 行
-                    int onPage = 0;
-                    for (int k = 0; k < fileList.Count; k++)
-                    {
-                        string file = fileList[k];
-                        if (!System.IO.File.Exists(file)) continue;
-                        if (toNewPage && (slide == null || onPage >= perPage))
-                        {
-                            slide = pres.Slides.Add(pres.Slides.Count + 1, PowerPoint.PpSlideLayout.ppLayoutBlank);
-                            onPage = 0;
-                        }
-                        int rowInPage = onPage / cols;
-                        int colInPage = onPage % cols;
-                        float cellW = (sw - margin * 2 - gap * (cols - 1)) / cols;
-                        float cellH = (sh - margin * 2 - gap * (4 - 1)) / 4;
-                        float x = margin + colInPage * (cellW + gap);
-                        float y = margin + rowInPage * (cellH + gap);
-
-                        try
-                        {
-                            var pic = slide.Shapes.AddPicture(file, MsoTriState.msoFalse, MsoTriState.msoTrue, x, y, cellW, cellH);
-                            // 等比 contain：完整显示图片（不裁切、不溢出单元格），短边居中
-                            float pw = (float)pic.Width, ph = (float)pic.Height;
-                            if (pw > 0 && ph > 0)
-                            {
-                                float scale = Math.Min(cellW / pw, cellH / ph);
-                                float dw = pw * scale, dh = ph * scale;
-                                // 视觉居中再补 2% 内边距避免贴边
-                                pic.Width = dw; pic.Height = dh;
-                                pic.Left = x + (cellW - dw) / 2f;
-                                pic.Top = y + (cellH - dh) / 2f;
-                            }
-                            else
-                            {
-                                pic.Left = x; pic.Top = y; pic.Width = cellW; pic.Height = cellH;
-                            }
-                            onPage++;
-                        }
-                        catch (Exception ex)
-                        {
-                            MessageBox.Show("插入失败：" + file + "\n" + ex.Message, "图片网格");
-                        }
-                    }
-                    Warn("已插入 " + fileList.Count + " 张图片" + (toNewPage ? "（按需新增幻灯片）。" : "到当前页。"));
+                    Cursor = Cursors.WaitCursor;
+                    TextToolService.ToolResult r;
+                    try { r = FormatToolService.ImageGrid(fileList, cols, toNewPage); }
+                    finally { Cursor = Cursors.Default; }
+                    if (r.Ok) Warn(r.Message); else Fail(r.Message);
                 }
                 catch (Exception ex) { Fail(ex.Message); }
             };

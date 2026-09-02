@@ -119,6 +119,14 @@
         replaceFont: function (p) { return send("replaceFont", p || {}); },
         findReplace: function (p) { return send("findReplace", p || {}); },
         cleanText: function (p) { return send("cleanText", p || {}); },
+        // 版式批处理工具
+        requestFolder: function (title) { return send("requestFolder", { title: title || "" }); },
+        requestFiles: function (title, filter) { return send("requestFiles", { title: title || "", filter: filter || "" }); },
+        formatExportImages: function (p) { return send("formatExportImages", p || {}); },
+        formatScanClean: function (p) { return send("formatScanClean", p || {}); },
+        formatRunClean: function (p) { return send("formatRunClean", p || {}); },
+        formatResize: function (p) { return send("formatResize", p || {}); },
+        formatImageGrid: function (p) { return send("formatImageGrid", p || {}); },
         log: function (level, message) { return send("log", { level: level, message: message }); }
     };
 })();

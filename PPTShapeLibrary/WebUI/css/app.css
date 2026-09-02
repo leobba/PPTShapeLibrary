@@ -17,20 +17,24 @@
     z-index: 6;
 }
 .app-brand {
-    font-size: 12.5px;
+    font-size: 17px;
     font-weight: 700;
     color: var(--accent);
     display: flex;
     align-items: center;
-    gap: 5px;
-    white-space: nowrap;
+    flex: none;
+    font-family: 'Segoe Fluent Icons', 'Segoe MDL2 Assets';
 }
 .app-nav-tabs {
     display: flex;
     gap: 2px;
     flex: 1;
     justify-content: flex-end;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
 }
+.app-nav-tabs::-webkit-scrollbar { display: none; }
 .nav-tab {
     border: none;
     background: transparent;
@@ -97,6 +101,10 @@
     border-bottom: 1px dashed var(--border);
 }
 .tool-card-body { display: flex; flex-direction: column; gap: 7px; }
+.tool-sec { display: flex; flex-direction: column; }
+.dir-row { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+.dir-row .ctl { flex: 1; }
+
 .fld { display: flex; align-items: center; gap: 8px; }
 .fld-label { width: 76px; flex: none; font-size: 11px; color: var(--text-sub); }
 .ctl {

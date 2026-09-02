@@ -253,6 +253,91 @@ namespace PPTShapeLibrary
                                    r.Ok ? null : r.Message);
                             break;
                         }
+                    // ---------------- 版式批处理（FormatToolService） ----------------
+                    case "requestFolder":
+                        {
+                            using (var dlg = new System.Windows.Forms.FolderBrowserDialog
+                            {
+                                Description = string.IsNullOrEmpty(ToStr(payload, "title")) ? "选择文件夹" : ToStr(payload, "title")
+                            })
+                            {
+                                if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                                {
+                                    Ok(reqId, new Dictionary<string, object> { { "path", dlg.SelectedPath } });
+                                }
+                                else
+                                {
+                                    Ok(reqId, new Dictionary<string, object> { { "path", "" } });
+                                }
+                            }
+                            break;
+                        }
+                    case "requestFiles":
+                        {
+                            using (var dlg = new System.Windows.Forms.OpenFileDialog
+                            {
+                                Title = string.IsNullOrEmpty(ToStr(payload, "title")) ? "选择文件" : ToStr(payload, "title"),
+                                Multiselect = true,
+                                Filter = string.IsNullOrEmpty(ToStr(payload, "filter"))
+                                    ? "所有文件 (*.*)|*.*" : ToStr(payload, "filter")
+                            })
+                            {
+                                var files = new System.Collections.ArrayList();
+                                if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                                {
+                                    foreach (var f in dlg.FileNames) files.Add(f);
+                                }
+                                Ok(reqId, new Dictionary<string, object> { { "files", files } });
+                            }
+                            break;
+                        }
+                    case "formatExportImages":
+                        {
+                            var r = FormatToolService.ExportImages(
+                                ToStr(payload, "dir"),
+                                ToStr(payload, "format"),
+                                ToInt(payload, "width"));
+                            Result(reqId, r.Ok, r.Ok ? new Dictionary<string, object> { { "changed", r.Changed } } : null,
+                                   r.Ok ? null : r.Message);
+                            break;
+                        }
+                    case "formatScanClean":
+                        {
+                            var opts = CleanOptsFrom(payload);
+                            var r = FormatToolService.ScanClean(opts);
+                            Result(reqId, r.Ok, r.Ok ? new Dictionary<string, object> { { "changed", r.Changed }, { "message", r.Message } } : null,
+                                   r.Ok ? null : r.Message);
+                            break;
+                        }
+                    case "formatRunClean":
+                        {
+                            var opts = CleanOptsFrom(payload);
+                            var r = FormatToolService.RunClean(opts);
+                            Result(reqId, r.Ok, r.Ok ? new Dictionary<string, object> { { "changed", r.Changed }, { "message", r.Message } } : null,
+                                   r.Ok ? null : r.Message);
+                            break;
+                        }
+                    case "formatResize":
+                        {
+                            var r = FormatToolService.ResizeShapes(
+                                ToStr(payload, "scope"),
+                                ToFloatNullable(payload, "width"),
+                                ToFloatNullable(payload, "height"),
+                                true == ToBoolNullable(payload, "forceImageRatio"));
+                            Result(reqId, r.Ok, r.Ok ? new Dictionary<string, object> { { "changed", r.Changed } } : null,
+                                   r.Ok ? null : r.Message);
+                            break;
+                        }
+                    case "formatImageGrid":
+                        {
+                            var r = FormatToolService.ImageGrid(
+                                GetStringArray(payload, "files"),
+                                Math.Max(1, ToInt(payload, "cols")),
+                                true == ToBoolNullable(payload, "toNewPage"));
+                            Result(reqId, r.Ok, r.Ok ? new Dictionary<string, object> { { "changed", r.Changed } } : null,
+                                   r.Ok ? null : r.Message);
+                            break;
+                        }
                     case "scanDuplicates":
                         {
                             // 全库扫描"完全重复"（同类型/同数量/同尺寸；保留最早，返回可删的重复项）
@@ -527,6 +612,28 @@ namespace PPTShapeLibrary
                 foreach (var x in arr) list.Add(x.ToString());
             }
             return list;
+        }
+
+        private static List<string> GetStringArray(Dictionary<string, object> payload, string key)
+        {
+            var list = new List<string>();
+            if (payload.ContainsKey(key) && payload[key] is System.Collections.ArrayList arr)
+            {
+                foreach (var x in arr) list.Add(x.ToString());
+            }
+            return list;
+        }
+
+        private static FormatToolService.CleanOptions CleanOptsFrom(Dictionary<string, object> payload)
+        {
+            return new FormatToolService.CleanOptions
+            {
+                DelEmptySlides = true == ToBoolNullable(payload, "delEmpty"),
+                DelHiddenShapes = true == ToBoolNullable(payload, "delHidden"),
+                DelOffSlideShapes = true == ToBoolNullable(payload, "delOffSlide"),
+                ClearNotes = true == ToBoolNullable(payload, "clearNotes"),
+                RemoveActions = true == ToBoolNullable(payload, "removeActions")
+            };
         }
 
         private static string ToStr(Dictionary<string, object> d, string key)

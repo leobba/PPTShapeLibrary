@@ -86,11 +86,9 @@
     // C#（Ribbon 按钮/设置对话框）请求切换到某视图
     Bridge.on("switchView", function (payload) {
         var view = (payload && payload.view) || "library";
+        if (view === "tools") view = "tool1";   // 旧入口（Ribbon「小工具」）→ 工具首项
         switchView(view);
-        var navTabs = document.querySelectorAll(".app-nav-tabs .nav-tab");
-        navTabs.forEach(function (x) {
-            x.classList.toggle("active", x.dataset.view === view);
-        });
+        activateNavTab(view);
     });
 
     // ---------------- 骨架 ----------------
@@ -98,28 +96,23 @@
         var app = $("#app");
         app.innerHTML = "";
 
-        // ⓪ 顶部导航条（素材库 | 工具）
+        // ⓪ 顶部导航条（素材库 | 各工具平铺 | 设置）
         var nav = el("div", "app-nav");
-        var brand = el("div", "app-brand", "\uE8A5 素材库");
+        var brand = el("div", "app-brand", "\uE8A5");
         brand.title = "PPT 素材库";
         nav.appendChild(brand);
         var navTabs = el("div", "app-nav-tabs");
-        var tabLib = el("button", "nav-tab active", "\uE8A5 素材库");
-        var tabTools = el("button", "nav-tab", "\uE7C4 工具");
-        var tabSet = el("button", "nav-tab", "\uE713 设置");
-        tabLib.dataset.view = "library";
-        tabTools.dataset.view = "tools";
-        tabSet.dataset.view = "settings";
-        function activate(btn) {
-            navTabs.querySelectorAll(".nav-tab").forEach(function (x) { x.classList.remove("active"); });
-            btn.classList.add("active");
-        }
-        tabLib.addEventListener("click", function () { activate(tabLib); switchView("library"); });
-        tabTools.addEventListener("click", function () { activate(tabTools); switchView("tools"); });
-        tabSet.addEventListener("click", function () { activate(tabSet); switchView("settings"); });
-        navTabs.appendChild(tabLib);
-        navTabs.appendChild(tabTools);
-        navTabs.appendChild(tabSet);
+        navTabs.id = "appNavTabs";
+        // 导航项定义：{ view, label }
+        NAV_ITEMS.forEach(function (it) {
+            var b = el("button", "nav-tab" + (it.view === "library" ? " active" : ""), it.label);
+            b.dataset.view = it.view;
+            b.addEventListener("click", function () {
+                activateNavTab(it.view);
+                switchView(it.view);
+            });
+            navTabs.appendChild(b);
+        });
         nav.appendChild(navTabs);
         app.appendChild(nav);
 
@@ -295,17 +288,46 @@
 
     // ---------------- 视图切换 ----------------
     var currentView = "library";
+
+    // 顶部导航项（工具平铺）。view 取值：library | settings | tool1..tool8
+    var NAV_ITEMS = [
+        { view: "library", label: "素材库" },
+        { view: "tool1", label: "文字样式" },
+        { view: "tool2", label: "一键换字体" },
+        { view: "tool3", label: "查找替换" },
+        { view: "tool4", label: "文字清理" },
+        { view: "tool5", label: "导出图片" },
+        { view: "tool6", label: "清理瘦身" },
+        { view: "tool7", label: "统一尺寸" },
+        { view: "tool8", label: "图片网格" },
+        { view: "settings", label: "设置" }
+    ];
+
+    function activateNavTab(view) {
+        var tabs = document.querySelectorAll("#appNavTabs .nav-tab");
+        tabs.forEach(function (x) {
+            x.classList.toggle("active", x.dataset.view === view);
+        });
+    }
+
     function switchView(name) {
         currentView = name;
         var lib = $("#libView");
         var tools = $("#toolsPanel");
         var set = $("#settingsPanel");
         if (lib) lib.style.display = (name === "library") ? "" : "none";
-        if (tools) tools.style.display = (name === "tools") ? "" : "none";
+        if (tools) tools.style.display = (name === "settings") ? "none" : (name === "library") ? "none" : "";
         if (set) set.style.display = (name === "settings") ? "" : "none";
+        if (tools) {
+            // 工具视图内：只显示与 name 对应的工具 section
+            var sections = tools.querySelectorAll(".tool-sec");
+            sections.forEach(function (s) {
+                s.style.display = (s.dataset.tool === name) ? "" : "none";
+            });
+        }
         if (name === "library") { reload(); }
-        if (name === "tools") { onToolsPanelShown(); }
         if (name === "settings") { renderSettingsForm(); }
+        if (name && name.indexOf("tool") === 0) { onToolsPanelShown(); }
     }
 
     // ---------------- 工具面板 ----------------
@@ -317,7 +339,7 @@
         panel.style.display = "none";
 
         var head = el("div", "view-panel-head");
-        head.appendChild(el("div", "view-panel-title", "\uE7C4 工具"));
+        head.appendChild(el("div", "view-panel-title", "工具"));
         var backLib = el("button", "bar-btn", "\uE711 返回素材库");
         backLib.addEventListener("click", function () { switchView("library"); });
         head.appendChild(backLib);
@@ -325,21 +347,25 @@
 
         var body = el("div", "view-panel-body");
         body.id = "toolsBody";
-        // ① 文字样式
-        var card1 = buildToolCard("批量修改文字样式", buildTextStyleControls());
-        // ② 一键换字体
-        var card2 = buildToolCard("一键更换字体", buildFontReplaceControls());
-        // ③ 查找替换
-        var card3 = buildToolCard("查找 / 替换（保留格式）", buildFindReplaceControls());
-        // ④ 文字清理
-        var card4 = buildToolCard("文字清理", buildCleanControls());
-
-        body.appendChild(card1);
-        body.appendChild(card2);
-        body.appendChild(card3);
-        body.appendChild(card4);
+        // 每个工具一个 .tool-sec（由顶部导航对应项切换显示）
+        body.appendChild(buildToolSec("tool1", "批量修改文字样式", buildTextStyleControls()));
+        body.appendChild(buildToolSec("tool2", "一键更换字体", buildFontReplaceControls()));
+        body.appendChild(buildToolSec("tool3", "查找 / 替换（保留格式）", buildFindReplaceControls()));
+        body.appendChild(buildToolSec("tool4", "文字清理", buildCleanControls()));
+        body.appendChild(buildToolSec("tool5", "整稿导出 PNG/JPG", buildExportImgControls()));
+        body.appendChild(buildToolSec("tool6", "清理瘦身", buildScanCleanControls()));
+        body.appendChild(buildToolSec("tool7", "统一尺寸", buildResizeControls()));
+        body.appendChild(buildToolSec("tool8", "图片网格插入", buildImageGridControls()));
         panel.appendChild(body);
         app.appendChild(panel);
+    }
+
+    function buildToolSec(toolId, title, content) {
+        var sec = el("div", "tool-sec");
+        sec.dataset.tool = toolId;
+        sec.style.display = "none";
+        sec.appendChild(buildToolCard(title, content));
+        return sec;
     }
 
     function buildToolCard(title, content) {
@@ -485,6 +511,148 @@
             fillSelect($("#frToFont"), ["微软雅黑", "宋体", "黑体", "仿宋", "楷体", "等线", "Arial", "Times New Roman", "Calibri", "Segoe UI", "Georgia", "Verdana"], false);
         }).catch(function () {});
     }
+
+    // ================= 版式批处理工具（tool5-8） =================
+
+    // ⑤ 整稿导出 PNG/JPG
+    var exportImgState = { dir: "" };
+    function buildExportImgControls() {
+        var box = el("div", "tool-card-body");
+        var fmt = makeSelect(["PNG", "JPG"], 0);
+        var scale = makeSelect(["原始大小", "宽 1280", "宽 1920"], 0);
+        var dirInput = makeInput("选择导出目录", exportImgState.dir || "");
+        dirInput.id = "expDir";
+        var dirBtn = el("button", "bar-btn", "浏览…");
+        dirBtn.addEventListener("click", function () {
+            Bridge.requestFolder("选择图片导出目录").then(function (d) {
+                if (d && d.path) { exportImgState.dir = d.path; dirInput.value = d.path; }
+            }).catch(function (e) { toast(e.message, true); });
+        });
+        var dirRow = el("div", "dir-row");
+        dirRow.appendChild(dirInput);
+        dirRow.appendChild(dirBtn);
+        var run = runBtn("开始导出", function () {
+            var dir = dirInput.value.trim();
+            if (!dir) { toast("请选择导出目录。", true); return Promise.resolve(); }
+            var w = scale.selectedIndex === 1 ? 1280 : scale.selectedIndex === 2 ? 1920 : 0;
+            return Bridge.formatExportImages({ dir: dir, format: fmt.selectedIndex === 1 ? "JPG" : "PNG", width: w })
+                .then(function (d) { toast(d && d.message ? d.message : "导出完成", !d || !d.ok); });
+        });
+        box.appendChild(fld("格式", fmt));
+        box.appendChild(fld("分辨率", scale));
+        var dirLbl = el("div", "fld-label", "目录");
+        var dirWrap = el("div"); dirWrap.style.flex = "1";
+        dirWrap.appendChild(dirInput);
+        box.appendChild(dirLbl);
+        var fullRow = el("div", "dir-row");   // 目录输入+浏览 同行
+        fullRow.appendChild(dirWrap);
+        fullRow.appendChild(dirBtn);
+        box.appendChild(fullRow);
+        box.appendChild(fld("", run));
+        return box;
+    }
+
+    // ⑥ 清理瘦身（扫描 + 执行）
+    var cleanOpts = { delEmpty: true, delHidden: false, delOffSlide: false, clearNotes: true, removeActions: false };
+    function buildScanCleanControls() {
+        var box = el("div", "tool-card-body");
+        var cEmpty = makeCheck("删除空白幻灯片", cleanOpts.delEmpty);
+        var cHidden = makeCheck("删除隐藏对象", cleanOpts.delHidden);
+        var cOff = makeCheck("删除页面外对象（完全超出画布）", cleanOpts.delOffSlide);
+        var cNotes = makeCheck("清空备注文字", cleanOpts.clearNotes);
+        var cActions = makeCheck("移除形状动作/超链接", cleanOpts.removeActions);
+        var preview = el("div", "tool-note", "（尚未扫描）"); preview.id = "cleanPreview";
+        var scanBtn = runBtn("扫描统计", function () {
+            cleanOpts.delEmpty = cEmpty.querySelector("input").checked;
+            cleanOpts.delHidden = cHidden.querySelector("input").checked;
+            cleanOpts.delOffSlide = cOff.querySelector("input").checked;
+            cleanOpts.clearNotes = cNotes.querySelector("input").checked;
+            cleanOpts.removeActions = cActions.querySelector("input").checked;
+            return Bridge.formatScanClean(cleanOpts).then(function (d) {
+                if (preview) preview.textContent = d && d.message ? d.message : "扫描完成";
+                toast(d && d.ok ? "扫描完成" : (d && d.message || "扫描失败"), !d || !d.ok);
+            });
+        });
+        var runBtn2 = runBtn("执行清理", function () {
+            if (!window.confirm("执行后将不可恢复（建议先保存文档），确定继续？")) {
+                return Promise.resolve();
+            }
+            cleanOpts.delEmpty = cEmpty.querySelector("input").checked;
+            cleanOpts.delHidden = cHidden.querySelector("input").checked;
+            cleanOpts.delOffSlide = cOff.querySelector("input").checked;
+            cleanOpts.clearNotes = cNotes.querySelector("input").checked;
+            cleanOpts.removeActions = cActions.querySelector("input").checked;
+            return Bridge.formatRunClean(cleanOpts).then(function (d) {
+                toast(d && d.message ? d.message : "清理完成", !d || !d.ok);
+            });
+        });
+        box.appendChild(fld("", cEmpty));
+        box.appendChild(fld("", cHidden));
+        box.appendChild(fld("", cOff));
+        box.appendChild(fld("", cNotes));
+        box.appendChild(fld("", cActions));
+        box.appendChild(fld("", scanBtn));
+        box.appendChild(fld("", runBtn2));
+        box.appendChild(preview);
+        return box;
+    }
+
+    // ⑦ 统一尺寸
+    function buildResizeControls() {
+        var box = el("div", "tool-card-body");
+        var scope = makeSelect(["选中形状", "当前页全部形状", "全部页面形状"], 0);
+        var w = makeInput("宽度（磅，可留空）");
+        var h = makeInput("高度（磅，可留空）");
+        var forceRatio = makeCheck("图片强制等比", false);
+        var run = runBtn("应用尺寸", function () {
+            var wv = parseFloat(w.value) || 0;
+            var hv = parseFloat(h.value) || 0;
+            if (!wv && !hv) { toast("请填写宽度或高度。", true); return Promise.resolve(); }
+            return Bridge.formatResize({
+                scope: scope.selectedIndex === 0 ? "selection" : scope.selectedIndex === 1 ? "page" : "all",
+                width: wv, height: hv,
+                forceImageRatio: forceRatio.querySelector("input").checked
+            }).then(function (d) { toast(d && d.message ? d.message : "完成"); });
+        });
+        box.appendChild(fld("范围", scope));
+        box.appendChild(fld("宽度", w));
+        box.appendChild(fld("高度", h));
+        box.appendChild(fld("", forceRatio));
+        box.appendChild(fld("", run));
+        return box;
+    }
+
+    // ⑧ 图片网格插入
+    var gridFiles = [];
+    function buildImageGridControls() {
+        var box = el("div", "tool-card-body");
+        var cols = el("input", "ctl"); cols.type = "number"; cols.min = "1"; cols.max = "8"; cols.value = "3";
+        var insertMode = makeSelect(["插入到新幻灯片（排满自动翻页）", "插入到当前页"], 0);
+        var filesNote = el("div", "tool-note", "尚未选择图片。"); filesNote.id = "gridFilesNote";
+        var pickBtn = el("button", "bar-btn", "选择图片…");
+        pickBtn.addEventListener("click", function () {
+            Bridge.requestFiles("选择图片", "图片文件 (*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp)|*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp")
+                .then(function (d) {
+                    gridFiles = (d && d.files) || [];
+                    if (filesNote) filesNote.textContent = gridFiles.length > 0 ? "已选 " + gridFiles.length + " 张：" + gridFiles[0] + (gridFiles.length > 1 ? " 等" : "") : "尚未选择图片。";
+                }).catch(function (e) { toast(e.message, true); });
+        });
+        var run = runBtn("生成网格", function () {
+            if (!gridFiles.length) { toast("请先选择图片。", true); return Promise.resolve(); }
+            return Bridge.formatImageGrid({
+                files: gridFiles,
+                cols: parseInt(cols.value, 10) || 3,
+                toNewPage: insertMode.selectedIndex === 0
+            }).then(function (d) { toast(d && d.message ? d.message : "完成"); });
+        });
+        box.appendChild(fld("每行张数", cols));
+        box.appendChild(fld("插入方式", insertMode));
+        box.appendChild(fld("", filesNote));
+        box.appendChild(fld("", pickBtn));
+        box.appendChild(fld("", run));
+        return box;
+    }
+
     function fillSelect(sel, items, keepEmpty) {
         if (!sel) return;
         sel.innerHTML = "";
