@@ -182,7 +182,21 @@ namespace PPTShapeLibrary
                     var shp = slide.Shapes[i];
                     try
                     {
-                        if (shp.Visible == MsoTriState.msoTrue) return true;
+                        if (shp.Visible != MsoTriState.msoTrue) continue;
+                        // 占位符且无文字视为空内容（对齐收藏逻辑的 IsPlaceholder 语义）
+                        bool isPlaceholder = false;
+                        try { isPlaceholder = shp.PlaceholderFormat != null; } catch { }
+                        if (isPlaceholder)
+                        {
+                            try
+                            {
+                                if (shp.HasTextFrame == MsoTriState.msoTrue && shp.TextFrame.HasText == MsoTriState.msoTrue
+                                    && !string.IsNullOrWhiteSpace(shp.TextFrame.TextRange.Text)) return true;
+                            }
+                            catch { }
+                            continue;
+                        }
+                        return true;   // 非占位符可见对象（含纯色块/图片/空文本框装饰）都算内容
                     }
                     catch { return true; }
                 }
