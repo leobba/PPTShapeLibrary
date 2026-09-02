@@ -265,7 +265,7 @@ namespace PPTShapeLibrary
         {
             try
             {
-                using (var frm = new PPTToolsForm())
+                using (var frm = new ToolsHubForm())
                 {
                     frm.ShowDialog();
                 }
