@@ -39,20 +39,33 @@
 ## 开发与运行
 
 - VS2022 + Office/SharePoint 工作负载，按 F5 调试
-- 存储：`%APPDATA%\PPTShapeLibrary\`（items 每收藏一目录；settings.json 设置；logs 日志）
+- 存储：`%APPDATA%\PPTShapeLibrary\`（items 每收藏一目录；settings.json 设置；packs 素材包；logs 日志）
+- 界面宿主：WebView2（Evergreen Runtime）。缺失/初始化失败自动降级到提示页（`uiBackend:"wpf"` 旧开关已废弃）
 - 快捷键：无全局快捷键（工具栏操作）
 
 ## 文件结构
 
 ```
-src 核心代码（VSTO 项目）
-  ThisAddIn.cs            # 工具栏（CommandBar）+ 任务窗格
-  ShapeExporter.cs        # 收藏/插入/导出/内置素材
+PPTShapeLibrary\            # VSTO 项目（PowerPoint 2016+ / M365 x64）
+  宿主与面板
+  ThisAddIn.cs            # 任务窗格创建 + WebView2 决策树/降级
+  Ribbon1.cs              # 「形状库」选项卡（收藏/素材库/工具/设置）
+  ILibraryPane.cs         # 面板统一接口（宿主对面板零感知）
+  WebPaneHost.cs          # WebView2 宿主：虚拟域名映射/消息桥/失败信号
+  FallbackPane.cs         # 极薄降级提示页（WebView2 不可用时的兜底）
+  BridgeController.cs     # C#↔JS 消息路由器（协议翻译，不含业务逻辑）
+  业务层
+  ShapeExporter.cs        # 收藏/插入/应用样式/内置素材/导出 PPTX/微调/撤销
   ShapeStyleExtractor.cs  # 样式提取与应用
-  ShapeLibraryService.cs  # 存储/分类/标签/备份/去重
-  ShapeLibraryTaskPane.cs # Canva 风格面板
-  Settings.cs / SettingsForm.cs  # 设置
-  TagManagerForm.cs       # 标签管理
-  PPTToolsForm.cs         # PPT 小工具
-  Log.cs                  # 日志
+  ShapeLibraryService.cs  # 存储/分类/标签/去重/备份/缓存
+  PackService.cs          # 素材包（.ppack.zip）导出/导入
+  StylePreset.cs          # 样式数据结构
+  Settings.cs / SettingsForm.cs / TagManagerForm.cs / InputDialog.cs
+  PPTToolsForm.cs         # PPT 小工具（批量文字/换字体）
+  Log.cs                  # 日志（>1MB 轮转）
+  WebUI\                  # 前端 SPA（免构建，随程序集复制）
+    index.html + css\app.css + js\bridge.js(通信) + js\app.js(应用)
 ```
+
+UI 演进：A 阶段 WPF 面板 → B 阶段 WebView2 Web UI（业务层 C# 原样复用；
+旧 WPF 面板已移除，降级路径为 FallbackPane 提示页）。
