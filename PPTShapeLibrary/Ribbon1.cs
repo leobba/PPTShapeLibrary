@@ -23,6 +23,8 @@ namespace PPTShapeLibrary
         private RibbonButton btnCollectShapes;
         private RibbonButton btnCollectPage;
         private RibbonButton btnCollectStyle;
+        private RibbonButton btnCollectClipboard;
+        private RibbonButton btnCollectAllSlides;
         private RibbonButton btnOpenPane;
         private RibbonButton btnBackup;
         private RibbonButton btnRestore;
@@ -41,6 +43,8 @@ namespace PPTShapeLibrary
             this.btnCollectShapes = f.CreateRibbonButton();
             this.btnCollectPage = f.CreateRibbonButton();
             this.btnCollectStyle = f.CreateRibbonButton();
+            this.btnCollectClipboard = f.CreateRibbonButton();
+            this.btnCollectAllSlides = f.CreateRibbonButton();
             this.btnOpenPane = f.CreateRibbonButton();
             this.btnBackup = f.CreateRibbonButton();
             this.btnRestore = f.CreateRibbonButton();
@@ -74,6 +78,23 @@ namespace PPTShapeLibrary
             this.grpCollect.Items.Add(this.btnCollectShapes);
             this.grpCollect.Items.Add(this.btnCollectPage);
             this.grpCollect.Items.Add(this.btnCollectStyle);
+            this.grpCollect.Items.Add(this.btnCollectClipboard);
+            this.grpCollect.Items.Add(this.btnCollectAllSlides);
+
+            // ---- 收藏组（新增按钮定义）----
+            this.btnCollectClipboard.Label = "收藏剪贴板";
+            this.btnCollectClipboard.OfficeImageId = "Paste";
+            this.btnCollectClipboard.ShowImage = true;
+            this.btnCollectClipboard.ScreenTip = "收藏剪贴板内容";
+            this.btnCollectClipboard.SuperTip = "不要求预选形状：把当前剪贴板中的形状/图片整组收藏入库（先复制再点此按钮）。";
+            this.btnCollectClipboard.Click += OnCollectClipboard;
+
+            this.btnCollectAllSlides.Label = "收藏整稿";
+            this.btnCollectAllSlides.OfficeImageId = "SelectAll";
+            this.btnCollectAllSlides.ShowImage = true;
+            this.btnCollectAllSlides.ScreenTip = "批量收藏整份演示文稿";
+            this.btnCollectAllSlides.SuperTip = "把每页的所有形状打包收藏（自动命名第 N 页，跳过占位符）。";
+            this.btnCollectAllSlides.Click += OnCollectAllSlides;
 
             // ---- 素材库组 ----
             this.btnOpenPane.Label = "打开收藏库";
@@ -180,6 +201,38 @@ namespace PPTShapeLibrary
             catch (Exception ex)
             {
                 Log.Error(ex, "Ribbon CollectStyle");
+                System.Windows.Forms.MessageBox.Show("操作失败：" + ex.Message, "PPT形状库");
+            }
+        }
+
+        private void OnCollectClipboard(object sender, RibbonControlEventArgs e)
+        {
+            try
+            {
+                string id = ShapeExporter.CollectClipboard();
+                if (id != null) Globals.ThisAddIn.ShowTaskPane();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Ribbon CollectClipboard");
+                System.Windows.Forms.MessageBox.Show("操作失败：" + ex.Message, "PPT形状库");
+            }
+        }
+
+        private void OnCollectAllSlides(object sender, RibbonControlEventArgs e)
+        {
+            try
+            {
+                int n = ShapeExporter.CollectAllSlides();
+                if (n > 0)
+                {
+                    Globals.ThisAddIn.ShowTaskPane();
+                    System.Windows.Forms.MessageBox.Show("已批量收藏 " + n + " 页内容。", "PPT形状库");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Ribbon CollectAllSlides");
                 System.Windows.Forms.MessageBox.Show("操作失败：" + ex.Message, "PPT形状库");
             }
         }
