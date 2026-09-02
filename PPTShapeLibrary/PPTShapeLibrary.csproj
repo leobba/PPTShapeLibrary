@@ -66,11 +66,6 @@
     <Reference Include="System.Runtime.Serialization" />
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />
-    <Reference Include="WindowsFormsIntegration" />
-    <Reference Include="PresentationCore" />
-    <Reference Include="PresentationFramework" />
-    <Reference Include="WindowsBase" />
-    <Reference Include="System.Xaml" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="Microsoft.Office.Tools.v4.0.Framework, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
@@ -155,13 +150,7 @@
     <Compile Include="SettingsForm.cs" />
     <Compile Include="TagManagerForm.cs" />
     <Compile Include="PPTToolsForm.cs" />
-    <Page Include="ShapeLibraryPaneWpf.xaml">
-      <Generator>MSBuild:Compile</Generator>
-      <SubType>Designer</SubType>
-    </Page>
-    <Compile Include="ShapeLibraryPaneWpf.xaml.cs">
-      <DependentUpon>ShapeLibraryPaneWpf.xaml</DependentUpon>
-    </Compile>
+    <Compile Include="FallbackPane.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>

@@ -47,15 +47,16 @@ namespace PPTShapeLibrary
         {
         }
 
-        /// <summary>宿主选择决策树（方案 6.3）：uiBackend 开关 + Runtime 检测 + 失败降级。</summary>
+        /// <summary>宿主选择决策树：WebView2 Runtime 检测 + 失败降级到极薄提示页。</summary>
         private void CreatePane()
         {
+            // uiBackend="wpf" 已废弃：旧 WPF 面板随 B 阶段完成被移除。
+            // 保留该值解析仅为向后兼容——等价于走降级提示页。
             var settings = ShapeLibraryService.LoadSettings();
-
             if (settings.UiBackend == "wpf")
             {
-                Log.Write("uiBackend=wpf, legacy panel active");
-                UseWpfPane();
+                Log.Write("uiBackend=wpf is deprecated, using fallback pane");
+                UseFallbackPane("settings.json 中的 uiBackend=\"wpf\" 已不再使用。");
                 return;
             }
 
@@ -67,27 +68,22 @@ namespace PPTShapeLibrary
             catch (Exception ex)
             {
                 Log.Error(ex, "WebView2 runtime missing");
-                MessageBox.Show(
-                    "检测到本机缺少 WebView2 运行时，插件面板将使用旧版界面。\n" +
-                    "可从以下地址安装 WebView2 Runtime 以获得完整体验：\n" +
-                    "https://developer.microsoft.com/microsoft-edge/webview2/",
-                    "PPT形状库", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                UseWpfPane();
+                UseFallbackPane("检测到本机缺少 WebView2 Runtime。");
                 return;
             }
 
-            // Web 面板（失败自动降级）
+            // Web 面板（失败自动降级到提示页）
             var webHost = new WebPaneHost();
             webHost.InitializationFailed += ex =>
             {
                 try
                 {
-                    Log.Error(ex, "WebPane init failed -> fallback to WPF");
+                    Log.Error(ex, "WebPane init failed -> fallback pane");
                     if (_taskPane != null)
                     {
-                        MessageBox.Show("新界面初始化失败，已切换回旧版面板。", "PPT形状库",
+                        MessageBox.Show("新界面初始化失败，将显示降级提示页。", "PPT形状库",
                             MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                        SwitchToWpfPane();
+                        SwitchToFallbackPane("新界面初始化失败：" + ex.Message);
                     }
                 }
                 catch { }
@@ -96,14 +92,15 @@ namespace PPTShapeLibrary
             _paneHost = webHost;
         }
 
-        private void UseWpfPane()
+        /// <summary>极薄降级提示页（WebView2 缺失/初始化失败时使用）。</summary>
+        private void UseFallbackPane(string reason)
         {
-            var wpf = new ShapeLibraryPaneWpf();
-            _paneControl = wpf;
-            _paneHost = new WpfPaneHost(wpf);
+            var fb = new FallbackPane(reason);
+            _paneControl = fb;
+            _paneHost = fb;
         }
 
-        private void SwitchToWpfPane()
+        private void SwitchToFallbackPane(string reason)
         {
             try
             {
@@ -111,15 +108,14 @@ namespace PPTShapeLibrary
                 int width = _taskPane != null ? _taskPane.Width : 300;
                 this.CustomTaskPanes.Remove(_taskPane);
 
-                UseWpfPane();
-                _paneHost = new WpfPaneHost((ShapeLibraryPaneWpf)_paneControl);
+                UseFallbackPane(reason);
                 _taskPane = this.CustomTaskPanes.Add(_paneHost, "形状收藏库");
                 _taskPane.Width = width;
                 _taskPane.Visible = visible;
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "SwitchToWpfPane");
+                Log.Error(ex, "SwitchToFallbackPane");
             }
         }
 
