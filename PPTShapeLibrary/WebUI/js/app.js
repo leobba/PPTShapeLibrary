@@ -10,6 +10,8 @@
         categories: [],
         filter: "",
         category: "全部",
+        kind: "全部",           // 类型过滤：全部/Shape/Style
+        tag: "",                // 标签过滤：""=全部
         sort: "最新",
         items: [],            // 已渲染条目
         filteredTotal: 0,
@@ -55,6 +57,7 @@
             applyTheme(data.theme || "light");
             applyCardSize(data.cardSize || "compact");
             renderCategories(data.categories || []);
+            renderTagSelect(data.tags || []);
             reload();
         }).catch(function (err) {
             toast("初始化失败：" + err.message, true);
@@ -63,11 +66,13 @@
 
     // 订阅 C# 下行推送
     Bridge.on("refresh", function () {
-        // 数据变了：重拉元数据（recentTop/分类/计数），再刷新列表
+        // 数据变了：重拉元数据（recentTop/分类/计数/标签），再刷新列表
         Bridge.init().then(function (data) {
             state.recentTop = data.recentTop || [];
             state.categoryCounts = data.categoryCounts || {};
+            state._tagCounts = data.tagCounts || {};
             renderCategories(data.categories || []);
+            renderTagSelect(data.tags || []);
         }).catch(function () {});
         reload();
     });
@@ -110,6 +115,33 @@
         var catBar = el("div", "category-bar");
         catBar.id = "categoryBar";
         app.appendChild(catBar);
+
+        // ②.5 类型段选 + 标签下拉
+        var filterRow = el("div", "filter-row");
+        var kindWrap = el("div", "kind-tabs");
+        ["全部", "Shape", "Style"].forEach(function (k) {
+            var b = el("button", "chip" + (k === "全部" ? " active" : ""), k === "Shape" ? "形状" : k === "Style" ? "样式" : "全部");
+            b.dataset.kind = k;
+            b.addEventListener("click", function () {
+                state.kind = k;
+                kindWrap.querySelectorAll(".chip").forEach(function (x) { x.classList.remove("active"); });
+                b.classList.add("active");
+                reload();
+            });
+            kindWrap.appendChild(b);
+        });
+        filterRow.appendChild(kindWrap);
+        var tagSel = el("select", "sort-select");
+        tagSel.id = "tagSelect";
+        tagSel.title = "按标签筛选";
+        var opt = el("option", "", "全部标签"); opt.value = "";
+        tagSel.appendChild(opt);
+        tagSel.addEventListener("change", function () {
+            state.tag = this.value;
+            reload();
+        });
+        filterRow.appendChild(tagSel);
+        app.appendChild(filterRow);
 
         // ③ 状态行
         var status = el("div", "status-row");
@@ -265,7 +297,7 @@
         if (state.loading) return;
         state.loading = true;
         if (offset === 0) showSkeletons();
-        Bridge.list(state.filter, state.category, state.sort, offset, getPageSize())
+        Bridge.list(state.filter, state.category, state.kind, state.tag, state.sort, offset, getPageSize())
             .then(function (data) {
                 state.loading = false;
                 state.filteredTotal = data.filteredTotal;
@@ -307,8 +339,7 @@
     // ---------------- 渲染 ----------------
     function renderCategories(cats) {
         var bar = $("#categoryBar");
-        if (!bar) return;
-        bar.innerHTML = "";
+        if (!bar) return;        bar.innerHTML = "";
         var counts = state.categoryCounts || {};
         var names = ["全部"].concat((cats || []).filter(function (c) { return c !== "全部"; }));
         names.forEach(function (c) {
@@ -325,10 +356,28 @@
         });
     }
 
+    /** 填充"标签筛选"下拉（tags 来自 init 的 tags 数组），保留当前选中值。 */
+    function renderTagSelect(tags) {
+        var sel = $("#tagSelect");
+        if (!sel) return;
+        var cur = state.tag;
+        sel.innerHTML = "";
+        var opt = el("option", "", "全部标签"); opt.value = "";
+        sel.appendChild(opt);
+        (tags || []).forEach(function (t) {
+            var o = el("option", "", t);
+            o.value = t;
+            sel.appendChild(o);
+        });
+        // 还原选中（若当前标签仍存在）
+        sel.value = (cur && tags.indexOf(cur) >= 0) ? cur : "";
+        state.tag = sel.value;
+    }
+
     function updateStatus() {
         var cnt = $("#lblCount");
         if (!cnt) return;
-        if (state.filter || state.category !== "全部") {
+        if (state.filter || state.category !== "全部" || state.kind !== "全部" || state.tag !== "") {
             cnt.textContent = "筛选 " + state.items.length + " / " + state.filteredTotal + " · 共 " + state.total;
         } else {
             cnt.textContent = "共 " + state.total + " 项";
@@ -346,7 +395,8 @@
 
         // 无筛选时：顶部展示"最近使用"横向条（数据来自 init 的全库 Top6，A6）
         var recentExcluded = {};
-        if (!state.filter && state.category === "全部" && state.sort !== "最近使用"
+        if (!state.filter && state.category === "全部" && state.kind === "全部" && state.tag === ""
+            && state.sort !== "最近使用"
             && state.recentTop && state.recentTop.length >= 2) {
             var sec = el("div");
             sec.id = "recentSection";
@@ -642,6 +692,11 @@
             mi("应用到本页同类形状", function () {
                 Bridge.applyStyleSameType(meta.id).then(function () {
                     toast("已应用到本页同类形状");
+                }).catch(function (e) { toast(e.message, true); });
+            });
+            mi("应用到整份演示文稿同类型形状", function () {
+                Bridge.applyStyleSameTypeAllSlides(meta.id).then(function () {
+                    toast("已应用到整份演示文稿同类型形状");
                 }).catch(function (e) { toast(e.message, true); });
             });
         }
@@ -1021,6 +1076,7 @@
             state.categoryCounts = data.categoryCounts || {};
             state._tagCounts = data.tagCounts || {};
             renderCategories(data.categories || []);
+            renderTagSelect(data.tags || []);
             reload();
         }).catch(function () { reload(); });
     }

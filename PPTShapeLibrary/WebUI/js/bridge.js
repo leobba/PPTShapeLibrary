@@ -88,12 +88,15 @@
         on: on,
         /** 快捷方法 */
         init: function () { return send("init"); },
-        list: function (filter, category, sort, offset, limit) {
-            return send("list", { filter: filter, category: category, sort: sort, offset: offset, limit: limit });
+        list: function (filter, category, kind, tag, sort, offset, limit) {
+            return send("list", { filter: filter, category: category, kind: kind, tag: tag, sort: sort, offset: offset, limit: limit });
         },
         insert: function (id) { return send("insert", { id: id }); },
         applyStyle: function (id) { return send("applyStyle", { id: id }); },
         applyStyleSameType: function (id) { return send("applyStyleSameType", { id: id }); },
+        applyStyleSameTypeAllSlides: function (id) { return send("applyStyleSameTypeAllSlides", { id: id }); },
+        collectClipboard: function () { return send("collectClipboard", {}); },
+        collectAllSlides: function () { return send("collectAllSlides", {}); },
         adjust: function (action) { return send("adjust", { action: action }); },
         del: function (ids) { return send("delete", { ids: ids }); },
         rename: function (id, name) { return send("rename", { id: id, name: name }); },

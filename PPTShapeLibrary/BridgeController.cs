@@ -94,6 +94,33 @@ namespace PPTShapeLibrary
                             Result(reqId, ok, null, ok ? null : batErr);
                             break;
                         }
+                    case "applyStyleSameTypeAllSlides":
+                        {
+                            string id = ToStr(payload, "id");
+                            bool ok = ShapeExporter.ApplyStyleToSameTypeAllSlides(id, false, out string allErr);   // 静默
+                            if (ok) ShapeLibraryService.TouchUsed(id);
+                            Result(reqId, ok, null, ok ? null : allErr);
+                            break;
+                        }
+                    case "collectClipboard":
+                        {
+                            // Ribbon 直达能力；Web 侧仅转发（供“更多工具”入口复用）
+                            string nid = ShapeExporter.CollectClipboard();
+                            if (nid != null) PushRefresh();
+                            Ok(reqId, nid != null
+                                ? new Dictionary<string, object> { { "id", nid } }
+                                : new Dictionary<string, object>());
+                            break;
+                        }
+                    case "collectAllSlides":
+                        {
+                            int n = ShapeExporter.CollectAllSlides();
+                            if (n > 0) PushRefresh();
+                            Result(reqId, n > 0,
+                                   n > 0 ? new Dictionary<string, object> { { "collected", n } } : null,
+                                   n > 0 ? null : "没有可收藏的页面（跳过空白/占位页）");
+                            break;
+                        }
                     case "undo":
                         ShapeExporter.UndoLastAction();
                         Ok(reqId, new Dictionary<string, object>());
@@ -292,6 +319,8 @@ namespace PPTShapeLibrary
         {
             string filter = ToStr(payload, "filter");
             string category = ToStr(payload, "category");
+            string kind = ToStr(payload, "kind");
+            string tag = ToStr(payload, "tag");
             string sort = ToStr(payload, "sort");
             int offset = ToInt(payload, "offset");
             int limit = ToInt(payload, "limit");
@@ -309,6 +338,16 @@ namespace PPTShapeLibrary
             if (!string.IsNullOrEmpty(category) && category != "全部")
             {
                 items = items.Where(m => m.GetCategory() == category);
+            }
+            if (!string.IsNullOrEmpty(kind) && kind != "全部")
+            {
+                string k = kind;
+                items = items.Where(m => (m.Kind ?? "").Equals(k, StringComparison.OrdinalIgnoreCase));
+            }
+            if (!string.IsNullOrEmpty(tag))
+            {
+                string t = tag;
+                items = items.Where(m => m.GetTags().Any(x => x.Equals(t, StringComparison.OrdinalIgnoreCase)));
             }
 
             int filteredTotal = items.Count();

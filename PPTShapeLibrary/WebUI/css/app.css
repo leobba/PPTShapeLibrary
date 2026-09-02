@@ -191,6 +191,20 @@ html, body {
 }
 .chip.active:hover { background: var(--accent-hover); }
 
+/* ============ ②.5 类型段选 + 标签下拉 ============ */
+.filter-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px 2px;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+.filter-row::-webkit-scrollbar { display: none; }
+.kind-tabs { display: flex; gap: 4px; flex: none; }
+.kind-tabs .chip { height: 22px; padding: 0 10px; border-radius: 11px; font-size: 11px; }
+.filter-row .sort-select { height: 24px; font-size: 11px; flex: 1; min-width: 90px; max-width: 130px; }
+
 /* ============ ③ 状态行 ============ */
 .status-row {
     display: flex;
@@ -266,6 +280,9 @@ html, body {
     border: 1.5px solid transparent;
     transition: transform var(--motion-fast), box-shadow var(--motion-fast), border-color var(--motion-fast);
     animation: cardIn .22s ease-out backwards;
+    /* 长列表虚拟化：视口外卡片跳过渲染，保证滚动流畅（B 组性能项） */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 120px;
 }
 @keyframes cardIn {
     from { opacity: 0; transform: translateY(6px) scale(.96); }
