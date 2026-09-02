@@ -5,7 +5,7 @@ using Microsoft.Office.Tools.Ribbon;
 namespace PPTShapeLibrary
 {
     /// <summary>
-    /// 「形状库」自定义功能区选项卡（VSTO 原生 Ribbon 设计器机制）。
+    /// 「素材库」自定义功能区选项卡（VSTO 原生 Ribbon 设计器机制）。
     /// </summary>
     [ComVisible(true)]
     public class Ribbon1 : RibbonBase
@@ -30,6 +30,7 @@ namespace PPTShapeLibrary
         private RibbonButton btnRestore;
         private RibbonButton btnExportPptx;
         private RibbonButton btnTools;
+        private RibbonButton btnAdvancedTools;
         private RibbonButton btnSettings;
 
         private void InitializeComponent()
@@ -50,6 +51,7 @@ namespace PPTShapeLibrary
             this.btnRestore = f.CreateRibbonButton();
             this.btnExportPptx = f.CreateRibbonButton();
             this.btnTools = f.CreateRibbonButton();
+            this.btnAdvancedTools = f.CreateRibbonButton();
             this.btnSettings = f.CreateRibbonButton();
 
             // ---- 收藏组 ----
@@ -136,7 +138,7 @@ namespace PPTShapeLibrary
             this.btnTools.OfficeImageId = "MacroSecurity";
             this.btnTools.ShowImage = true;
             this.btnTools.ScreenTip = "PPT 小工具";
-            this.btnTools.SuperTip = "批量修改文字样式、一键更换字体等实用工具。";
+            this.btnTools.SuperTip = "在面板中打开工具视图：文字样式、一键换字体、查找替换、文字清理。";
             this.btnTools.Click += OnTools;
 
             this.btnSettings.Label = "设置";
@@ -146,15 +148,23 @@ namespace PPTShapeLibrary
             this.btnSettings.SuperTip = "主题（浅色/深色）、插入位置、卡片大小、面板宽度等。";
             this.btnSettings.Click += OnSettings;
 
+            this.btnAdvancedTools.Label = "高级工具";
+            this.btnAdvancedTools.OfficeImageId = "MoreButton";
+            this.btnAdvancedTools.ShowImage = true;
+            this.btnAdvancedTools.ScreenTip = "高级批处理工具（原生窗口）";
+            this.btnAdvancedTools.SuperTip = "整稿导出 PNG/JPG、清理瘦身、统一尺寸、图片网格插入等高级批处理工具。";
+            this.btnAdvancedTools.Click += OnAdvancedTools;
+
             this.grpTools.Label = "工具";
             this.grpTools.Items.Add(this.btnTools);
+            this.grpTools.Items.Add(this.btnAdvancedTools);
             this.grpTools.Items.Add(this.btnSettings);
 
             // ---- 组装选项卡 ----
             this.tabLibrary.Groups.Add(this.grpCollect);
             this.tabLibrary.Groups.Add(this.grpLibrary);
             this.tabLibrary.Groups.Add(this.grpTools);
-            this.tabLibrary.Label = "形状库";
+            this.tabLibrary.Label = "素材库";
 
             this.Tabs.Add(this.tabLibrary);
             this.RibbonType = "Microsoft.PowerPoint.Presentation";
@@ -271,6 +281,21 @@ namespace PPTShapeLibrary
             catch (Exception ex)
             {
                 Log.Error(ex, "Ribbon Tools");
+            }
+        }
+
+        private void OnAdvancedTools(object sender, RibbonControlEventArgs e)
+        {
+            try
+            {
+                using (var frm = new ToolsHubForm())
+                {
+                    frm.ShowDialog();
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Ribbon AdvancedTools");
             }
         }
 

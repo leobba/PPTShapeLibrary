@@ -5,13 +5,14 @@ using System.Windows.Forms;
 namespace PPTShapeLibrary
 {
     /// <summary>
-    /// PPT 小工具总览 Hub：汇总全部工具入口，取代 Ribbon 直达单个对话框。
+    /// PPT 高级工具 Hub：承载仍需原生窗口的批处理工具
+    /// （文字/查找等常用工具已 Web 化到面板「工具」视图）。
     /// </summary>
     public class ToolsHubForm : Form
     {
         public ToolsHubForm()
         {
-            Text = "PPT 小工具";
+            Text = "高级工具";
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
@@ -21,14 +22,14 @@ namespace PPTShapeLibrary
 
             var title = new Label
             {
-                Text = "PPT 小工具",
+                Text = "高级工具",
                 Font = new Font("Microsoft YaHei UI", 15F, FontStyle.Bold),
                 ForeColor = Color.FromArgb(0x1B, 0x1F, 0x23),
                 Location = new Point(18, 14), AutoSize = true
             };
             var subtitle = new Label
             {
-                Text = "选择一个工具开始（部分操作会改动文档，建议先保存）",
+                Text = "批处理类工具（操作会改动文档，建议先保存）",
                 Font = font,
                 ForeColor = Color.FromArgb(0x66, 0x70, 0x7E),
                 Location = new Point(20, 46), AutoSize = true
@@ -43,9 +44,17 @@ namespace PPTShapeLibrary
                 AutoScroll = true
             };
 
-            AddTool(flow, "文字样式 / 字体", "批量改字体字号颜色对齐；一键整稿换字体", () => Show<PPTToolsForm>());
-            AddTool(flow, "文本查找替换 / 清理", "跨页查找替换（保留格式）；去多余空白、统一标点", () => Show<PPTTextToolsForm>());
             AddTool(flow, "版式 / 批处理", "整稿导出 PNG/JPG；清理瘦身；统一尺寸；图片网格插入", () => Show<PPTFormatToolsForm>());
+            var note = new Label
+            {
+                Text = "文字样式、换字体、查找替换、清理等常用工具已内置到面板的「工具」视图（Ribbon「小工具」）。",
+                Font = new Font("Microsoft YaHei", 8.5F),
+                ForeColor = Color.FromArgb(0x66, 0x70, 0x7E),
+                Width = 440,
+                Height = 30,
+                Margin = new Padding(6, 2, 0, 0)
+            };
+            flow.Controls.Add(note);
 
             Controls.Add(title);
             Controls.Add(subtitle);
