@@ -93,7 +93,9 @@ namespace PPTShapeLibrary
                     return null;
                 }
                 var range = slide.Shapes.Range(idx.ToArray());
-                return CollectRange(range, null);
+                string autoName = "整页 " + DateTime.Now.ToString("MM-dd HH:mm");
+                if (!ResolveItemName(null, autoName, out string resolved)) return null;   // 用户取消命名
+                return CollectRange(range, resolved);
             }
             catch (Exception ex)
             {
