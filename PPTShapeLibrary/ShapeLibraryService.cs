@@ -168,6 +168,12 @@ namespace PPTShapeLibrary
             }
         }
 
+        /// <summary>供外部（素材包导入等直接写 items 目录的路径）显式失效缓存。</summary>
+        public static void InvalidateCachePublic()
+        {
+            InvalidateCache();
+        }
+
         private const int CacheTtlMs = 2000;
 
         /// <summary>全部收藏（CreatedAt 倒序）。带 2s TTL 进程内缓存，写操作自动失效。</summary>

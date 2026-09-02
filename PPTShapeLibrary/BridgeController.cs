@@ -72,28 +72,32 @@ namespace PPTShapeLibrary
                     case "insert":
                         {
                             string id = ToStr(payload, "id");
-                            bool ok = ShapeExporter.InsertShape(id);
+                            bool ok = ShapeExporter.InsertShape(id, false, out string insErr);   // 静默，前端 Toast
                             if (ok) ShapeLibraryService.TouchUsed(id);
                             Result(reqId, ok, ok ? new Dictionary<string, object> { { "kind", KindOf(id) } } : null,
-                                   ok ? null : "插入失败（请确认已打开演示文稿且不在放映状态）");
+                                   ok ? null : insErr);
                             break;
                         }
                     case "applyStyle":
                         {
                             string id = ToStr(payload, "id");
-                            bool ok = ShapeExporter.ApplyStyle(id);
+                            bool ok = ShapeExporter.ApplyStyle(id, false, out string styErr);   // 静默
                             if (ok) ShapeLibraryService.TouchUsed(id);
-                            Result(reqId, ok, null, ok ? null : "应用样式失败（请先选中目标形状）");
+                            Result(reqId, ok, null, ok ? null : styErr);
                             break;
                         }
                     case "applyStyleSameType":
                         {
                             string id = ToStr(payload, "id");
-                            bool ok = ShapeExporter.ApplyStyleToSameType(id);
+                            bool ok = ShapeExporter.ApplyStyleToSameType(id, false, out string batErr);   // 静默
                             if (ok) ShapeLibraryService.TouchUsed(id);
-                            Result(reqId, ok, null, ok ? null : "批量应用失败");
+                            Result(reqId, ok, null, ok ? null : batErr);
                             break;
                         }
+                    case "undo":
+                        ShapeExporter.UndoLastAction();
+                        Ok(reqId, new Dictionary<string, object>());
+                        break;
                     case "adjust":
                         ShapeExporter.AdjustSelected(ToStr(payload, "action"));
                         Ok(reqId, new Dictionary<string, object>());
@@ -162,6 +166,52 @@ namespace PPTShapeLibrary
                             Ok(reqId, new Dictionary<string, object>());
                             break;
                         }
+                    case "scanDuplicates":
+                        {
+                            // 全库扫描"完全重复"（同类型/同数量/同尺寸；保留最早，返回可删的重复项）
+                            var dups = ShapeLibraryService.FindExactDuplicates();
+                            var arr = new List<Dictionary<string, object>>();
+                            foreach (var d in dups)
+                            {
+                                arr.Add(new Dictionary<string, object>
+                                {
+                                    { "id", d.Id }, { "name", d.Name },
+                                    { "kind", d.Kind }, { "shapeCount", d.ShapeCount },
+                                    { "previewUrl", "https://data.pptshapes.local/" + d.Id + "/preview.png?v=" + PreviewStamp(d.Id) }
+                                });
+                            }
+                            Ok(reqId, new Dictionary<string, object> { { "duplicates", arr } });
+                            break;
+                        }
+                    case "renameTag":
+                        {
+                            int n = ShapeLibraryService.RenameTagAll(ToStr(payload, "oldTag"), ToStr(payload, "newTag"));
+                            Ok(reqId, new Dictionary<string, object> { { "touched", n } });
+                            break;
+                        }
+                    case "deleteTag":
+                        {
+                            int n = ShapeLibraryService.DeleteTagAll(ToStr(payload, "tag"));
+                            Ok(reqId, new Dictionary<string, object> { { "touched", n } });
+                            break;
+                        }
+                    case "exportPack":
+                        {
+                            string saveAs = ToStr(payload, "saveAs");
+                            bool ok = PackService.ExportPack(GetIds(payload), saveAs, out string pkErr);
+                            Result(reqId, ok, ok ? new Dictionary<string, object>() : null, ok ? null : pkErr);
+                            break;
+                        }
+                    case "importPack":
+                        {
+                            string openFrom = ToStr(payload, "openFrom");
+                            int n = PackService.ImportPack(openFrom, out string impErr);
+                            bool ok = impErr == null;
+                            Result(reqId, ok, ok ? new Dictionary<string, object> { { "imported", n } } : null,
+                                   ok ? null : impErr);
+                            PushRefresh();
+                            break;
+                        }
                     case "log":
                         {
                             string level = ToStr(payload, "level");
@@ -204,6 +254,24 @@ namespace PPTShapeLibrary
                 counts[c]++;
             }
             d["categoryCounts"] = counts;
+
+            // A6：全库最近使用 Top6（供前端"最近使用"横条；跨排序/筛选的全局数据）
+            d["recentTop"] = all
+                .Where(m => !string.IsNullOrWhiteSpace(m.LastUsedAt))
+                .OrderByDescending(m => m.LastUsedAt)
+                .Take(6)
+                .Select(m => new Dictionary<string, object>
+                {
+                    { "id", m.Id },
+                    { "name", m.Name },
+                    { "kind", m.Kind },
+                    { "category", m.GetCategory() },
+                    { "tags", m.GetTags() },
+                    { "lastUsedAt", m.LastUsedAt ?? "" },
+                    { "useCount", m.UseCount },
+                    { "previewUrl", "https://data.pptshapes.local/" + m.Id + "/preview.png?v=" + PreviewStamp(m.Id) }
+                })
+                .ToList();
             return d;
         }
 

@@ -43,7 +43,33 @@ namespace PPTShapeLibrary
             {
                 return null;
             }
-            return CollectRange(selection.ShapeRange, name);
+            string autoName = GetAutoName(selection.ShapeRange) + " " + DateTime.Now.ToString("MM-dd HH:mm");
+            if (!ResolveItemName(name, autoName, out string resolved)) return null;   // 用户取消命名
+            return CollectRange(selection.ShapeRange, resolved);
+        }
+
+        /// <summary>
+        /// 收藏前的命名决策（AutoName 开关真正生效的地方）：
+        /// - 调用方显式给了 name → 直接用；
+        /// - 设置 AutoName=true → 用自动名（含时间戳）；
+        /// - AutoName=false → 弹输入框让用户命名（留空回退自动名），取消则放弃收藏。
+        /// </summary>
+        private static bool ResolveItemName(string explicitName, string autoName, out string resolved)
+        {
+            resolved = autoName;
+            if (!string.IsNullOrWhiteSpace(explicitName))
+            {
+                resolved = explicitName;
+                return true;
+            }
+            if (ShapeLibraryService.LoadSettings().AutoName)
+            {
+                return true;   // resolved = autoName
+            }
+            var input = new InputDialog("命名收藏", "收藏名称（留空则用自动名）：", autoName);
+            if (input.ShowDialog() != System.Windows.Forms.DialogResult.OK) return false;
+            resolved = string.IsNullOrWhiteSpace(input.Value) ? autoName : input.Value.Trim();
+            return true;
         }
 
         /// <summary>收藏当前页全部形状（B2）。</summary>
@@ -193,18 +219,25 @@ namespace PPTShapeLibrary
             {
                 return null;
             }
+            string autoName = "样式 " + DateTime.Now.ToString("MM-dd HH:mm");
+            if (!ResolveItemName(name, autoName, out string resolved)) return null;   // 用户取消命名
+            return CollectStyle(selection.ShapeRange, resolved);
+        }
 
+        /// <summary>样式收藏核心实现（命名已解析）。</summary>
+        private static string CollectStyle(PowerPoint.ShapeRange range, string name)
+        {
             string id = ShapeLibraryService.NewId();
             try
             {
                 ShapeLibraryService.CreateItemDir(id);
-                var preset = ShapeStyleExtractor.Extract(selection.ShapeRange, name);
+                var preset = ShapeStyleExtractor.Extract(range, name);
                 ShapeLibraryService.SaveStyleJson(id, ShapeStyleExtractor.ToJson(preset));
 
                 string previewPath = System.IO.Path.Combine(ShapeLibraryService.ItemsDir, id + "_tmp.png");
                 try
                 {
-                    selection.ShapeRange.Export(previewPath, PowerPoint.PpShapeFormat.ppShapeFormatPNG, 640, 480);
+                    range.Export(previewPath, PowerPoint.PpShapeFormat.ppShapeFormatPNG, 640, 480);
                     ShapeLibraryService.SavePreviewImage(id, System.IO.File.ReadAllBytes(previewPath));
                 }
                 catch { }
@@ -216,13 +249,13 @@ namespace PPTShapeLibrary
                     Name = string.IsNullOrWhiteSpace(name) ? "样式 " + DateTime.Now.ToString("MM-dd HH:mm") : name,
                     Kind = "Style",
                     CreatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
-                    ShapeCount = selection.ShapeRange.Count,
+                    ShapeCount = range.Count,
                     SourceSlide = GetSourceInfo(),
                     Category = "未分类",
                     Tags = "",
                     LastUsedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                     SortOrder = Environment.TickCount,
-                    SourceAutoType = GetAutoType(selection.ShapeRange[1])
+                    SourceAutoType = GetAutoType(range[1])
                 };
                 ShapeLibraryService.SaveMeta(meta);
                 return id;
@@ -236,14 +269,34 @@ namespace PPTShapeLibrary
 
         // ---------------- 插入 / 应用 ----------------
 
-        /// <summary>把库中形状插入到当前页中心。返回是否成功。</summary>
+        /// <summary>把库中形状插入到当前页中心。返回是否成功（失败弹框提示）。</summary>
         public static bool InsertShape(string id)
         {
-            EnsurePresentation();
+            return InsertShape(id, true, out _);
+        }
+
+        /// <summary>
+        /// 插入核心。showError=true 时失败弹 MessageBox（Ribbon 直调路径）；
+        /// false 时静默返回 false 并把错误原因写入 error（Web 桥路径，前端以 Toast 呈现）。
+        /// </summary>
+        public static bool InsertShape(string id, bool showError, out string error)
+        {
+            error = null;
+            try
+            {
+                EnsurePresentation();
+            }
+            catch (InvalidOperationException ex)
+            {
+                error = ex.Message;
+                if (showError) System.Windows.Forms.MessageBox.Show(error, "PPTShapeLibrary");
+                return false;
+            }
             string path = ShapeLibraryService.ShapeFile(id);
             if (!System.IO.File.Exists(path))
             {
-                System.Windows.Forms.MessageBox.Show("收藏文件不存在：" + path, "PPTShapeLibrary");
+                error = "收藏文件不存在，可能已被移动或删除。";
+                if (showError) System.Windows.Forms.MessageBox.Show(error, "PPTShapeLibrary");
                 return false;
             }
 
@@ -253,7 +306,11 @@ namespace PPTShapeLibrary
                 libPres = App.Presentations.Open(path, MsoTriState.msoTrue, MsoTriState.msoFalse, MsoTriState.msoFalse);
 
                 var slide = libPres.Slides[1];
-                if (slide.Shapes.Count == 0) return false;
+                if (slide.Shapes.Count == 0)
+                {
+                    error = "该收藏没有可插入的形状。";
+                    return false;
+                }
 
                 // 构造整组 ShapeRange 一次性复制（Range 参数为位置索引 1..Count）
                 int[] ids = new int[slide.Shapes.Count];
@@ -319,7 +376,8 @@ namespace PPTShapeLibrary
             }
             catch (Exception ex)
             {
-                System.Windows.Forms.MessageBox.Show("插入失败：" + ex.Message, "PPTShapeLibrary");
+                error = "插入失败：" + ex.Message;
+                if (showError) System.Windows.Forms.MessageBox.Show(error, "PPTShapeLibrary");
                 return false;
             }
             finally
@@ -331,49 +389,90 @@ namespace PPTShapeLibrary
             }
         }
 
-        /// <summary>把库中样式应用到当前选中形状。</summary>
+        /// <summary>把库中样式应用到当前选中形状。失败弹框提示。</summary>
         public static bool ApplyStyle(string id)
         {
-            EnsurePresentation();
+            return ApplyStyle(id, true, out _);
+        }
+
+        /// <summary>静默版：Web 桥路径，错误原因写入 error 由前端 Toast 呈现。</summary>
+        public static bool ApplyStyle(string id, bool showError, out string error)
+        {
+            error = null;
+            try
+            {
+                EnsurePresentation();
+            }
+            catch (InvalidOperationException ex)
+            {
+                error = ex.Message;
+                if (showError) System.Windows.Forms.MessageBox.Show(error, "PPTShapeLibrary");
+                return false;
+            }
             string json = ShapeLibraryService.LoadStyleJson(id);
             if (json == null)
             {
-                System.Windows.Forms.MessageBox.Show("样式文件不存在。", "PPTShapeLibrary");
+                error = "样式文件不存在。";
+                if (showError) System.Windows.Forms.MessageBox.Show(error, "PPTShapeLibrary");
                 return false;
             }
             var selection = App.ActiveWindow.Selection;
             if (selection == null || selection.Type != PowerPoint.PpSelectionType.ppSelectionShapes ||
                 selection.ShapeRange == null || selection.ShapeRange.Count == 0)
             {
-                System.Windows.Forms.MessageBox.Show("请先在页面上选中要应用样式的形状。", "PPTShapeLibrary");
+                error = "请先在页面上选中要应用样式的形状。";
+                if (showError) System.Windows.Forms.MessageBox.Show(error, "PPTShapeLibrary");
                 return false;
             }
             var preset = ShapeStyleExtractor.FromJson(json);
             if (preset == null)
             {
-                System.Windows.Forms.MessageBox.Show("样式解析失败。", "PPTShapeLibrary");
+                error = "样式解析失败。";
+                if (showError) System.Windows.Forms.MessageBox.Show(error, "PPTShapeLibrary");
                 return false;
             }
-            AdaptPresetToTheme(preset);
-            ShapeStyleExtractor.Apply(selection.ShapeRange, preset);
-            return true;
+            try
+            {
+                AdaptPresetToTheme(preset);
+                ShapeStyleExtractor.Apply(selection.ShapeRange, preset);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = "应用样式失败：" + ex.Message;
+                if (showError) System.Windows.Forms.MessageBox.Show(error, "PPTShapeLibrary");
+                return false;
+            }
         }
 
-        /// <summary>把样式应用到当前页所有与来源同类型的形状（D3）。</summary>
+        /// <summary>把样式应用到当前页所有与来源同类型的形状（D3）。失败弹框提示。</summary>
         public static bool ApplyStyleToSameType(string id)
         {
+            return ApplyStyleToSameType(id, true, out _);
+        }
+
+        /// <summary>静默版：Web 桥路径。</summary>
+        public static bool ApplyStyleToSameType(string id, bool showError, out string error)
+        {
+            error = null;
             var meta = ShapeLibraryService.LoadMeta(id);
             string json = ShapeLibraryService.LoadStyleJson(id);
             if (meta == null || json == null || meta.Kind != "Style")
             {
-                System.Windows.Forms.MessageBox.Show("这不是样式收藏。", "PPT形状库");
+                error = "这不是样式收藏。";
+                if (showError) System.Windows.Forms.MessageBox.Show(error, "PPT形状库");
                 return false;
             }
             var preset = ShapeStyleExtractor.FromJson(json);
-            if (preset == null) return false;
+            if (preset == null)
+            {
+                error = "样式解析失败。";
+                return false;
+            }
             if (meta.SourceAutoType <= 0)
             {
-                System.Windows.Forms.MessageBox.Show("该样式未记录来源形状类型，无法批量应用。", "PPT形状库");
+                error = "该样式未记录来源形状类型，无法批量应用。";
+                if (showError) System.Windows.Forms.MessageBox.Show(error, "PPT形状库");
                 return false;
             }
             try
@@ -397,15 +496,20 @@ namespace PPTShapeLibrary
                 }
                 if (applied == 0)
                 {
-                    System.Windows.Forms.MessageBox.Show("本页没有找到同类型的形状。", "PPT形状库");
+                    error = "本页没有找到同类型的形状。";
+                    if (showError) System.Windows.Forms.MessageBox.Show(error, "PPT形状库");
                     return false;
                 }
-                System.Windows.Forms.MessageBox.Show("已应用到 " + applied + " 个同类型形状。", "PPT形状库");
+                if (showError)
+                {
+                    System.Windows.Forms.MessageBox.Show("已应用到 " + applied + " 个同类型形状。", "PPT形状库");
+                }
                 return true;
             }
             catch (Exception ex)
             {
-                System.Windows.Forms.MessageBox.Show("批量应用失败：" + ex.Message, "PPT形状库");
+                error = "批量应用失败：" + ex.Message;
+                if (showError) System.Windows.Forms.MessageBox.Show(error, "PPT形状库");
                 return false;
             }
         }
@@ -847,6 +951,19 @@ namespace PPTShapeLibrary
                 }
             }
             catch { }
+        }
+
+        /// <summary>
+        /// 撤销最近一次文档级操作（插入/应用样式/调整条/格式化等）。
+        /// 经 CommandBars.ExecuteMso("Undo") 触发 PowerPoint 原生撤销栈。
+        /// </summary>
+        public static void UndoLastAction()
+        {
+            try
+            {
+                App.CommandBars.ExecuteMso("Undo");
+            }
+            catch { /* 无可撤销操作或处于不可撤销上下文时静默 */ }
         }
 
         /// <summary>
