@@ -768,7 +768,7 @@
         lb.appendChild(wrap);
         var info = el("div", "lb-info");
         info.appendChild(el("div", "lb-name", meta.name));
-        info.appendChild(el("div", "lb-kind", meta.kind === "Style" ? "样式收藏 · 右键卡片可应用" : "形状收藏"));
+        info.appendChild(el("div", "lb-kind", meta.kind === "Style" ? "样式素材 · 右键卡片可应用" : "形状素材"));
         lb.appendChild(info);
         var actions = el("div", "lb-actions");
         var insBtn = el("button", "bar-btn primary", "插入到当前页");

@@ -173,7 +173,7 @@ namespace PPTShapeLibrary
             catch (Exception ex)
             {
                 Log.Error(ex, "Ribbon CollectShapes");
-                System.Windows.Forms.MessageBox.Show("操作失败：" + ex.Message, "PPT形状库");
+                System.Windows.Forms.MessageBox.Show("操作失败：" + ex.Message, "素材库");
             }
         }
 
@@ -187,7 +187,7 @@ namespace PPTShapeLibrary
             catch (Exception ex)
             {
                 Log.Error(ex, "Ribbon CollectPage");
-                System.Windows.Forms.MessageBox.Show("操作失败：" + ex.Message, "PPT形状库");
+                System.Windows.Forms.MessageBox.Show("操作失败：" + ex.Message, "素材库");
             }
         }
 
@@ -201,7 +201,7 @@ namespace PPTShapeLibrary
             catch (Exception ex)
             {
                 Log.Error(ex, "Ribbon CollectStyle");
-                System.Windows.Forms.MessageBox.Show("操作失败：" + ex.Message, "PPT形状库");
+                System.Windows.Forms.MessageBox.Show("操作失败：" + ex.Message, "素材库");
             }
         }
 
@@ -215,7 +215,7 @@ namespace PPTShapeLibrary
             catch (Exception ex)
             {
                 Log.Error(ex, "Ribbon CollectClipboard");
-                System.Windows.Forms.MessageBox.Show("操作失败：" + ex.Message, "PPT形状库");
+                System.Windows.Forms.MessageBox.Show("操作失败：" + ex.Message, "素材库");
             }
         }
 
@@ -227,13 +227,13 @@ namespace PPTShapeLibrary
                 if (n > 0)
                 {
                     Globals.ThisAddIn.ShowTaskPane();
-                    System.Windows.Forms.MessageBox.Show("已批量收藏 " + n + " 页内容。", "PPT形状库");
+                    System.Windows.Forms.MessageBox.Show("已批量收藏 " + n + " 页内容。", "素材库");
                 }
             }
             catch (Exception ex)
             {
                 Log.Error(ex, "Ribbon CollectAllSlides");
-                System.Windows.Forms.MessageBox.Show("操作失败：" + ex.Message, "PPT形状库");
+                System.Windows.Forms.MessageBox.Show("操作失败：" + ex.Message, "素材库");
             }
         }
 

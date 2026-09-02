@@ -20,7 +20,7 @@ namespace PPTShapeLibrary
 
         public SettingsForm(Settings current)
         {
-            Text = "PPT形状库设置";
+            Text = "素材库设置";
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;

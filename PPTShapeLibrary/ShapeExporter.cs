@@ -88,7 +88,7 @@ namespace PPTShapeLibrary
                 }
                 if (idx.Count == 0)
                 {
-                    System.Windows.Forms.MessageBox.Show("当前页没有可收藏的形状。", "PPT形状库",
+                    System.Windows.Forms.MessageBox.Show("当前页没有可收藏的形状。", "素材库",
                         System.Windows.Forms.MessageBoxButtons.OK, System.Windows.Forms.MessageBoxIcon.Information);
                     return null;
                 }
@@ -99,7 +99,7 @@ namespace PPTShapeLibrary
             }
             catch (Exception ex)
             {
-                System.Windows.Forms.MessageBox.Show("收藏整页失败：" + ex.Message, "PPT形状库");
+                System.Windows.Forms.MessageBox.Show("收藏整页失败：" + ex.Message, "素材库");
                 return null;
             }
         }
@@ -135,7 +135,7 @@ namespace PPTShapeLibrary
             }
             catch (Exception ex)
             {
-                System.Windows.Forms.MessageBox.Show("批量收藏失败：" + ex.Message, "PPT形状库");
+                System.Windows.Forms.MessageBox.Show("批量收藏失败：" + ex.Message, "素材库");
                 return okCount;
             }
         }
@@ -156,7 +156,7 @@ namespace PPTShapeLibrary
                     && !System.Windows.Forms.Clipboard.ContainsFileDropList()
                     && !System.Windows.Forms.Clipboard.ContainsText())
                 {
-                    System.Windows.Forms.MessageBox.Show("剪贴板中没有可收藏的内容。", "PPT形状库");
+                    System.Windows.Forms.MessageBox.Show("剪贴板中没有可收藏的内容。", "素材库");
                     return null;
                 }
 
@@ -184,14 +184,14 @@ namespace PPTShapeLibrary
                 {
                     System.Windows.Forms.MessageBox.Show(
                         "剪贴板内容无法粘贴为形状" + (lastErr != null ? "：" + lastErr.Message : "") +
-                        "\n请先在 PowerPoint 中复制形状/图片后再试。", "PPT形状库");
+                        "\n请先在 PowerPoint 中复制形状/图片后再试。", "素材库");
                     return null;
                 }
                 return CollectRangeQuiet(pasted, null);
             }
             catch (Exception ex)
             {
-                System.Windows.Forms.MessageBox.Show("剪贴板收藏失败：" + ex.Message, "PPTShapeLibrary");
+                System.Windows.Forms.MessageBox.Show("剪贴板收藏失败：" + ex.Message, "素材库");
                 return null;
             }
             finally
@@ -234,7 +234,7 @@ namespace PPTShapeLibrary
                         {
                             if (System.Windows.Forms.MessageBox.Show(
                                 "检测到可能重复的收藏：「" + dup + "」。仍要收藏吗？",
-                                "PPT形状库", System.Windows.Forms.MessageBoxButtons.YesNo,
+                                "素材库", System.Windows.Forms.MessageBoxButtons.YesNo,
                                 System.Windows.Forms.MessageBoxIcon.Question) != System.Windows.Forms.DialogResult.Yes)
                             {
                                 return null;
@@ -314,7 +314,7 @@ namespace PPTShapeLibrary
             {
                 if (!quiet)
                 {
-                    System.Windows.Forms.MessageBox.Show("收藏失败：" + ex.Message, "PPTShapeLibrary");
+                    System.Windows.Forms.MessageBox.Show("收藏失败：" + ex.Message, "素材库");
                 }
                 return null;
             }
@@ -380,7 +380,7 @@ namespace PPTShapeLibrary
             }
             catch (Exception ex)
             {
-                System.Windows.Forms.MessageBox.Show("收藏样式失败：" + ex.Message, "PPTShapeLibrary");
+                System.Windows.Forms.MessageBox.Show("收藏样式失败：" + ex.Message, "素材库");
                 return null;
             }
         }
@@ -407,14 +407,14 @@ namespace PPTShapeLibrary
             catch (InvalidOperationException ex)
             {
                 error = ex.Message;
-                if (showError) System.Windows.Forms.MessageBox.Show(error, "PPTShapeLibrary");
+                if (showError) System.Windows.Forms.MessageBox.Show(error, "素材库");
                 return false;
             }
             string path = ShapeLibraryService.ShapeFile(id);
             if (!System.IO.File.Exists(path))
             {
                 error = "收藏文件不存在，可能已被移动或删除。";
-                if (showError) System.Windows.Forms.MessageBox.Show(error, "PPTShapeLibrary");
+                if (showError) System.Windows.Forms.MessageBox.Show(error, "素材库");
                 return false;
             }
 
@@ -495,7 +495,7 @@ namespace PPTShapeLibrary
             catch (Exception ex)
             {
                 error = "插入失败：" + ex.Message;
-                if (showError) System.Windows.Forms.MessageBox.Show(error, "PPTShapeLibrary");
+                if (showError) System.Windows.Forms.MessageBox.Show(error, "素材库");
                 return false;
             }
             finally
@@ -524,14 +524,14 @@ namespace PPTShapeLibrary
             catch (InvalidOperationException ex)
             {
                 error = ex.Message;
-                if (showError) System.Windows.Forms.MessageBox.Show(error, "PPTShapeLibrary");
+                if (showError) System.Windows.Forms.MessageBox.Show(error, "素材库");
                 return false;
             }
             string json = ShapeLibraryService.LoadStyleJson(id);
             if (json == null)
             {
                 error = "样式文件不存在。";
-                if (showError) System.Windows.Forms.MessageBox.Show(error, "PPTShapeLibrary");
+                if (showError) System.Windows.Forms.MessageBox.Show(error, "素材库");
                 return false;
             }
             var selection = App.ActiveWindow.Selection;
@@ -539,14 +539,14 @@ namespace PPTShapeLibrary
                 selection.ShapeRange == null || selection.ShapeRange.Count == 0)
             {
                 error = "请先在页面上选中要应用样式的形状。";
-                if (showError) System.Windows.Forms.MessageBox.Show(error, "PPTShapeLibrary");
+                if (showError) System.Windows.Forms.MessageBox.Show(error, "素材库");
                 return false;
             }
             var preset = ShapeStyleExtractor.FromJson(json);
             if (preset == null)
             {
                 error = "样式解析失败。";
-                if (showError) System.Windows.Forms.MessageBox.Show(error, "PPTShapeLibrary");
+                if (showError) System.Windows.Forms.MessageBox.Show(error, "素材库");
                 return false;
             }
             try
@@ -558,7 +558,7 @@ namespace PPTShapeLibrary
             catch (Exception ex)
             {
                 error = "应用样式失败：" + ex.Message;
-                if (showError) System.Windows.Forms.MessageBox.Show(error, "PPTShapeLibrary");
+                if (showError) System.Windows.Forms.MessageBox.Show(error, "素材库");
                 return false;
             }
         }
@@ -578,7 +578,7 @@ namespace PPTShapeLibrary
             if (meta == null || json == null || meta.Kind != "Style")
             {
                 error = "这不是样式收藏。";
-                if (showError) System.Windows.Forms.MessageBox.Show(error, "PPT形状库");
+                if (showError) System.Windows.Forms.MessageBox.Show(error, "素材库");
                 return false;
             }
             var preset = ShapeStyleExtractor.FromJson(json);
@@ -590,7 +590,7 @@ namespace PPTShapeLibrary
             if (meta.SourceAutoType <= 0)
             {
                 error = "该样式未记录来源形状类型，无法批量应用。";
-                if (showError) System.Windows.Forms.MessageBox.Show(error, "PPT形状库");
+                if (showError) System.Windows.Forms.MessageBox.Show(error, "素材库");
                 return false;
             }
             try
@@ -615,19 +615,19 @@ namespace PPTShapeLibrary
                 if (applied == 0)
                 {
                     error = "本页没有找到同类型的形状。";
-                    if (showError) System.Windows.Forms.MessageBox.Show(error, "PPT形状库");
+                    if (showError) System.Windows.Forms.MessageBox.Show(error, "素材库");
                     return false;
                 }
                 if (showError)
                 {
-                    System.Windows.Forms.MessageBox.Show("已应用到 " + applied + " 个同类型形状。", "PPT形状库");
+                    System.Windows.Forms.MessageBox.Show("已应用到 " + applied + " 个同类型形状。", "素材库");
                 }
                 return true;
             }
             catch (Exception ex)
             {
                 error = "批量应用失败：" + ex.Message;
-                if (showError) System.Windows.Forms.MessageBox.Show(error, "PPT形状库");
+                if (showError) System.Windows.Forms.MessageBox.Show(error, "素材库");
                 return false;
             }
         }
@@ -647,7 +647,7 @@ namespace PPTShapeLibrary
             if (meta == null || json == null || meta.Kind != "Style")
             {
                 error = "这不是样式收藏。";
-                if (showError) System.Windows.Forms.MessageBox.Show(error, "PPT形状库");
+                if (showError) System.Windows.Forms.MessageBox.Show(error, "素材库");
                 return false;
             }
             var preset = ShapeStyleExtractor.FromJson(json);
@@ -659,7 +659,7 @@ namespace PPTShapeLibrary
             if (meta.SourceAutoType <= 0)
             {
                 error = "该样式未记录来源形状类型，无法批量应用。";
-                if (showError) System.Windows.Forms.MessageBox.Show(error, "PPT形状库");
+                if (showError) System.Windows.Forms.MessageBox.Show(error, "素材库");
                 return false;
             }
             try
@@ -687,19 +687,19 @@ namespace PPTShapeLibrary
                 if (applied == 0)
                 {
                     error = "整份演示文稿中没有找到同类型的形状。";
-                    if (showError) System.Windows.Forms.MessageBox.Show(error, "PPT形状库");
+                    if (showError) System.Windows.Forms.MessageBox.Show(error, "素材库");
                     return false;
                 }
                 if (showError)
                 {
-                    System.Windows.Forms.MessageBox.Show("已在 " + applied + " 个同类型形状上应用样式。", "PPT形状库");
+                    System.Windows.Forms.MessageBox.Show("已在 " + applied + " 个同类型形状上应用样式。", "素材库");
                 }
                 return true;
             }
             catch (Exception ex)
             {
                 error = "批量应用失败：" + ex.Message;
-                if (showError) System.Windows.Forms.MessageBox.Show(error, "PPT形状库");
+                if (showError) System.Windows.Forms.MessageBox.Show(error, "素材库");
                 return false;
             }
         }
@@ -1092,7 +1092,7 @@ namespace PPTShapeLibrary
 
                 if (added == 0)
                 {
-                    System.Windows.Forms.MessageBox.Show("没有可导出的形状收藏。", "PPT形状库");
+                    System.Windows.Forms.MessageBox.Show("没有可导出的形状收藏。", "素材库");
                     return false;
                 }
                 outPres.SaveAs(path, PowerPoint.PpSaveAsFileType.ppSaveAsOpenXMLPresentation);
@@ -1100,7 +1100,7 @@ namespace PPTShapeLibrary
             }
             catch (Exception ex)
             {
-                System.Windows.Forms.MessageBox.Show("导出失败：" + ex.Message, "PPT形状库");
+                System.Windows.Forms.MessageBox.Show("导出失败：" + ex.Message, "素材库");
                 return false;
             }
             finally

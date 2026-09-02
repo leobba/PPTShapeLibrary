@@ -72,7 +72,7 @@ namespace PPTShapeLibrary
         {
             get
             {
-                string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PPTShapeLibrary");
+                string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "素材库");
                 Directory.CreateDirectory(dir);
                 return dir;
             }

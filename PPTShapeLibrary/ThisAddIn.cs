@@ -19,7 +19,7 @@ namespace PPTShapeLibrary
                 Log.Write("Startup begin");
                 CreatePane();
                 Log.Write("TaskPane created");
-                _taskPane = this.CustomTaskPanes.Add(_paneHost, "形状收藏库");
+                _taskPane = this.CustomTaskPanes.Add(_paneHost, "素材库");
                 _taskPane.Width = ShapeLibraryService.LoadSettings().PaneWidth > 0
                     ? ShapeLibraryService.LoadSettings().PaneWidth : 300;
                 Log.Write("TaskPane added");
@@ -39,7 +39,7 @@ namespace PPTShapeLibrary
             catch (Exception ex)
             {
                 Log.Error(ex, "ThisAddIn_Startup");
-                MessageBox.Show("插件启动失败：" + ex.Message, "PPTShapeLibrary");
+                MessageBox.Show("插件启动失败：" + ex.Message, "素材库");
             }
         }
 
@@ -81,7 +81,7 @@ namespace PPTShapeLibrary
                     Log.Error(ex, "WebPane init failed -> fallback pane");
                     if (_taskPane != null)
                     {
-                        MessageBox.Show("新界面初始化失败，将显示降级提示页。", "PPT形状库",
+                        MessageBox.Show("新界面初始化失败，将显示降级提示页。", "素材库",
                             MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         SwitchToFallbackPane("新界面初始化失败：" + ex.Message);
                     }
@@ -109,7 +109,7 @@ namespace PPTShapeLibrary
                 this.CustomTaskPanes.Remove(_taskPane);
 
                 UseFallbackPane(reason);
-                _taskPane = this.CustomTaskPanes.Add(_paneHost, "形状收藏库");
+                _taskPane = this.CustomTaskPanes.Add(_paneHost, "素材库");
                 _taskPane.Width = width;
                 _taskPane.Visible = visible;
             }
@@ -132,16 +132,16 @@ namespace PPTShapeLibrary
             {
                 Title = "导出收藏备份",
                 Filter = "收藏备份 (*.zip)|*.zip",
-                FileName = "PPT形状库备份_" + DateTime.Now.ToString("yyyyMMdd-HHmm") + ".zip"
+                FileName = "素材库备份_" + DateTime.Now.ToString("yyyyMMdd-HHmm") + ".zip"
             };
             if (dlg.ShowDialog() != DialogResult.OK) return;
             if (ShapeLibraryService.BackupTo(dlg.FileName))
             {
-                MessageBox.Show("备份完成：" + dlg.FileName, "PPT形状库");
+                MessageBox.Show("备份完成：" + dlg.FileName, "素材库");
             }
             else
             {
-                MessageBox.Show("备份失败，请检查目标位置是否可写。", "PPT形状库", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show("备份失败，请检查目标位置是否可写。", "素材库", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
 
@@ -154,16 +154,16 @@ namespace PPTShapeLibrary
                 Filter = "收藏备份 (*.zip)|*.zip"
             };
             if (dlg.ShowDialog() != DialogResult.OK) return;
-            if (MessageBox.Show("导入将覆盖当前所有收藏，确定继续？", "PPT形状库",
+            if (MessageBox.Show("导入将覆盖当前所有收藏，确定继续？", "素材库",
                 MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
             if (ShapeLibraryService.RestoreFrom(dlg.FileName))
             {
-                MessageBox.Show("导入完成。", "PPT形状库");
+                MessageBox.Show("导入完成。", "素材库");
                 RefreshLibrary();
             }
             else
             {
-                MessageBox.Show("导入失败，备份文件可能已损坏。", "PPT形状库", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show("导入失败，备份文件可能已损坏。", "素材库", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
 
@@ -174,12 +174,12 @@ namespace PPTShapeLibrary
             {
                 Title = "导出收藏为 PPTX",
                 Filter = "PowerPoint 演示文稿 (*.pptx)|*.pptx",
-                FileName = "形状收藏库_" + DateTime.Now.ToString("yyyyMMdd-HHmm") + ".pptx"
+                FileName = "素材库_" + DateTime.Now.ToString("yyyyMMdd-HHmm") + ".pptx"
             };
             if (dlg.ShowDialog() != DialogResult.OK) return;
             if (ShapeExporter.ExportLibraryToPptx(dlg.FileName))
             {
-                MessageBox.Show("导出完成：" + dlg.FileName, "PPT形状库");
+                MessageBox.Show("导出完成：" + dlg.FileName, "素材库");
             }
         }
 
