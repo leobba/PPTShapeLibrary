@@ -1,0 +1,67 @@
+# ================= Visual Studio / IDE =================
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+*.DotSettings.user
+.vscode/
+.idea/
+
+# ================= Build results =================
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]uild/
+logs/
+
+# ================= NuGet =================
+*.nupkg
+*.snupkg
+packages/
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# ================= ClickOnce 发布产物（可随时用 msbuild /t:Publish 重新生成） =================
+publish/
+*.vsto
+*.dll.deploy
+*.application
+setup.exe
+
+# ================= 测试 =================
+[Tt]est[Rr]esult*/
+*.trx
+coverage/
+
+# ================= Windows / Office 残留 =================
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+*.tmp
+*.bak
+*_i.c
+*_p.c
+*.ilk
+*.meta
+*.obj
+*.pch
+*.pdb
+*.ipdb
+*.iobj
+
+# ================= 日志 =================
+*.log
+
+# 说明：PPTShapeLibrary_TemporaryKey.pfx 为 VS 自动生成的开发期临时签名密钥，
+# 工程文件硬编码了其指纹（ManifestCertificateThumbprint），缺失会导致 Release/发布
+# 构建失败，故予以跟踪；正式分发前应替换为正式代码签名证书并停止跟踪该文件。
