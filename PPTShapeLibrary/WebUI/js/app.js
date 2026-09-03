@@ -46,7 +46,17 @@
     }
 
     // ---------------- 初始化 ----------------
+    function getUrlParam(name) {
+        var m = new RegExp("[?&]" + name + "=([^&]+)").exec(window.location.search);
+        return m ? decodeURIComponent(m[1]) : "";
+    }
+
     document.addEventListener("DOMContentLoaded", function () {
+        var popupView = getUrlParam("view");   // 独立弹窗：?view=toolX / settings
+        if (popupView) {
+            buildPopupView(popupView);
+            return;
+        }
         buildSkeleton();
         bindEvents();
         Bridge.init().then(function (data) {
@@ -100,18 +110,23 @@
         var nav = el("div", "app-nav");
         var navTop = el("div", "app-nav-top");
         var brand = el("div", "app-brand");
-        brand.appendChild(ico("\uE8A5"));
+        var bIc = el("span", "msym", "photo_library");
+        bIc.setAttribute("aria-hidden", "true");
+        brand.appendChild(bIc);
         brand.appendChild(el("span", "", "素材库"));
         brand.title = "PPT 素材库";
         navTop.appendChild(brand);
         var themeMini = el("button", "nav-theme-mini");
-        themeMini.innerHTML = '<span class="ico">\uE793</span>';
+        var tmIc = el("span", "msym", "dark_mode");
+        tmIc.setAttribute("aria-hidden", "true");
+        themeMini.appendChild(tmIc);
         themeMini.title = "切换深浅主题";
         themeMini.addEventListener("click", function () {
             var next = (state.settings.theme === "dark") ? "light" : "dark";
             Bridge.saveSettings({ theme: next }).then(function (s) {
                 state.settings = s;
                 applyTheme(s.theme);
+                tmIc.textContent = next === "dark" ? "light_mode" : "dark_mode";
             }).catch(function (e) { toast(e.message, true); });
         });
         navTop.appendChild(themeMini);
@@ -120,8 +135,14 @@
         var navTabs = el("div", "app-nav-tabs");
         navTabs.id = "appNavTabs";
         NAV_ITEMS.forEach(function (it) {
-            var b = el("button", "nav-tab" + (it.view === "library" ? " active" : ""), it.label);
+            var b = el("button", "nav-tab" + (it.view === "library" ? " active" : ""));
             b.dataset.view = it.view;
+            if (it.icon) {
+                var ic = el("span", "msym", it.icon);
+                ic.setAttribute("aria-hidden", "true");
+                b.appendChild(ic);
+            }
+            b.appendChild(el("span", "", it.label));
             b.addEventListener("click", function () {
                 activateNavTab(it.view);
                 switchView(it.view);
@@ -310,18 +331,18 @@
     // ---------------- 视图切换 ----------------
     var currentView = "library";
 
-    // 顶部导航项（工具平铺）。view 取值：library | settings | tool1..tool8
+    // 顶部导航项（工具平铺）。icon 为 Material Symbols ligature 名。
     var NAV_ITEMS = [
-        { view: "library", label: "素材库" },
-        { view: "tool1", label: "文字样式" },
-        { view: "tool2", label: "一键换字体" },
-        { view: "tool3", label: "查找替换" },
-        { view: "tool4", label: "文字清理" },
-        { view: "tool5", label: "导出图片" },
-        { view: "tool6", label: "清理瘦身" },
-        { view: "tool7", label: "统一尺寸" },
-        { view: "tool8", label: "图片网格" },
-        { view: "settings", label: "设置" }
+        { view: "library", label: "素材库", icon: "photo_library" },
+        { view: "tool1", label: "文字样式", icon: "text_fields" },
+        { view: "tool2", label: "一键换字体", icon: "font_download" },
+        { view: "tool3", label: "查找替换", icon: "manage_search" },
+        { view: "tool4", label: "文字清理", icon: "cleaning_services" },
+        { view: "tool5", label: "导出图片", icon: "image" },
+        { view: "tool6", label: "清理瘦身", icon: "delete_sweep" },
+        { view: "tool7", label: "统一尺寸", icon: "aspect_ratio" },
+        { view: "tool8", label: "图片网格", icon: "grid_view" },
+        { view: "settings", label: "设置", icon: "settings" }
     ];
 
     function activateNavTab(view) {
@@ -349,6 +370,125 @@
         if (name === "library") { reload(); }
         if (name === "settings") { renderSettingsForm(); }
         if (name && name.indexOf("tool") === 0) { onToolsPanelShown(); }
+    }
+
+    // ---------------- 独立弹窗模式（?view=toolX / settings） ----------------
+    // 弹窗由 ToolPopupHostForm 以 WebView2 打开，仅渲染单个工具/设置，全窗口铺满，
+    // 不出现素材库导航/网格，从而在小窗口内自适应布局、不遮挡。
+    function buildPopupView(viewKey) {
+        var app = $("#app");
+        app.innerHTML = "";
+        app.classList.add("popup-mode");
+
+        var root = el("div", "popup-root");
+        root.id = "popupRoot";
+        app.appendChild(root);
+
+        var head = el("div", "popup-head");
+        var title = el("div", "popup-title");
+        head.appendChild(title);
+        root.appendChild(head);
+
+        var body = el("div", "popup-body");
+        body.id = "popupBody";
+        root.appendChild(body);
+
+        var titleMap = {
+            tool1: "文字样式", tool2: "一键换字体", tool3: "查找 / 替换", tool4: "文字清理",
+            tool5: "导出图片", tool6: "清理瘦身", tool7: "统一尺寸", tool8: "图片网格",
+            settings: "设置"
+        };
+        var iconMap = {
+            tool1: "text_fields", tool2: "font_download", tool3: "manage_search", tool4: "cleaning_services",
+            tool5: "image", tool6: "delete_sweep", tool7: "aspect_ratio", tool8: "grid_view",
+            settings: "settings"
+        };
+        if (iconMap[viewKey]) {
+            var tIc = el("span", "msym", iconMap[viewKey]);
+            tIc.setAttribute("aria-hidden", "true");
+            title.appendChild(tIc);
+        }
+        title.appendChild(el("span", "", titleMap[viewKey] || "工具"));
+
+        var content = null;
+        switch (viewKey) {
+            case "tool1": content = buildTextStyleControls(); break;
+            case "tool2": content = buildFontReplaceControls(); break;
+            case "tool3": content = buildFindReplaceControls(); break;
+            case "tool4": content = buildCleanControls(); break;
+            case "tool5": content = buildExportImgControls(); break;
+            case "tool6": content = buildScanCleanControls(); break;
+            case "tool7": content = buildResizeControls(); break;
+            case "tool8": content = buildImageGridControls(); break;
+            case "settings": content = null; break;   // 设置用专用渲染
+            default: content = null;
+        }
+        if (viewKey === "settings") {
+            // 复用设置表单（需 state.settings 就绪）
+            Bridge.init().then(function (data) {
+                state.settings = data;
+                applyTheme(data.theme || "light");
+                renderPopupSettings();
+            }).catch(function (err) { toast("初始化失败：" + err.message, true); });
+            return;
+        }
+        if (content) {
+            var card = el("div", "tool-card");
+            card.appendChild(content);
+            body.appendChild(card);
+        }
+        Bridge.init().then(function (data) {
+            state.settings = data;
+            applyTheme(data.theme || "light");
+            if (viewKey.indexOf("tool") === 0) onToolsPanelShown();
+        }).catch(function () {});
+    }
+
+    // 弹窗内的设置表单（把原生弹窗所需字段放一张卡内）
+    function renderPopupSettings() {
+        var body = $("#popupBody");
+        if (!body) return;
+        var s = state.settings || {};
+        var card = el("div", "tool-card");
+        card.appendChild(el("div", "tool-card-title", "偏好设置"));
+
+        var theme = makeSelect(["浅色", "深色"], s.theme === "dark" ? 1 : 0);
+        var insert = makeSelect(["页面居中", "原始位置"], s.insertPosition === "original" ? 1 : 0);
+        var cardSize = makeSelect(["紧凑", "标准", "大图"],
+            s.cardSize === "large" ? 2 : s.cardSize === "standard" ? 1 : 0);
+        var pageSize = makeInput("每页数量", s.pageSize || 200);
+        var autoName = makeCheck("按形状类型自动命名", !!s.autoName);
+        var clickToInsert = makeCheck("单击卡片直接插入（取消则单击预览、双击插入）", s.clickToInsert !== false);
+        var themeAdapt = makeCheck("应用样式时把主色映射到当前文档主题色", !!s.themeAdaptStyle);
+        var widthNum = makeInput("面板宽度", s.paneWidth || 300);
+
+        var save = runBtn("保存设置", function () {
+            return Bridge.saveSettings({
+                theme: theme.selectedIndex === 1 ? "dark" : "light",
+                insertPosition: insert.selectedIndex === 1 ? "original" : "center",
+                cardSize: cardSize.selectedIndex === 2 ? "large" : cardSize.selectedIndex === 1 ? "standard" : "compact",
+                pageSize: parseInt(pageSize.value, 10) || 200,
+                autoName: autoName.querySelector("input").checked,
+                clickToInsert: clickToInsert.querySelector("input").checked,
+                themeAdaptStyle: themeAdapt.querySelector("input").checked,
+                paneWidth: parseInt(widthNum.value, 10) || 300
+            }).then(function (d) {
+                state.settings = d;
+                applyTheme(d.theme); applyCardSize(d.cardSize);
+                toast("设置已保存");
+            });
+        });
+
+        card.appendChild(fld("主题", theme));
+        card.appendChild(fld("插入位置", insert));
+        card.appendChild(fld("卡片大小", cardSize));
+        card.appendChild(fld("分页数量", pageSize));
+        card.appendChild(fld("面板宽度", widthNum));
+        card.appendChild(fld("", autoName));
+        card.appendChild(fld("", clickToInsert));
+        card.appendChild(fld("", themeAdapt));
+        card.appendChild(fld("", save));
+        body.appendChild(card);
     }
 
     // ---------------- 工具面板 ----------------

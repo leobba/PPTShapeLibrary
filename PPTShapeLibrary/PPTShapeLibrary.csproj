@@ -145,6 +145,7 @@
     <Compile Include="InputDialog.cs" />
     <Compile Include="ILibraryPane.cs" />
     <Compile Include="WebPaneHost.cs" />
+    <Compile Include="ToolPopupHostForm.cs" />
     <Compile Include="BridgeController.cs" />
     <Compile Include="Log.cs" />
     <Compile Include="StylePreset.cs" />

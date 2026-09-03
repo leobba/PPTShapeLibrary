@@ -44,10 +44,13 @@ namespace PPTShapeLibrary
                 AutoScroll = true
             };
 
-            AddTool(flow, "版式 / 批处理", "整稿导出 PNG/JPG；清理瘦身；统一尺寸；图片网格插入", () => Show<PPTFormatToolsForm>());
+            AddTool(flow, "导出图片", "整稿逐页导出 PNG/JPG（Web 界面）", () => OpenWebTool("tool5"));
+            AddTool(flow, "清理瘦身", "删空白页/隐藏/页外对象、清空备注、移除动作（Web 界面）", () => OpenWebTool("tool6"));
+            AddTool(flow, "统一尺寸", "按宽/高/等比批量统一（Web 界面）", () => OpenWebTool("tool7"));
+            AddTool(flow, "图片网格", "多图 contain 排成网格插入（Web 界面）", () => OpenWebTool("tool8"));
             var note = new Label
             {
-                Text = "文字样式、换字体、查找替换、清理等常用工具已内置到面板的「工具」视图（Ribbon「小工具」）。",
+                Text = "文字样式、换字体、查找替换、清理等同样以 Web 工具窗口提供（Ribbon「工具」组直达）。",
                 Font = new Font("Microsoft YaHei", 8.5F),
                 ForeColor = Color.FromArgb(0x66, 0x70, 0x7E),
                 Width = 440,
@@ -91,11 +94,11 @@ namespace PPTShapeLibrary
             flow.Controls.Add(card);
         }
 
-        private void Show<T>() where T : Form, new()
+        private void OpenWebTool(string viewKey)
         {
-            using (var frm = new T())
+            using (var popup = new ToolPopupHostForm(viewKey))
             {
-                frm.ShowDialog(this);
+                popup.ShowDialog(this);
             }
         }
     }

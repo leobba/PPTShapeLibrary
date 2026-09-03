@@ -132,17 +132,17 @@ namespace PPTShapeLibrary
             this.grpLibrary.Items.Add(this.btnRestore);
             this.grpLibrary.Items.Add(this.btnExportPptx);
 
-            // ---- 工具组（8 个 Web 工具按钮，点击直接弹出独立工具窗口）----
+            // ---- 工具组（8 个 Web 工具按钮，点击直接弹出 Web UI 工具窗口）----
             string[][] toolDefs =
             {
-                new[] { "文字样式", "textStyle" },
-                new[] { "一键换字体", "fontReplace" },
-                new[] { "查找替换", "findReplace" },
-                new[] { "文字清理", "cleanText" },
-                new[] { "导出图片", "exportImages" },
-                new[] { "清理瘦身", "scanClean" },
-                new[] { "统一尺寸", "resize" },
-                new[] { "图片网格", "imageGrid" },
+                new[] { "文字样式", "tool1" },
+                new[] { "一键换字体", "tool2" },
+                new[] { "查找替换", "tool3" },
+                new[] { "文字清理", "tool4" },
+                new[] { "导出图片", "tool5" },
+                new[] { "清理瘦身", "tool6" },
+                new[] { "统一尺寸", "tool7" },
+                new[] { "图片网格", "tool8" },
             };
             _toolButtons = new Microsoft.Office.Tools.Ribbon.RibbonButton[toolDefs.Length];
             for (int ti = 0; ti < toolDefs.Length; ti++)
@@ -303,24 +303,12 @@ namespace PPTShapeLibrary
             }
         }
 
-        /// <summary>按工具键弹出独立工具窗口（与 Ribbon 其它按钮一致，点击即弹窗）。</summary>
+        /// <summary>按工具键弹出 Web UI 工具窗口（WebView2 呈现单工具，观感与素材库一致）。</summary>
         private void OpenToolWindow(string key)
         {
-            System.Windows.Forms.Form frm = null;
-            switch (key)
+            using (var popup = new ToolPopupHostForm(key))
             {
-                case "textStyle": frm = new TextStyleToolForm(); break;
-                case "fontReplace": frm = new FontReplaceToolForm(); break;
-                case "findReplace": frm = new PPTTextToolsForm("replace"); break;
-                case "cleanText": frm = new PPTTextToolsForm("clean"); break;
-                case "exportImages": frm = new PPTFormatToolsForm(0, true); break;
-                case "scanClean": frm = new PPTFormatToolsForm(1, true); break;
-                case "resize": frm = new PPTFormatToolsForm(2, true); break;
-                case "imageGrid": frm = new PPTFormatToolsForm(3, true); break;
-            }
-            if (frm != null)
-            {
-                using (frm) { frm.ShowDialog(); }
+                popup.ShowDialog();
             }
         }
 
@@ -328,7 +316,10 @@ namespace PPTShapeLibrary
         {
             try
             {
-                Globals.ThisAddIn.ShowSettingsView();
+                using (var popup = new ToolPopupHostForm("settings"))
+                {
+                    popup.ShowDialog();
+                }
             }
             catch (Exception ex) { Log.Error(ex, "Ribbon Settings"); }
         }
