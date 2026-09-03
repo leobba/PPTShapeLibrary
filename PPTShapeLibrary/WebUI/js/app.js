@@ -112,16 +112,53 @@
         libView.id = "libView";
         app.appendChild(libView);
 
+        // ⓪ 素材库标题条：图标+名称（左） / 库管理+主题切换（右）
+        var topBar = el("div", "lib-topbar");
+        var tbBrand = el("div", "lib-title");
+        var tbIc = el("span", "msym", "photo_library");
+        tbIc.setAttribute("aria-hidden", "true");
+        tbBrand.appendChild(tbIc);
+        tbBrand.appendChild(el("span", "", "素材库"));
+        topBar.appendChild(tbBrand);
+        var tbRight = el("div", "lib-topbar-right");
+        var mgmtBtn2 = el("button", "topbar-btn");
+        mgmtBtn2.id = "mgmtToggle";
+        var mgIc = el("span", "msym", "tune");
+        mgIc.setAttribute("aria-hidden", "true");
+        mgmtBtn2.appendChild(mgIc);
+        mgmtBtn2.title = "库管理：标签管理 / 去重清理 / 导入素材包";
+        mgmtBtn2.addEventListener("click", function () {
+            showMgmtMenu(mgmtBtn2);
+        });
+        tbRight.appendChild(mgmtBtn2);
+        var themeBtn2 = el("button", "topbar-btn");
+        themeBtn2.id = "themeToggle2";
+        var thIc = el("span", "msym", "dark_mode");
+        thIc.setAttribute("aria-hidden", "true");
+        themeBtn2.appendChild(thIc);
+        themeBtn2.title = "切换深浅主题";
+        themeBtn2.addEventListener("click", function () {
+            var next = (state.settings.theme === "dark") ? "light" : "dark";
+            Bridge.saveSettings({ theme: next }).then(function (s) {
+                state.settings = s;
+                applyTheme(s.theme);
+                thIc.textContent = next === "dark" ? "light_mode" : "dark_mode";
+            }).catch(function (e) { toast(e.message, true); });
+        });
+        tbRight.appendChild(themeBtn2);
+        topBar.appendChild(tbRight);
+        libView.appendChild(topBar);
+
         // ① 头部
         var header = el("div", "header");
         var hrow = el("div", "header-row");
         var sw = el("div", "search-wrap");
-        var sico = ico("\uE721");
-        sico.classList.add("ico-search");
+        var sico = el("span", "msym ico-search", "search");
+        sico.setAttribute("aria-hidden", "true");
         sw.appendChild(sico);
         var search = el("input");
         search.id = "searchInput";
-        search.placeholder = "\uE721  搜索 名称 / 分类 / 标签";
+        search.placeholder = "搜索 名称 / 分类 / 标签";
         search.setAttribute("autocomplete", "off");
         sw.appendChild(search);
         hrow.appendChild(sw);
@@ -167,24 +204,10 @@
         filterRow.appendChild(tagSel);
         app.appendChild(filterRow);
 
-        // ③ 状态行
+        // ③ 状态行（计数；管理/主题在顶部标题条）
         var status = el("div", "status-row");
         var cnt = el("span"); cnt.id = "lblCount";
         status.appendChild(cnt);
-        var mgmtBtn = el("button", "theme-toggle");
-        mgmtBtn.id = "mgmtToggle";
-        mgmtBtn.innerHTML = '<span class="ico">\uE713</span>';
-        mgmtBtn.title = "库管理：标签管理 / 去重清理 / 导入素材包";
-        mgmtBtn.addEventListener("click", function () {
-            closeContextMenu();
-            showMgmtMenu(mgmtBtn);
-        });
-        status.appendChild(mgmtBtn);
-        var themeBtn = el("button", "theme-toggle");
-        themeBtn.id = "themeToggle";
-        themeBtn.innerHTML = '<span class="ico">\uE793</span>';
-        themeBtn.title = "切换深浅主题";
-        status.appendChild(themeBtn);
         app.appendChild(status);
 
         // ④ 网格滚动区
@@ -884,14 +907,6 @@
             reload();
         });
 
-        $("#themeToggle").addEventListener("click", function () {
-            var next = (state.settings.theme === "dark") ? "light" : "dark";
-            Bridge.saveSettings({ theme: next }).then(function (s) {
-                state.settings = s;
-                applyTheme(s.theme);
-            }).catch(function (e) { toast(e.message, true); });
-        });
-
         // 滚动分页
         $("#gridScroll").addEventListener("scroll", debounce(function () {
             var sc = this;
@@ -1060,10 +1075,11 @@
         if (state.items.length === 0) {
             var empty = $("#emptyState");
             empty.style.display = "";
-            empty.innerHTML = '<span class="ico">\uE8A5</span>' +
-                ((state.filter || state.category !== "全部")
-                    ? "没有符合筛选条件的收藏"
-                    : "还没有收藏<br><br>选中页面上的形状<br>点击工具栏「收藏形状」或「收藏样式」");
+            empty.innerHTML = '' +
+                '<div class="empty-ico msym" aria-hidden="true">' + (state.filter || state.category !== "全部" ? "search_off" : "photo_library") + '</div>' +
+                (state.filter || state.category !== "全部" || state.kind !== "全部" || state.tag !== ""
+                    ? "<div class=\"empty-main\">没有符合筛选条件的素材</div><div class=\"empty-sub\">试试清空搜索词、切换分类/类型/标签</div>"
+                    : "<div class=\"empty-main\">素材库还是空的</div><div class=\"empty-sub\">在演示文稿中选中形状，点击顶部「素材库」选项卡里的「收藏形状」「收藏整页」或「收藏样式」<br>也可以从「收藏剪贴板」「收藏整稿」快速批量收录</div>");
             updateStatus();
             return;
         }
