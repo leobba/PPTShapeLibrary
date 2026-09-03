@@ -96,14 +96,29 @@
         var app = $("#app");
         app.innerHTML = "";
 
-        // ⓪ 顶部导航条（素材库 | 各工具平铺 | 设置）
+        // ⓪ 顶部导航（两行：上行品牌+主题，下行全部工具平铺可换行）
         var nav = el("div", "app-nav");
-        var brand = el("div", "app-brand", "\uE8A5");
+        var navTop = el("div", "app-nav-top");
+        var brand = el("div", "app-brand");
+        brand.appendChild(ico("\uE8A5"));
+        brand.appendChild(el("span", "", "素材库"));
         brand.title = "PPT 素材库";
-        nav.appendChild(brand);
+        navTop.appendChild(brand);
+        var themeMini = el("button", "nav-theme-mini");
+        themeMini.innerHTML = '<span class="ico">\uE793</span>';
+        themeMini.title = "切换深浅主题";
+        themeMini.addEventListener("click", function () {
+            var next = (state.settings.theme === "dark") ? "light" : "dark";
+            Bridge.saveSettings({ theme: next }).then(function (s) {
+                state.settings = s;
+                applyTheme(s.theme);
+            }).catch(function (e) { toast(e.message, true); });
+        });
+        navTop.appendChild(themeMini);
+        nav.appendChild(navTop);
+
         var navTabs = el("div", "app-nav-tabs");
         navTabs.id = "appNavTabs";
-        // 导航项定义：{ view, label }
         NAV_ITEMS.forEach(function (it) {
             var b = el("button", "nav-tab" + (it.view === "library" ? " active" : ""), it.label);
             b.dataset.view = it.view;
@@ -116,10 +131,14 @@
         nav.appendChild(navTabs);
         app.appendChild(nav);
 
-        // ⓪.1 主内容包装：素材库视图内容都放进 #libView；工具/设置为覆盖面板
+        // ⓪.1 内容区：libView 与工具/设置覆盖面板的公共父级
+        var contentArea = el("div", "content-area");
+        contentArea.id = "contentArea";
+        app.appendChild(contentArea);
+
         var libView = el("div", "lib-view");
         libView.id = "libView";
-        app.appendChild(libView);
+        contentArea.appendChild(libView);
 
         // ① 头部
         var header = el("div", "header");
@@ -272,18 +291,20 @@
         toastWrap.className = "toast-wrap";
         app.appendChild(toastWrap);
 
-        // 除 nav 与 toast-wrap 外，把已直接 append 到 #app 的内容收进 #libView
+        // 除 nav/contentArea/toast-wrap 外，把已直接 append 到 #app 的内容收进 #libView
         var libViewBox = $("#libView");
         Array.prototype.slice.call(app.children).forEach(function (c) {
             if (c === libViewBox) return;
             if (c.classList && c.classList.contains("app-nav")) return;
+            if (c.classList && c.classList.contains("content-area")) return;
             if (c.classList && c.classList.contains("toast-wrap")) return;
             libViewBox.appendChild(c);
         });
 
-        // 工具 / 设置视图面板（覆盖层，默认隐藏）
-        buildToolsPanel(app);
-        buildSettingsPanel(app);
+        // 工具 / 设置视图面板（挂在 #contentArea 下，随内容区定位）
+        var area = $("#contentArea");
+        buildToolsPanel(area);
+        buildSettingsPanel(area);
     }
 
     // ---------------- 视图切换 ----------------
