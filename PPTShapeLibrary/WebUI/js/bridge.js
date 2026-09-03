@@ -103,6 +103,12 @@
         setTags: function (id, tags) { return send("setTags", { id: id, tags: tags }); },
         setCategory: function (id, category) { return send("setCategory", { id: id, category: category }); },
         batchMove: function (ids, category) { return send("batchMove", { ids: ids, category: category }); },
+        // 一级分组
+        setGroup: function (id, group) { return send("setGroup", { id: id, group: group }); },
+        batchMoveGroup: function (ids, group) { return send("batchMoveGroup", { ids: ids, group: group }); },
+        createGroup: function (name) { return send("createGroup", { name: name }); },
+        renameGroup: function (oldName, newName) { return send("renameGroup", { oldName: oldName, newName: newName }); },
+        deleteGroup: function (name) { return send("deleteGroup", { name: name }); },
         reorder: function (orderedIds) { return send("reorder", { orderedIds: orderedIds }); },
         openFolder: function (id) { return send("openFolder", { id: id }); },
         getSettings: function () { return send("getSettings"); },

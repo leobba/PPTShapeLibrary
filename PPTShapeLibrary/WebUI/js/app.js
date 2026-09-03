@@ -293,6 +293,24 @@
         var bMove = el("button", "bar-btn", "移动分类");
         bMove.addEventListener("click", function () { batchMovePrompt(); });
         batch.appendChild(bMove);
+        var bMoveGrp = el("button", "bar-btn", "移动分组");
+        bMoveGrp.addEventListener("click", function () {
+            var ids = Object.keys(state.selected);
+            if (ids.length === 0) return;
+            var groups = (state.groups || []).filter(function (g) { return g !== "全部"; });
+            inputModal("批量移动到分组", "输入一级分组名（" + (groups.length ? groups.join(" / ") : "我的 等") + "，不存在将新建）：", "", function (v) {
+                if (!v) return;
+                Bridge.createGroup({ name: v }).then(function () {
+                    return Bridge.batchMoveGroup(ids, v);
+                }).then(function () {
+                    clearSelection();
+                    refreshAll();
+                    selectGroup(v);
+                    toast("已移动 " + ids.length + " 项到「" + v + "」");
+                }).catch(function (e) { toast(e.message, true); });
+            });
+        });
+        batch.appendChild(bMoveGrp);
         var bPack = el("button", "bar-btn", "导出素材包");
         bPack.addEventListener("click", function () {
             var ids = Object.keys(state.selected);
@@ -1567,7 +1585,21 @@
         mi("移动到分类…", function () {
             inputModal("移动到分类", "分类名称（输入新分类或已有分类）：", meta.category, function (v) {
                 if (!v) return;
-                Bridge.setCategory(meta.id, v).then(function () { reload(); }).catch(function (e) { toast(e.message, true); });
+                Bridge.setCategory(meta.id, v).then(function () { refreshAll(); }).catch(function (e) { toast(e.message, true); });
+            });
+        });
+        mi("移动到分组…", function () {
+            var groups = (state.groups || []).filter(function (g) { return g !== meta.group && g !== "全部"; });
+            var hint = "输入一级分组名（" + (groups.length ? groups.join(" / ") : "我的 等") + "，不存在将自动新建）：";
+            inputModal("移动到分组", hint, meta.group || "我的", function (v) {
+                if (!v) return;
+                var grp = v.trim();
+                Bridge.createGroup({ name: grp }).then(function () {
+                    Bridge.setGroup(meta.id, grp).then(function () {
+                        refreshAll();
+                        selectGroup(grp);
+                    }).catch(function (e) { toast(e.message, true); });
+                }).catch(function (e) { toast(e.message, true); });
             });
         });
         mi("编辑标签…", function () {

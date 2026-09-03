@@ -813,6 +813,33 @@ namespace PPTShapeLibrary
             }
         }
 
+        /// <summary>按既有分类把旧收藏归入一级组（幂等，每次启动执行）：内置素材→素材，学术模板→模板，其余保持"我的"。</summary>
+        public static void EnsureGroupAssignments()
+        {
+            try
+            {
+                bool changed = false;
+                foreach (var m in ShapeLibraryService.LoadAllItems())
+                {
+                    string want = null;
+                    string cat = m.GetCategory();
+                    if (cat == "内置素材") want = "素材";
+                    else if (cat == "学术模板") want = "模板";
+                    if (want != null && m.GetGroup() != want)
+                    {
+                        m.Group = want;
+                        ShapeLibraryService.SaveMeta(m);
+                        changed = true;
+                    }
+                }
+                if (changed) ShapeLibraryService.InvalidateCachePublic();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "EnsureGroupAssignments");
+            }
+        }
+
         private static string AcademicMarker
         {
             get { return System.IO.Path.Combine(ShapeLibraryService.RootDir, ".academic_installed"); }
@@ -1412,6 +1439,223 @@ namespace PPTShapeLibrary
         private static void TryDelete(string path)
         {
             try { if (System.IO.File.Exists(path)) System.IO.File.Delete(path); } catch { }
+        }
+
+        // ---------------- 内置内容库（背景/文字/图例 等） ----------------
+
+        private static string ContentMarker
+        {
+            get { return System.IO.Path.Combine(ShapeLibraryService.RootDir, ".content_installed"); }
+        }
+
+        /// <summary>安装"内容库"条目：按一级组 + 二级分类归位（背景/文字/图例；素材补充边框线条）。幂等。</summary>
+        public static void InstallLibraryContent()
+        {
+            try
+            {
+                if (System.IO.File.Exists(ContentMarker)) return;
+
+                var specs = new System.Collections.Generic.List<Tuple<string, string, string, string>> // name, group, category, kind
+                {
+                    // 背景
+                    Tuple.Create("背景·学术蓝", "背景", "纯色", "bg"),
+                    Tuple.Create("背景·奶油白", "背景", "纯色", "bg"),
+                    Tuple.Create("背景·蓝紫渐变", "背景", "渐变", "bgGrad"),
+                    Tuple.Create("背景·青绿渐变", "背景", "渐变", "bgGrad2"),
+                    // 文字
+                    Tuple.Create("文字·大标题", "文字", "标题", "txtTitle"),
+                    Tuple.Create("文字·副标题", "文字", "副标题", "txtSub"),
+                    Tuple.Create("文字·数据大数字", "文字", "特效字", "txtNumber"),
+                    Tuple.Create("文字·引用块", "文字", "特效字", "txtQuote"),
+                    // 图例
+                    Tuple.Create("图例·流程箭头", "图例", "流程", "legendFlow"),
+                    Tuple.Create("图例·环形示意", "图例", "环形", "legendRing"),
+                    Tuple.Create("图例·对比双向", "图例", "对比", "legendCompare"),
+                    // 素材补充（线条/边框）
+                    Tuple.Create("素材·双线分隔", "素材", "线条", "matLine"),
+                    Tuple.Create("素材·圆角边框", "素材", "边框", "matFrame"),
+                };
+
+                foreach (var spec in specs)
+                {
+                    try
+                    {
+                        PowerPoint.Presentation pres = null;
+                        try
+                        {
+                            pres = App.Presentations.Add(MsoTriState.msoFalse);
+                            pres.PageSetup.SlideSize = PowerPoint.PpSlideSizeType.ppSlideSizeOnScreen;
+                            var slide = pres.Slides.Add(1, PowerPoint.PpSlideLayout.ppLayoutBlank);
+                            DrawContentItem(slide, spec.Item4);
+                            if (slide.Shapes.Count == 0) continue;
+
+                            string id = ShapeLibraryService.NewId();
+                            ShapeLibraryService.CreateItemDir(id);
+                            try
+                            {
+                                string previewPath = System.IO.Path.Combine(ShapeLibraryService.ItemsDir, id + "_tmp.png");
+                                slide.Export(previewPath, "PNG", 320, 240);
+                                ShapeLibraryService.SavePreviewImage(id, System.IO.File.ReadAllBytes(previewPath));
+                                TryDelete(previewPath);
+                            }
+                            catch { }
+
+                            pres.SaveAs(ShapeLibraryService.ShapeFile(id), PowerPoint.PpSaveAsFileType.ppSaveAsOpenXMLPresentation);
+
+                            var meta = new LibraryMeta
+                            {
+                                Id = id,
+                                Name = spec.Item1,
+                                Kind = "Shape",
+                                CreatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                                ShapeCount = slide.Shapes.Count,
+                                Category = spec.Item3,
+                                Group = spec.Item2,
+                                Tags = "内置",
+                                LastUsedAt = "",
+                                SortOrder = Environment.TickCount
+                            };
+                            ShapeLibraryService.SaveMeta(meta);
+                        }
+                        finally
+                        {
+                            if (pres != null) { try { pres.Close(); } catch { } }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error(ex, "Content:" + spec.Item1);
+                    }
+                }
+                System.IO.File.WriteAllText(ContentMarker, DateTime.Now.ToString());
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "InstallLibraryContent");
+            }
+        }
+
+        /// <summary>绘制内容库条目（画布 960×540 比例，入库归一化）。</summary>
+        private static void DrawContentItem(PowerPoint.Slide slide, string kind)
+        {
+            try
+            {
+                switch (kind)
+                {
+                    case "bg":
+                        {
+                            var r = slide.Shapes.AddShape(MsoAutoShapeType.msoShapeRectangle, 0, 0, 960, 540);
+                            r.Fill.ForeColor.RGB = 0x1F6FA2; r.Line.Visible = MsoTriState.msoFalse;
+                            break;
+                        }
+                    case "bgGrad":
+                        {
+                            var r = slide.Shapes.AddShape(MsoAutoShapeType.msoShapeRectangle, 0, 0, 960, 540);
+                            r.Fill.TwoColorGradient(MsoGradientStyle.msoGradientDiagonalDown, 1);
+                            try { r.Fill.GradientStops[1].Color.RGB = 0x8A2BE2; r.Fill.GradientStops[2].Color.RGB = 0x1F6FA2; } catch { }
+                            r.Line.Visible = MsoTriState.msoFalse;
+                            break;
+                        }
+                    case "bgGrad2":
+                        {
+                            var r = slide.Shapes.AddShape(MsoAutoShapeType.msoShapeRectangle, 0, 0, 960, 540);
+                            r.Fill.TwoColorGradient(MsoGradientStyle.msoGradientDiagonalUp, 1);
+                            try { r.Fill.GradientStops[1].Color.RGB = 0x2E9B4F; r.Fill.GradientStops[2].Color.RGB = 0x0B7A9B; } catch { }
+                            r.Line.Visible = MsoTriState.msoFalse;
+                            break;
+                        }
+                    case "txtTitle":
+                        {
+                            TextBoxOn(slide, "主 标 题", 60, 150, 840, 200, 88, true);
+                            var line = slide.Shapes.AddShape(MsoAutoShapeType.msoShapeRectangle, 90, 330, 180, 6);
+                            line.Fill.ForeColor.RGB = 0x1F6FA2; line.Line.Visible = MsoTriState.msoFalse;
+                            break;
+                        }
+                    case "txtSub":
+                        {
+                            TextBoxOn(slide, "副标题 · 说明文字", 60, 200, 700, 70, 36, true);
+                            var line = slide.Shapes.AddShape(MsoAutoShapeType.msoShapeRectangle, 62, 300, 420, 2);
+                            line.Fill.ForeColor.RGB = 0x9AA7B4; line.Line.Visible = MsoTriState.msoFalse;
+                            TextBoxOn(slide, "补充描述内容可以写在这里", 62, 330, 560, 44, 20, false);
+                            break;
+                        }
+                    case "txtNumber":
+                        {
+                            var n = TextBoxOn(slide, "88%", 60, 140, 840, 220, 120, true);
+                            var lbl = TextBoxOn(slide, "数据说明标签", 66, 350, 400, 40, 22, false);
+                            break;
+                        }
+                    case "txtQuote":
+                        {
+                            var bar = slide.Shapes.AddShape(MsoAutoShapeType.msoShapeRectangle, 60, 120, 8, 160);
+                            bar.Fill.ForeColor.RGB = 0x1F6FA2; bar.Line.Visible = MsoTriState.msoFalse;
+                            TextBoxOn(slide, "“引用或强调的核心观点文字”", 96, 120, 700, 100, 30, false);
+                            TextBoxOn(slide, "—— 出处 / 作者", 96, 230, 400, 40, 18, false);
+                            break;
+                        }
+                    case "legendFlow":
+                        {
+                            float x = 60;
+                            string[] steps = { "需求", "设计", "实现", "验证" };
+                            for (int i = 0; i < steps.Length; i++)
+                            {
+                                var b = slide.Shapes.AddShape(MsoAutoShapeType.msoShapeRoundedRectangle, x, 200, 150, 66);
+                                b.Fill.ForeColor.RGB = i % 2 == 0 ? 0x1F6FA2 : 0x2E9B4F;
+                                b.Line.Visible = MsoTriState.msoFalse;
+                                var tr = b.TextFrame2.TextRange; tr.Text = steps[i];
+                                tr.Font.Size = 18; tr.Font.Fill.ForeColor.RGB = 0xFFFFFF;
+                                tr.ParagraphFormat.Alignment = MsoParagraphAlignment.msoAlignCenter;
+                                if (i < steps.Length - 1)
+                                {
+                                    var a = slide.Shapes.AddShape(MsoAutoShapeType.msoShapeRightArrow, x + 150, 220, 44, 28);
+                                    a.Fill.ForeColor.RGB = 0x666666; a.Line.Visible = MsoTriState.msoFalse;
+                                }
+                                x += 214;
+                            }
+                            break;
+                        }
+                    case "legendRing":
+                        {
+                            var o = slide.Shapes.AddShape(MsoAutoShapeType.msoShapeOval, 200, 150, 220, 220);
+                            o.Fill.Visible = MsoTriState.msoFalse;
+                            o.Line.ForeColor.RGB = 0x1F6FA2; o.Line.Weight = 14;
+                            var inner = slide.Shapes.AddShape(MsoAutoShapeType.msoShapeOval, 276, 226, 68, 68);
+                            inner.Fill.ForeColor.RGB = 0x2E9B4F; inner.Line.Visible = MsoTriState.msoFalse;
+                            TextBoxOn(slide, "中心主题", 590, 220, 260, 80, 24, true);
+                            TextBoxOn(slide, "外围说明文字区域用于补充内容", 590, 300, 260, 90, 15, false);
+                            break;
+                        }
+                    case "legendCompare":
+                        {
+                            TextBoxOn(slide, "方案 A", 120, 150, 280, 60, 26, true);
+                            TextBoxOn(slide, "方案 B", 560, 150, 280, 60, 26, true);
+                            var a = slide.Shapes.AddShape(MsoAutoShapeType.msoShapeRightArrow, 120, 260, 300, 40);
+                            a.Fill.ForeColor.RGB = 0x2E9B4F; a.Line.Visible = MsoTriState.msoFalse;
+                            var b = slide.Shapes.AddShape(MsoAutoShapeType.msoShapeLeftArrow, 560, 260, 300, 40);
+                            b.Fill.ForeColor.RGB = 0xD63A2A; b.Line.Visible = MsoTriState.msoFalse;
+                            TextBoxOn(slide, "优势说明……", 120, 330, 300, 60, 16, false);
+                            TextBoxOn(slide, "优势说明……", 560, 330, 300, 60, 16, false);
+                            break;
+                        }
+                    case "matLine":
+                        {
+                            var l1 = slide.Shapes.AddShape(MsoAutoShapeType.msoShapeRectangle, 60, 250, 840, 3);
+                            l1.Fill.ForeColor.RGB = 0x2E9B4F; l1.Line.Visible = MsoTriState.msoFalse;
+                            var l2 = slide.Shapes.AddShape(MsoAutoShapeType.msoShapeRectangle, 60, 280, 840, 1);
+                            l2.Fill.ForeColor.RGB = 0x9AA7B4; l2.Line.Visible = MsoTriState.msoFalse;
+                            break;
+                        }
+                    case "matFrame":
+                        {
+                            var r = slide.Shapes.AddShape(MsoAutoShapeType.msoShapeRectangle, 60, 150, 400, 240);
+                            r.Fill.Visible = MsoTriState.msoFalse;
+                            r.Line.ForeColor.RGB = 0x1F6FA2; r.Line.Weight = 2.5f;
+                            TextBoxOn(slide, "框内内容占位", 150, 250, 240, 50, 18, false);
+                            break;
+                        }
+                }
+            }
+            catch { }
         }
     }
 }
