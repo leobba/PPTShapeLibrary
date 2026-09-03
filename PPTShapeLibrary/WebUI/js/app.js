@@ -1550,14 +1550,20 @@
         var menu = el("div", "ctx-menu");
         menu.id = "mgmtMenu";
         menu.style.position = "fixed";
-        function mi(text, fn) {
-            var b = el("button", "mi", text);
+        function mi(text, iconName, fn) {
+            var b = el("button", "mi");
+            if (iconName) {
+                var ic = el("span", "msym", iconName);
+                ic.setAttribute("aria-hidden", "true");
+                b.appendChild(ic);
+            }
+            b.appendChild(el("span", "", text));
             b.addEventListener("click", function () { closeMgmtMenu(); fn(); });
             menu.appendChild(b);
         }
-        mi("标签管理…", showTagManager);
-        mi("去重清理…", showDuplicateCleaner);
-        mi("导入素材包…", importPackPrompt);
+        mi("标签管理…", "label", showTagManager);
+        mi("去重清理…", "delete_sweep", showDuplicateCleaner);
+        mi("导入素材包…", "package_2", importPackPrompt);
         document.body.appendChild(menu);
 
         var r = anchor.getBoundingClientRect();
