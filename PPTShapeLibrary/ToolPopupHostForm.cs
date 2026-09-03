@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -10,6 +11,7 @@ namespace PPTShapeLibrary
     /// 独立工具/设置弹窗宿主：内嵌 WebView2，加载与任务窗格同一 WebUI，
     /// 通过 URL 查询参数 ?view=toolX|settings 让前端进入"单工具模式"，
     /// 从而获得与素材库面板完全一致的 Web UI 观感（而非 WinForms 原生控件）。
+    /// 无系统标题栏，标题由 Web 页内 popup-head 呈现（带图标 + 关闭钮）。
     /// </summary>
     public class ToolPopupHostForm : Form
     {
@@ -17,15 +19,39 @@ namespace PPTShapeLibrary
         private WebView2 _webView;
         private bool _failed = false;
 
+        [DllImport("user32.dll")]
+        private static extern bool ReleaseCapture();
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+        private const int WM_NCLBUTTONDOWN = 0xA1;
+        private const int HTCAPTION = 0x2;
+
+        /// <summary>网页 popup-head 按住拖动时调用（无边框窗口移动）。</summary>
+        private void BeginDragMove()
+        {
+            try
+            {
+                ReleaseCapture();
+                SendMessage(Handle, WM_NCLBUTTONDOWN, (IntPtr)HTCAPTION, IntPtr.Zero);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Popup drag");
+            }
+        }
+
         public ToolPopupHostForm(string viewKey)
         {
             _viewKey = viewKey ?? "tool1";
+            // 无边框：标题由 Web 页内 popup-head 呈现（带图标+关闭钮），避免 Windows 标题与页内标题双标题
             Text = ViewTitle(_viewKey);
-            FormBorderStyle = FormBorderStyle.Sizable;
+            FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.CenterParent;
             ClientSize = new System.Drawing.Size(440, 560);
-            MinimumSize = new System.Drawing.Size(360, 420);
+            MinimumSize = new System.Drawing.Size(360, 400);
             ShowInTaskbar = false;
+            BackColor = System.Drawing.Color.White;
 
             _webView = new WebView2 { Dock = DockStyle.Fill };
             Controls.Add(_webView);
@@ -76,7 +102,17 @@ namespace PPTShapeLibrary
                 bridge.Attach();
                 core.WebMessageReceived += (s, e) =>
                 {
-                    try { bridge.HandleWebMessage(e.TryGetWebMessageAsString()); }
+                    try
+                    {
+                        string raw = e.TryGetWebMessageAsString();
+                        // 宿主级消息：关窗 / 拖动标题栏
+                        if (!string.IsNullOrEmpty(raw))
+                        {
+                            if (raw.Contains("\"popupClose\"")) { Close(); return; }
+                            if (raw.Contains("\"popupDrag\"")) { BeginDragMove(); return; }
+                        }
+                        bridge.HandleWebMessage(raw);
+                    }
                     catch (Exception ex) { Log.Error(ex, "Popup WebMessageReceived"); }
                 };
 

@@ -101,65 +101,16 @@
         activateNavTab(view);
     });
 
-    // ---------------- 骨架 ----------------
+    // ---------------- 骨架（素材库视图；右侧任务窗格只显示素材库） ----------------
     function buildSkeleton() {
         var app = $("#app");
         app.innerHTML = "";
+        app.classList.remove("popup-mode");
 
-        // ⓪ 顶部导航（两行：上行品牌+主题，下行全部工具平铺可换行）
-        var nav = el("div", "app-nav");
-        var navTop = el("div", "app-nav-top");
-        var brand = el("div", "app-brand");
-        var bIc = el("span", "msym", "photo_library");
-        bIc.setAttribute("aria-hidden", "true");
-        brand.appendChild(bIc);
-        brand.appendChild(el("span", "", "素材库"));
-        brand.title = "PPT 素材库";
-        navTop.appendChild(brand);
-        var themeMini = el("button", "nav-theme-mini");
-        var tmIc = el("span", "msym", "dark_mode");
-        tmIc.setAttribute("aria-hidden", "true");
-        themeMini.appendChild(tmIc);
-        themeMini.title = "切换深浅主题";
-        themeMini.addEventListener("click", function () {
-            var next = (state.settings.theme === "dark") ? "light" : "dark";
-            Bridge.saveSettings({ theme: next }).then(function (s) {
-                state.settings = s;
-                applyTheme(s.theme);
-                tmIc.textContent = next === "dark" ? "light_mode" : "dark_mode";
-            }).catch(function (e) { toast(e.message, true); });
-        });
-        navTop.appendChild(themeMini);
-        nav.appendChild(navTop);
-
-        var navTabs = el("div", "app-nav-tabs");
-        navTabs.id = "appNavTabs";
-        NAV_ITEMS.forEach(function (it) {
-            var b = el("button", "nav-tab" + (it.view === "library" ? " active" : ""));
-            b.dataset.view = it.view;
-            if (it.icon) {
-                var ic = el("span", "msym", it.icon);
-                ic.setAttribute("aria-hidden", "true");
-                b.appendChild(ic);
-            }
-            b.appendChild(el("span", "", it.label));
-            b.addEventListener("click", function () {
-                activateNavTab(it.view);
-                switchView(it.view);
-            });
-            navTabs.appendChild(b);
-        });
-        nav.appendChild(navTabs);
-        app.appendChild(nav);
-
-        // ⓪.1 内容区：libView 与工具/设置覆盖面板的公共父级
-        var contentArea = el("div", "content-area");
-        contentArea.id = "contentArea";
-        app.appendChild(contentArea);
-
+        // 素材库容器
         var libView = el("div", "lib-view");
         libView.id = "libView";
-        contentArea.appendChild(libView);
+        app.appendChild(libView);
 
         // ① 头部
         var header = el("div", "header");
@@ -312,20 +263,13 @@
         toastWrap.className = "toast-wrap";
         app.appendChild(toastWrap);
 
-        // 除 nav/contentArea/toast-wrap 外，把已直接 append 到 #app 的内容收进 #libView
+        // 素材库内容已直接构建进 #libView；header..batch 若挂在 #app 则收进 #libView（toast 除外）
         var libViewBox = $("#libView");
         Array.prototype.slice.call(app.children).forEach(function (c) {
             if (c === libViewBox) return;
-            if (c.classList && c.classList.contains("app-nav")) return;
-            if (c.classList && c.classList.contains("content-area")) return;
             if (c.classList && c.classList.contains("toast-wrap")) return;
             libViewBox.appendChild(c);
         });
-
-        // 工具 / 设置视图面板（挂在 #contentArea 下，随内容区定位）
-        var area = $("#contentArea");
-        buildToolsPanel(area);
-        buildSettingsPanel(area);
     }
 
     // ---------------- 视图切换 ----------------
@@ -387,7 +331,26 @@
         var head = el("div", "popup-head");
         var title = el("div", "popup-title");
         head.appendChild(title);
+        // 无边框弹窗：head 承担标题栏（可拖动），右侧关闭钮
+        head.classList.add("popup-head-drag");
+        var closeBtn = el("button", "popup-close", "");
+        var cx = el("span", "msym", "close");
+        cx.setAttribute("aria-hidden", "true");
+        closeBtn.appendChild(cx);
+        closeBtn.title = "关闭";
+        closeBtn.addEventListener("click", function () {
+            try { window.chrome.webview.postMessage(JSON.stringify({ type: "popupClose" })); }
+            catch (e) {}
+        });
+        head.appendChild(closeBtn);
         root.appendChild(head);
+
+        // 按住标题栏拖动（无边框窗口移动由宿主处理）
+        head.addEventListener("mousedown", function (e) {
+            if (e.target === closeBtn || closeBtn.contains(e.target)) return;
+            try { window.chrome.webview.postMessage(JSON.stringify({ type: "popupDrag" })); }
+            catch (e2) {}
+        });
 
         var body = el("div", "popup-body");
         body.id = "popupBody";

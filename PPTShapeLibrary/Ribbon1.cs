@@ -1,4 +1,5 @@
 using System;
+using System.Drawing;
 using System.Runtime.InteropServices;
 using Microsoft.Office.Tools.Ribbon;
 
@@ -135,24 +136,32 @@ namespace PPTShapeLibrary
             // ---- 工具组（8 个 Web 工具按钮，点击直接弹出 Web UI 工具窗口）----
             string[][] toolDefs =
             {
-                new[] { "文字样式", "tool1" },
-                new[] { "一键换字体", "tool2" },
-                new[] { "查找替换", "tool3" },
-                new[] { "文字清理", "tool4" },
-                new[] { "导出图片", "tool5" },
-                new[] { "清理瘦身", "tool6" },
-                new[] { "统一尺寸", "tool7" },
-                new[] { "图片网格", "tool8" },
+                new[] { "文字样式", "tool1", RibbonIconFactory.Tool1Icon },
+                new[] { "一键换字体", "tool2", RibbonIconFactory.Tool2Icon },
+                new[] { "查找替换", "tool3", RibbonIconFactory.Tool3Icon },
+                new[] { "文字清理", "tool4", RibbonIconFactory.Tool4Icon },
+                new[] { "导出图片", "tool5", RibbonIconFactory.Tool5Icon },
+                new[] { "清理瘦身", "tool6", RibbonIconFactory.Tool6Icon },
+                new[] { "统一尺寸", "tool7", RibbonIconFactory.Tool7Icon },
+                new[] { "图片网格", "tool8", RibbonIconFactory.Tool8Icon },
             };
             _toolButtons = new Microsoft.Office.Tools.Ribbon.RibbonButton[toolDefs.Length];
             for (int ti = 0; ti < toolDefs.Length; ti++)
             {
                 string label = toolDefs[ti][0];
                 string toolKey = toolDefs[ti][1];
+                string iconName = toolDefs[ti][2];
                 var b = f.CreateRibbonButton();
                 b.Label = label;
                 b.ScreenTip = label;
                 b.SuperTip = "打开「" + label + "」工具窗口。";
+                b.ShowImage = true;
+                try
+                {
+                    Image icon = RibbonIconFactory.GetIcon(iconName, 32);
+                    if (icon != null) b.Image = icon;
+                }
+                catch (Exception iex) { Log.Error(iex, "tool icon " + iconName); }
                 string captured = toolKey;
                 b.Click += (s, ev) => { try { OpenToolWindow(captured); } catch (Exception ex) { Log.Error(ex, "Ribbon tool " + captured); } };
                 _toolButtons[ti] = b;
@@ -160,8 +169,13 @@ namespace PPTShapeLibrary
             }
 
             this.btnSettings.Label = "设置";
-            this.btnSettings.OfficeImageId = "ToolsOptions";
             this.btnSettings.ShowImage = true;
+            try
+            {
+                Image setIcon = RibbonIconFactory.GetIcon(RibbonIconFactory.SettingsIcon, 32);
+                if (setIcon != null) btnSettings.Image = setIcon;
+            }
+            catch (Exception siex) { Log.Error(siex, "settings icon"); }
             this.btnSettings.ScreenTip = "插件设置";
             this.btnSettings.SuperTip = "主题（浅色/深色）、插入位置、卡片大小、面板宽度等。";
             this.btnSettings.Click += OnSettings;

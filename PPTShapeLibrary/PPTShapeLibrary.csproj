@@ -158,6 +158,7 @@
     <Compile Include="TextStyleToolForm.cs" />
     <Compile Include="FontReplaceToolForm.cs" />
     <Compile Include="ToolsHubForm.cs" />
+    <Compile Include="RibbonIconFactory.cs" />
     <Compile Include="FallbackPane.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
@@ -165,6 +166,11 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="WebUI\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="RibbonFonts\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

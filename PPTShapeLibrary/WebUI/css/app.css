@@ -101,11 +101,25 @@
 .popup-root { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .popup-head {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 8px 14px;
+    padding: 8px 8px 8px 14px;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
     flex: none;
+    user-select: none;
 }
+.popup-head-drag { cursor: move; }
+.popup-close {
+    border: none;
+    background: transparent;
+    color: var(--text-sub);
+    width: 30px; height: 30px;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    flex: none;
+}
+.popup-close:hover { background: rgba(209,52,56,.14); color: var(--danger); }
+.popup-close .msym { font-size: 18px; }
 .popup-title {
     font-size: 13px; font-weight: 700; color: var(--text);
     display: flex; align-items: center; gap: 6px;
