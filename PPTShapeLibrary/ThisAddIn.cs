@@ -32,6 +32,8 @@ namespace PPTShapeLibrary
                     timer.Dispose();
                     try { ShapeExporter.InstallBuiltinLibrary(); Log.Write("Builtin library installed"); }
                     catch (Exception ex) { Log.Error(ex, "InstallBuiltinLibrary"); }
+                    try { ShapeExporter.InstallAcademicTemplates(); Log.Write("Academic templates installed"); }
+                    catch (Exception ex) { Log.Error(ex, "InstallAcademicTemplates"); }
                 };
                 timer.Start();
                 Log.Write("Startup done");

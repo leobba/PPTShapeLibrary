@@ -813,6 +813,155 @@ namespace PPTShapeLibrary
             }
         }
 
+        private static string AcademicMarker
+        {
+            get { return System.IO.Path.Combine(ShapeLibraryService.RootDir, ".academic_installed"); }
+        }
+
+        /// <summary>
+        /// 安装"学术模板"成套素材（答辩封面/开题封面/研究要点页/结论页等）。
+        /// 每套为单页组合收藏（分类=学术模板），供学生插入后替换文字。
+        /// 独立标记，不会覆盖用户后续改动。
+        /// </summary>
+        public static void InstallAcademicTemplates()
+        {
+            try
+            {
+                if (System.IO.File.Exists(AcademicMarker)) return;
+
+                var specs = new System.Collections.Generic.List<Tuple<string, string>>
+                {
+                    Tuple.Create("答辩封面", "defenseCover"),
+                    Tuple.Create("开题封面", "proposalCover"),
+                    Tuple.Create("研究要点页", "keyPoints"),
+                    Tuple.Create("结论与展望", "conclusion"),
+                };
+
+                foreach (var spec in specs)
+                {
+                    try
+                    {
+                        PowerPoint.Presentation pres = null;
+                        try
+                        {
+                            pres = App.Presentations.Add(MsoTriState.msoFalse);
+                            pres.PageSetup.SlideSize = PowerPoint.PpSlideSizeType.ppSlideSizeOnScreen;
+                            var slide = pres.Slides.Add(1, PowerPoint.PpSlideLayout.ppLayoutBlank);
+                            DrawAcademicShape(slide, spec.Item2);
+                            if (slide.Shapes.Count == 0) continue;
+
+                            string id = ShapeLibraryService.NewId();
+                            ShapeLibraryService.CreateItemDir(id);
+                            try
+                            {
+                                string previewPath = System.IO.Path.Combine(ShapeLibraryService.ItemsDir, id + "_tmp.png");
+                                slide.Export(previewPath, "PNG", 320, 240);
+                                ShapeLibraryService.SavePreviewImage(id, System.IO.File.ReadAllBytes(previewPath));
+                                TryDelete(previewPath);
+                            }
+                            catch { }
+
+                            pres.SaveAs(ShapeLibraryService.ShapeFile(id), PowerPoint.PpSaveAsFileType.ppSaveAsOpenXMLPresentation);
+
+                            var meta = new LibraryMeta
+                            {
+                                Id = id,
+                                Name = "学术·" + spec.Item1,
+                                Kind = "Shape",
+                                CreatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                                ShapeCount = slide.Shapes.Count,
+                                Category = "学术模板",
+                                Tags = "模板",
+                                LastUsedAt = "",
+                                SortOrder = Environment.TickCount
+                            };
+                            ShapeLibraryService.SaveMeta(meta);
+                        }
+                        finally
+                        {
+                            if (pres != null) { try { pres.Close(); } catch { } }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error(ex, "Academic:" + spec.Item1);
+                    }
+                }
+                System.IO.File.WriteAllText(AcademicMarker, DateTime.Now.ToString());
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "InstallAcademicTemplates");
+            }
+        }
+
+        /// <summary>绘制学术模板（简单版式：几何块+文字，学生插入后可改字改色）。</summary>
+        private static void DrawAcademicShape(PowerPoint.Slide slide, string type)
+        {
+            try
+            {
+                switch (type)
+                {
+                    case "defenseCover":
+                        {
+                            // 顶部色带 + 中部标题占位 + 底部信息条
+                            var band = slide.Shapes.AddShape(MsoAutoShapeType.msoShapeRectangle, 0, 0, 960, 24);
+                            band.Fill.ForeColor.RGB = 0x1F6FA2; band.Line.Visible = MsoTriState.msoFalse;
+                            var t1 = TextBoxOn(slide, "论文题目：____", 140, 220, 680, 70, 32, true);
+                            var t2 = TextBoxOn(slide, "答辩人：____    导师：____    日期：____", 220, 420, 520, 40, 18, false);
+                            var line = slide.Shapes.AddShape(MsoAutoShapeType.msoShapeRectangle, 240, 400, 480, 2);
+                            line.Fill.ForeColor.RGB = 0x1F6FA2; line.Line.Visible = MsoTriState.msoFalse;
+                            break;
+                        }
+                    case "proposalCover":
+                        {
+                            var band = slide.Shapes.AddShape(MsoAutoShapeType.msoShapeRectangle, 0, 0, 24, 540);
+                            band.Fill.ForeColor.RGB = 0x2E9B4F; band.Line.Visible = MsoTriState.msoFalse;
+                            var t1 = TextBoxOn(slide, "开题报告", 120, 130, 500, 90, 44, true);
+                            var t2 = TextBoxOn(slide, "题目：____", 120, 260, 640, 44, 24, false);
+                            var t3 = TextBoxOn(slide, "姓名/学号：____\n导师：____\n日期：____", 120, 360, 560, 110, 16, false);
+                            break;
+                        }
+                    case "keyPoints":
+                        {
+                            var t = TextBoxOn(slide, "研究要点", 60, 40, 300, 50, 26, true);
+                            float[] ys = { 130, 230, 330 };
+                            foreach (var y in ys)
+                            {
+                                var c = slide.Shapes.AddShape(MsoAutoShapeType.msoShapeRoundedRectangle, 80, y, 780, 70);
+                                c.Fill.ForeColor.RGB = 0xE3F0FB; c.Fill.Transparency = 0;
+                                c.Line.Visible = MsoTriState.msoFalse;
+                                TextBoxOn(slide, "● 要点____", 110, y + 18, 700, 34, 18, false);
+                            }
+                            break;
+                        }
+                    case "conclusion":
+                        {
+                            TextBoxOn(slide, "结论与展望", 60, 40, 300, 50, 26, true);
+                            var box = slide.Shapes.AddShape(MsoAutoShapeType.msoShapeRoundedRectangle, 80, 120, 800, 260);
+                            box.Fill.Visible = MsoTriState.msoFalse;
+                            box.Line.ForeColor.RGB = 0x1F6FA2; box.Line.Weight = 1.5f;
+                            TextBoxOn(slide, "研究结论：____\n\n不足与展望：____", 120, 160, 700, 180, 18, false);
+                            TextBoxOn(slide, "谢谢聆听 · 请各位老师批评指正", 250, 460, 460, 40, 20, true);
+                            break;
+                        }
+                }
+            }
+            catch { }
+        }
+
+        private static PowerPoint.Shape TextBoxOn(PowerPoint.Slide slide, string text, float left, float top, float w, float h, float size, bool bold)
+        {
+            var tb = slide.Shapes.AddTextbox(MsoTextOrientation.msoTextOrientationHorizontal, left, top, w, h);
+            var tr = tb.TextFrame.TextRange;
+            tr.Text = text;
+            tr.Font.Size = size;
+            tr.Font.Name = "微软雅黑";
+            tr.Font.Color.RGB = 0x333333;
+            if (bold) tr.Font.Bold = MsoTriState.msoTrue;
+            return tb;
+        }
+
         /// <summary>在页面上绘制一个预设形状组合。</summary>
         private static void DrawBuiltinShape(PowerPoint.Slide slide, string type)
         {
