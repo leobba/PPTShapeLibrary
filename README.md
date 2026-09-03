@@ -54,6 +54,13 @@ Ribbon「素材库」选项卡 →「工具」组：文字样式 / 一键换字�
 - **统一尺寸**：按宽/高/等比批量统一选中、当前页或整稿形状
 - **图片网格插入**：多选图片 contain 等比排成整齐网格，按需翻页插入
 
+### 学术/学习工具（Ribbon「学术/学习」组 → Web 弹窗，面向学生科研汇报）
+- **页脚页码**：一键为全部页加页脚（姓名/课题组/日期）与页码
+- **导出 PDF / 大纲**：整稿导出 PDF，或把全部文字整理为 .txt 大纲（做笔记/打印）
+- **图表美化**：选中图表套用 4 套预设配色（学术蓝/清新绿/暖橙/莫兰迪）+ 统一字体
+- **参考文献**：多条文献按 GB/T 7714 或 APA 生成编号文本（弹窗展示、一键复制）
+- **学术模板素材**：首次启动自动装入「学术模板」分类（答辩封面/开题封面/研究要点页/结论页），素材库单击插入后改字即用
+
 ## 开发与运行
 
 - VS2022 + Office/SharePoint 工作负载，按 F5 调试
@@ -80,6 +87,7 @@ PPTShapeLibrary\            # VSTO 项目（PowerPoint 2016+ / M365 x64）
   PackService.cs          # 素材包（.ppack.zip）导出/导入
   TextToolService.cs      # 文本工具共享服务层（Web 与 WinForms 共用）
   FormatToolService.cs    # 版式批处理共享服务层（导出图片/清理瘦身/统一尺寸/图片网格）
+  AcademicToolService.cs  # 学术工具服务层（页脚页码/PDF与大纲/图表美化/参考文献）
   StylePreset.cs          # 样式数据结构
   Settings.cs / SettingsForm.cs / TagManagerForm.cs / InputDialog.cs
   ToolsHubForm.cs          # 高级批处理 Hub（Ribbon「高级批处理」入口）
