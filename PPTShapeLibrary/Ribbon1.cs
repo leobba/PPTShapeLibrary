@@ -29,9 +29,9 @@ namespace PPTShapeLibrary
         private RibbonButton btnBackup;
         private RibbonButton btnRestore;
         private RibbonButton btnExportPptx;
-        private RibbonButton btnTools;
         private RibbonButton btnAdvancedTools;
         private RibbonButton btnSettings;
+        private Microsoft.Office.Tools.Ribbon.RibbonButton[] _toolButtons;   // 工具组按钮（Web 工具逐个平铺）
 
         private void InitializeComponent()
         {
@@ -50,7 +50,6 @@ namespace PPTShapeLibrary
             this.btnBackup = f.CreateRibbonButton();
             this.btnRestore = f.CreateRibbonButton();
             this.btnExportPptx = f.CreateRibbonButton();
-            this.btnTools = f.CreateRibbonButton();
             this.btnAdvancedTools = f.CreateRibbonButton();
             this.btnSettings = f.CreateRibbonButton();
 
@@ -133,13 +132,32 @@ namespace PPTShapeLibrary
             this.grpLibrary.Items.Add(this.btnRestore);
             this.grpLibrary.Items.Add(this.btnExportPptx);
 
-            // ---- 工具组 ----
-            this.btnTools.Label = "小工具";
-            this.btnTools.OfficeImageId = "MacroSecurity";
-            this.btnTools.ShowImage = true;
-            this.btnTools.ScreenTip = "PPT 小工具";
-            this.btnTools.SuperTip = "在面板中打开工具视图：文字样式、一键换字体、查找替换、文字清理。";
-            this.btnTools.Click += OnTools;
+            // ---- 工具组（8 个 Web 工具按钮，与 Ribbon 其它按钮同级平铺）----
+            string[][] toolDefs =
+            {
+                new[] { "文字样式", "tool1" },
+                new[] { "一键换字体", "tool2" },
+                new[] { "查找替换", "tool3" },
+                new[] { "文字清理", "tool4" },
+                new[] { "导出图片", "tool5" },
+                new[] { "清理瘦身", "tool6" },
+                new[] { "统一尺寸", "tool7" },
+                new[] { "图片网格", "tool8" },
+            };
+            _toolButtons = new Microsoft.Office.Tools.Ribbon.RibbonButton[toolDefs.Length];
+            for (int ti = 0; ti < toolDefs.Length; ti++)
+            {
+                string label = toolDefs[ti][0];
+                string view = toolDefs[ti][1];
+                var b = f.CreateRibbonButton();
+                b.Label = label;
+                b.ScreenTip = label;
+                b.SuperTip = "打开「" + label + "」工具（右侧素材库面板内）。";
+                string captured = view;
+                b.Click += (s, ev) => { try { Globals.ThisAddIn.ShowToolView(captured); } catch (Exception ex) { Log.Error(ex, "Ribbon tool " + captured); } };
+                _toolButtons[ti] = b;
+                this.grpTools.Items.Add(b);
+            }
 
             this.btnSettings.Label = "设置";
             this.btnSettings.OfficeImageId = "ToolsOptions";
@@ -148,17 +166,16 @@ namespace PPTShapeLibrary
             this.btnSettings.SuperTip = "主题（浅色/深色）、插入位置、卡片大小、面板宽度等。";
             this.btnSettings.Click += OnSettings;
 
-            this.btnAdvancedTools.Label = "高级工具";
+            this.btnAdvancedTools.Label = "高级批处理";
             this.btnAdvancedTools.OfficeImageId = "MoreButton";
             this.btnAdvancedTools.ShowImage = true;
-            this.btnAdvancedTools.ScreenTip = "高级批处理工具（原生窗口）";
-            this.btnAdvancedTools.SuperTip = "整稿导出 PNG/JPG、清理瘦身、统一尺寸、图片网格插入等高级批处理工具。";
+            this.btnAdvancedTools.ScreenTip = "高级批处理（原生窗口兜底）";
+            this.btnAdvancedTools.SuperTip = "与面板工具等价的版式批处理（整稿导出/瘦身/统一尺寸/图片网格），原生窗口形式。";
             this.btnAdvancedTools.Click += OnAdvancedTools;
 
             this.grpTools.Label = "工具";
-            this.grpTools.Items.Add(this.btnTools);
-            this.grpTools.Items.Add(this.btnAdvancedTools);
             this.grpTools.Items.Add(this.btnSettings);
+            this.grpTools.Items.Add(this.btnAdvancedTools);
 
             // ---- 组装选项卡 ----
             this.tabLibrary.Groups.Add(this.grpCollect);
@@ -269,19 +286,6 @@ namespace PPTShapeLibrary
         {
             try { Globals.ThisAddIn.DoExportPptx(); }
             catch (Exception ex) { Log.Error(ex, "Ribbon ExportPptx"); }
-        }
-
-        private void OnTools(object sender, RibbonControlEventArgs e)
-        {
-            try
-            {
-                // Web 工具视图为主入口（FallbackPane 降级时该方法仅显示提示页，不报错）
-                Globals.ThisAddIn.ShowToolsView();
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "Ribbon Tools");
-            }
         }
 
         private void OnAdvancedTools(object sender, RibbonControlEventArgs e)
