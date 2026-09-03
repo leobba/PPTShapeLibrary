@@ -161,16 +161,16 @@
         topBar.appendChild(tbRight);
         libView.appendChild(topBar);
 
-        // 主体行：左为主内容区 mainArea，右侧窄栏为一级分组（创客贴式）
+        // 主体行：左侧一级分组栏（sideGroups），右侧主内容（mainArea）
         var bodyRow = el("div", "lib-body");
         bodyRow.id = "libBody";
         libView.appendChild(bodyRow);
-        var mainArea = el("div", "lib-main");
-        mainArea.id = "mainArea";
-        bodyRow.appendChild(mainArea);
         var sideGroups = el("div", "side-groups");
         sideGroups.id = "sideGroups";
         bodyRow.appendChild(sideGroups);
+        var mainArea = el("div", "lib-main");
+        mainArea.id = "mainArea";
+        bodyRow.appendChild(mainArea);
         state.group = "全部";   // 一级组：全部 或 组名
 
         // ① 头部
@@ -1256,8 +1256,11 @@
     function updateStatus() {
         var cnt = $("#lblCount");
         if (!cnt) return;
-        if (state.filter || state.category !== "全部" || state.kind !== "全部" || state.tag !== "") {
-            cnt.textContent = "筛选 " + state.items.length + " / " + state.filteredTotal + " · 共 " + state.total;
+        var filtering = state.filter || state.category !== "全部" || state.kind !== "全部"
+            || state.tag !== "" || state.group !== "全部";
+        if (filtering) {
+            cnt.textContent = (state.group !== "全部" ? state.group + " · " : "") +
+                "筛选 " + state.items.length + " / " + state.filteredTotal;
         } else {
             cnt.textContent = "共 " + state.total + " 项";
         }
@@ -1272,10 +1275,10 @@
         var oldRecent = $("#recentSection");
         if (oldRecent) oldRecent.remove();
 
-        // 无筛选时：顶部展示"最近使用"横向条（数据来自 init 的全库 Top6，A6）
+        // 仅当 全部分组 + 无任何筛选 时展示"最近使用"横条（跨组数据会误导当前组）
         var recentExcluded = {};
         if (!state.filter && state.category === "全部" && state.kind === "全部" && state.tag === ""
-            && state.sort !== "最近使用"
+            && state.group === "全部" && state.sort !== "最近使用"
             && state.recentTop && state.recentTop.length >= 2) {
             var sec = el("div");
             sec.id = "recentSection";
@@ -1309,10 +1312,12 @@
         if (state.items.length === 0) {
             var empty = $("#emptyState");
             empty.style.display = "";
+            var filtering = state.filter || state.category !== "全部" || state.kind !== "全部"
+                || state.tag !== "" || state.group !== "全部";
             empty.innerHTML = '' +
-                '<div class="empty-ico msym" aria-hidden="true">' + (state.filter || state.category !== "全部" ? "search_off" : "photo_library") + '</div>' +
-                (state.filter || state.category !== "全部" || state.kind !== "全部" || state.tag !== ""
-                    ? "<div class=\"empty-main\">没有符合筛选条件的素材</div><div class=\"empty-sub\">试试清空搜索词、切换分类/类型/标签</div>"
+                '<div class="empty-ico msym" aria-hidden="true">' + (filtering ? "search_off" : "photo_library") + '</div>' +
+                (filtering
+                    ? "<div class=\"empty-main\">没有符合筛选条件的素材</div><div class=\"empty-sub\">试试清空搜索词、切换一级分组/二级分类/类型/标签</div>"
                     : "<div class=\"empty-main\">素材库还是空的</div><div class=\"empty-sub\">在演示文稿中选中形状，点击顶部「素材库」选项卡里的「收藏形状」「收藏整页」或「收藏样式」<br>也可以从「收藏剪贴板」「收藏整稿」快速批量收录</div>");
             updateStatus();
             return;

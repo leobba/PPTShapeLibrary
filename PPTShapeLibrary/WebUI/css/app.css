@@ -143,13 +143,14 @@
 }
 .lib-view { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 
-/* 主体行：左侧主内容 + 右侧一级分组栏 */
+/* 主体行：左侧一级分组栏 + 右侧主内容 */
 .lib-body { display: flex; flex: 1; min-height: 0; }
 .lib-main { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; position: relative; }
 .side-groups {
     flex: none;
-    width: 96px;
-    border-left: 1px solid var(--border);
+    order: 0;
+    width: 92px;
+    border-right: 1px solid var(--border);
     background: var(--surface);
     display: flex;
     flex-direction: column;
