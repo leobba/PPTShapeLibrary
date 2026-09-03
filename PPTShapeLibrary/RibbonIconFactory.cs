@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Drawing.Text;
 using System.IO;
@@ -9,16 +8,20 @@ using System.IO;
 namespace PPTShapeLibrary
 {
     /// <summary>
-    /// 从 Material Symbols Outlined variable TTF 按图标名（ligature 名）取码点，
-    /// 用 GDI+ 绘成 32×32 深色透明 PNG 供 Ribbon 按钮 Image 使用。
-    /// 字体文件与码点表位于程序目录 RibbonFonts\ 下。
+    /// Ribbon 图标工厂：优先使用 Material Icons 静态字体（Regular，笔画清晰、GDI+ 友好），
+    /// 图标名未收录时回退 Material Symbols Outlined variable TTF。
+    /// 字体与码点表位于程序目录 RibbonFonts\ 下；Web 端用另一份 woff2（见 WebUI/fonts）。
     /// </summary>
     public static class RibbonIconFactory
     {
         private static PrivateFontCollection _fonts;
-        private static FontFamily _family;
-        private static Dictionary<string, int> _codepoints;
+        private static FontFamily _familyMain;     // MaterialIcons-Regular（首选，清晰）
+        private static FontFamily _familyAlt;      // MaterialSymbolsOutlined（回退）
+        private static Dictionary<string, int> _codepoints;      // MaterialIcons 码点
+        private static Dictionary<string, int> _codepointsAlt;   // MaterialSymbols 码点
         private static readonly object Sync = new object();
+
+        // ---------------- 加载 ----------------
 
         private static void EnsureLoaded()
         {
@@ -27,30 +30,25 @@ namespace PPTShapeLibrary
             {
                 if (_fonts != null) return;
                 string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-                string ttf = Path.Combine(baseDir, "RibbonFonts", "MaterialSymbolsOutlined.ttf");
-                string cpFile = Path.Combine(baseDir, "RibbonFonts", "MaterialSymbolsOutlined.codepoints");
                 try
                 {
                     _fonts = new PrivateFontCollection();
-                    if (File.Exists(ttf))
-                    {
-                        _fonts.AddFontFile(ttf);
-                        if (_fonts.Families.Length > 0) _family = _fonts.Families[0];
-                    }
                     _codepoints = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                    if (File.Exists(cpFile))
+                    _codepointsAlt = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+                    string mainTtf = Path.Combine(baseDir, "RibbonFonts", "MaterialIcons-Regular.ttf");
+                    if (File.Exists(mainTtf))
                     {
-                        foreach (string line in File.ReadAllLines(cpFile))
-                        {
-                            if (string.IsNullOrWhiteSpace(line)) continue;
-                            string[] parts = line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                            if (parts.Length >= 2)
-                            {
-                                int v;
-                                if (int.TryParse(parts[1], System.Globalization.NumberStyles.HexNumber, null, out v))
-                                    _codepoints[parts[0]] = v;
-                            }
-                        }
+                        _fonts.AddFontFile(mainTtf);
+                        if (_fonts.Families.Length > 0) _familyMain = _fonts.Families[0];
+                        LoadCodepoints(Path.Combine(baseDir, "RibbonFonts", "MaterialIcons-Regular.codepoints"), _codepoints);
+                    }
+                    string altTtf = Path.Combine(baseDir, "RibbonFonts", "MaterialSymbolsOutlined.ttf");
+                    if (File.Exists(altTtf))
+                    {
+                        _fonts.AddFontFile(altTtf);
+                        if (_fonts.Families.Length > 1) _familyAlt = _fonts.Families[1];
+                        LoadCodepoints(Path.Combine(baseDir, "RibbonFonts", "MaterialSymbolsOutlined.codepoints"), _codepointsAlt);
                     }
                 }
                 catch (Exception ex)
@@ -60,92 +58,123 @@ namespace PPTShapeLibrary
             }
         }
 
-        /// <summary>取图标 PNG。color 默认深灰蓝(Ribbon 常规前景)。失败返回 null。</summary>
-        public static Image GetIcon(string iconName, int size = 32, Color? color = null)
+        private static void LoadCodepoints(string cpFile, Dictionary<string, int> target)
+        {
+            if (!File.Exists(cpFile)) return;
+            foreach (string line in File.ReadAllLines(cpFile))
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                string[] parts = line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length >= 2)
+                {
+                    int v;
+                    if (int.TryParse(parts[1], System.Globalization.NumberStyles.HexNumber, null, out v))
+                    {
+                        if (!target.ContainsKey(parts[0])) target[parts[0]] = v;
+                    }
+                }
+            }
+        }
+
+        /// <summary>图标名 → (字体族, 码点)。优先主字体，缺则回退。返回 false 表示均缺失。</summary>
+        private static bool ResolveGlyph(string iconName, out FontFamily family, out int codepoint)
+        {
+            family = null; codepoint = 0;
+            if (_codepoints != null && _codepoints.ContainsKey(iconName) && _familyMain != null)
+            {
+                family = _familyMain; codepoint = _codepoints[iconName]; return true;
+            }
+            if (_codepointsAlt != null && _codepointsAlt.ContainsKey(iconName) && _familyAlt != null)
+            {
+                family = _familyAlt; codepoint = _codepointsAlt[iconName]; return true;
+            }
+            return false;
+        }
+
+        // ---------------- 绘制 ----------------
+
+        /// <summary>
+        /// 高辨识彩色字形：纯彩色字形（无底色块），内部 4x 超采样后缩回，
+        /// 小尺寸下依然清晰锐利；颜色按功能语义分配。
+        /// </summary>
+        public static Image GetColorGlyph(string iconName, int size, Color color)
         {
             try
             {
                 EnsureLoaded();
-                if (_family == null || _codepoints == null || !_codepoints.ContainsKey(iconName)) return null;
-                Color c = color ?? Color.FromArgb(0x1B, 0x1F, 0x23);
-                var bmp = new Bitmap(size, size, PixelFormat.Format32bppArgb);
+                FontFamily fam;
+                int cp;
+                if (!ResolveGlyph(iconName, out fam, out cp)) return null;
+                int ss = size * 4;                       // 超采样
+                var bmp = new Bitmap(ss, ss, PixelFormat.Format32bppArgb);
                 using (var g = Graphics.FromImage(bmp))
                 {
-                    g.SmoothingMode = SmoothingMode.AntiAlias;
+                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
                     g.TextRenderingHint = TextRenderingHint.AntiAlias;
-                    using (var font = new Font(_family, size * 0.95f, FontStyle.Regular, GraphicsUnit.Pixel))
-                    using (var brush = new SolidBrush(c))
+                    using (var font = new Font(fam, ss * 0.92f, FontStyle.Regular, GraphicsUnit.Pixel))
+                    using (var brush = new SolidBrush(color))
                     {
-                        string ch = char.ConvertFromUtf32(_codepoints[iconName]);
+                        string ch = char.ConvertFromUtf32(cp);
                         var fmt = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-                        RectangleF rc = new RectangleF(-1, -1, size + 2, size + 2);
+                        RectangleF rc = new RectangleF(0, -ss * 0.02f, ss, ss);
                         g.DrawString(ch, font, brush, rc, fmt);
                     }
                 }
-                return bmp;
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "RibbonIconFactory draw " + iconName);
-                return null;
-            }
-        }
-
-        /// <summary>
-        /// 彩色图标：圆角渐变色底 + 白色字形（类似 Office 彩色大图标观感）。
-        /// 配色按功能语义由调用方传入（浅/深 Ribbon 均清晰）。
-        /// </summary>
-        public static Image GetColorIcon(string iconName, int size, Color c1, Color c2, float cornerRadius)
-        {
-            try
-            {
-                EnsureLoaded();
-                if (_family == null || _codepoints == null || !_codepoints.ContainsKey(iconName)) return null;
-                int pad = (int)Math.Max(1, size * 0.06f);
-                int glyphSize = (int)(size * 0.60f);
-                var bmp = new Bitmap(size, size, PixelFormat.Format32bppArgb);
-                using (var g = Graphics.FromImage(bmp))
+                // 缩回目标尺寸
+                var small = new Bitmap(size, size, PixelFormat.Format32bppArgb);
+                using (var g2 = Graphics.FromImage(small))
                 {
-                    g.SmoothingMode = SmoothingMode.AntiAlias;
-                    g.TextRenderingHint = TextRenderingHint.AntiAlias;
-                    // 渐变圆角底（上→下）
-                    RectangleF bg = new RectangleF(pad, pad, size - 2 * pad, size - 2 * pad);
-                    using (var path = RoundedRect(bg, cornerRadius))
-                    using (var lgb = new LinearGradientBrush(bg, c1, c2, 90f))
-                    {
-                        g.FillPath(lgb, path);
-                    }
-                    // 白字形居中
-                    using (var font = new Font(_family, glyphSize, FontStyle.Regular, GraphicsUnit.Pixel))
-                    using (var brush = new SolidBrush(Color.White))
-                    {
-                        string ch = char.ConvertFromUtf32(_codepoints[iconName]);
-                        var fmt = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-                        g.DrawString(ch, font, brush, new RectangleF(0, 0, size, size), fmt);
-                    }
+                    g2.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+                    g2.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                    g2.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
+                    g2.DrawImage(bmp, 0, 0, size, size);
                 }
-                return bmp;
+                bmp.Dispose();
+                return small;
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "RibbonIconFactory color draw " + iconName);
+                Log.Error(ex, "RibbonIconFactory glyph " + iconName);
                 return null;
             }
         }
 
-        private static GraphicsPath RoundedRect(RectangleF r, float radius)
+        /// <summary>每个动作的独立高辨识色（按功能语义，颜色鲜艳且彼此可区分）。</summary>
+        private static Color ActionColor(string action)
         {
-            var p = new GraphicsPath();
-            float d = radius * 2;
-            p.AddArc(r.X, r.Y, d, d, 180, 90);
-            p.AddArc(r.Right - d, r.Y, d, d, 270, 90);
-            p.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
-            p.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
-            p.CloseFigure();
-            return p;
+            switch (action)
+            {
+                case "CollectShapes":    return Color.FromArgb(0x1F, 0x77, 0xD4); // 蓝
+                case "CollectPage":      return Color.FromArgb(0x00, 0x8A, 0x8A); // 青
+                case "CollectStyle":     return Color.FromArgb(0x7A, 0x3F, 0xB8); // 紫
+                case "CollectClipboard": return Color.FromArgb(0x00, 0x70, 0xC0); // 天蓝
+                case "CollectAllSlides": return Color.FromArgb(0x2E, 0x9B, 0x4F); // 绿
+                case "OpenPane":         return Color.FromArgb(0xD4, 0x8A, 0x0E); // 琥珀
+                case "Backup":           return Color.FromArgb(0xB0, 0x6A, 0x00); // 棕橙
+                case "Restore":          return Color.FromArgb(0x2E, 0x9B, 0x4F); // 绿
+                case "ExportPptx":       return Color.FromArgb(0xD6, 0x3A, 0x2A); // 红橙
+                case "Tool1":            return Color.FromArgb(0x1F, 0x77, 0xD4); // 蓝
+                case "Tool2":            return Color.FromArgb(0x00, 0x8A, 0x8A); // 青
+                case "Tool3":            return Color.FromArgb(0xD4, 0x7F, 0x00); // 橙
+                case "Tool4":            return Color.FromArgb(0x7A, 0x3F, 0xB8); // 紫
+                case "Tool5":            return Color.FromArgb(0xD6, 0x3A, 0x2A); // 红
+                case "Tool6":            return Color.FromArgb(0x2E, 0x9B, 0x4F); // 绿
+                case "Tool7":            return Color.FromArgb(0x0B, 0x7A, 0x9B); // 深青
+                case "Tool8":            return Color.FromArgb(0x9B, 0x59, 0xC8); // 紫红
+                case "Settings":         return Color.FromArgb(0x60, 0x6B, 0x7A); // 灰
+                case "Advanced":         return Color.FromArgb(0x55, 0x6B, 0x8A); // 靛
+                default:                 return Color.FromArgb(0x1B, 0x5E, 0xAB);
+            }
         }
 
-        /// <summary>工具组 8 按钮 + 设置图标名。</summary>
+        /// <summary>Ribbon 动作按钮高辨识彩色图标。action 对应 ActionColor 色相。</summary>
+        public static Image GetActionGlyph(string iconName, string action, int size = 32)
+        {
+            return GetColorGlyph(iconName, size, ActionColor(action));
+        }
+
+        // ---------------- 图标名常量 ----------------
+
         public const string Tool1Icon = "text_fields";
         public const string Tool2Icon = "font_download";
         public const string Tool3Icon = "manage_search";
@@ -156,62 +185,15 @@ namespace PPTShapeLibrary
         public const string Tool8Icon = "grid_view";
         public const string SettingsIcon = "settings";
 
-        // 收藏/素材库操作图标名
-        public const string CollectShapesIcon = "content_copy";      // 收藏形状
-        public const string CollectPageIcon = "select_all";         // 收藏整页
-        public const string CollectStyleIcon = "format_paint";      // 收藏样式
-        public const string CollectClipboardIcon = "content_paste"; // 收藏剪贴板
-        public const string CollectAllSlidesIcon = "collections";   // 收藏整稿
-        public const string OpenPaneIcon = "photo_library";         // 打开素材库
-        public const string BackupIcon = "save";                    // 导出备份
-        public const string RestoreIcon = "unarchive";              // 导入备份
-        public const string ExportPptxIcon = "slideshow";           // 导出PPTX
-        public const string AdvancedIcon = "construction";          // 高级批处理
-
-        /// <summary>按功能名返回其语义色（渐变起止）。</summary>
-        private static void GetActionColors(string action, out Color c1, out Color c2)
-        {
-            switch (action)
-            {
-                // 收藏系列 —— 蓝
-                case "CollectShapes":
-                case "CollectPage":
-                case "CollectStyle":
-                case "CollectClipboard":
-                case "CollectAllSlides":
-                    c1 = Color.FromArgb(0x2E, 0x86, 0xDE); c2 = Color.FromArgb(0x1B, 0x5E, 0xAB); break;
-                // 素材库/插入 —— 青绿
-                case "OpenPane":
-                case "ExportPptx":
-                    c1 = Color.FromArgb(0x2B, 0xB5, 0x8A); c2 = Color.FromArgb(0x17, 0x86, 0x63); break;
-                // 备份/恢复 —— 琥珀/绿
-                case "Backup":
-                case "Restore":
-                    c1 = Color.FromArgb(0xE8, 0xA3, 0x3C); c2 = Color.FromArgb(0xC7, 0x79, 0x1B); break;
-                // 工具 1-4 —— 紫/粉
-                case "Tool1":
-                case "Tool2":
-                case "Tool3":
-                case "Tool4":
-                    c1 = Color.FromArgb(0x9C, 0x6B, 0xDF); c2 = Color.FromArgb(0x7A, 0x47, 0xC1); break;
-                // 工具 5-8 —— 粉/青
-                case "Tool5":
-                case "Tool6":
-                case "Tool7":
-                case "Tool8":
-                    c1 = Color.FromArgb(0xF0, 0x6A, 0x8E); c2 = Color.FromArgb(0xD1, 0x4E, 0x74); break;
-                // 高级/设置 —— 靛灰
-                default:
-                    c1 = Color.FromArgb(0x8A, 0x93, 0xA6); c2 = Color.FromArgb(0x62, 0x6B, 0x7C); break;
-            }
-        }
-
-        /// <summary>Ribbon 动作按钮彩色图标（32px 徽章）。action 用上面的常量名匹配配色。</summary>
-        public static Image GetActionIcon(string iconName, string action, int size = 32)
-        {
-            Color c1, c2;
-            GetActionColors(action, out c1, out c2);
-            return GetColorIcon(iconName, size, c1, c2, size * 0.24f);
-        }
+        public const string CollectShapesIcon = "content_copy";
+        public const string CollectPageIcon = "select_all";
+        public const string CollectStyleIcon = "format_paint";
+        public const string CollectClipboardIcon = "content_paste";
+        public const string CollectAllSlidesIcon = "collections";
+        public const string OpenPaneIcon = "photo_library";
+        public const string BackupIcon = "save";
+        public const string RestoreIcon = "unarchive";
+        public const string ExportPptxIcon = "slideshow";
+        public const string AdvancedIcon = "construction";
     }
 }
