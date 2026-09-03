@@ -382,11 +382,13 @@
         var titleMap = {
             tool1: "文字样式", tool2: "一键换字体", tool3: "查找 / 替换", tool4: "文字清理",
             tool5: "导出图片", tool6: "清理瘦身", tool7: "统一尺寸", tool8: "图片网格",
+            tool9: "页脚页码", tool10: "导出 PDF / 大纲", tool11: "图表美化", tool12: "参考文献",
             settings: "设置"
         };
         var iconMap = {
             tool1: "text_fields", tool2: "font_download", tool3: "manage_search", tool4: "cleaning_services",
             tool5: "image", tool6: "delete_sweep", tool7: "aspect_ratio", tool8: "grid_view",
+            tool9: "text_snippet", tool10: "picture_as_pdf", tool11: "bar_chart", tool12: "format_list_numbered",
             settings: "settings"
         };
         if (iconMap[viewKey]) {
@@ -406,6 +408,10 @@
             case "tool6": content = buildScanCleanControls(); break;
             case "tool7": content = buildResizeControls(); break;
             case "tool8": content = buildImageGridControls(); break;
+            case "tool9": content = buildFooterControls(); break;
+            case "tool10": content = buildExportDocControls(); break;
+            case "tool11": content = buildChartControls(); break;
+            case "tool12": content = buildRefsControls(); break;
             case "settings": content = null; break;   // 设置用专用渲染
             default: content = null;
         }
@@ -798,6 +804,173 @@
         box.appendChild(fld("", pickBtn));
         box.appendChild(fld("", run));
         return box;
+    }
+
+    // ================= 学术/学习工具（tool9-12） =================
+
+    // ⑨ 页脚页码（学术汇报）
+    function buildFooterControls() {
+        var box = el("div", "tool-card-body");
+        var footerText = makeInput("如：张三 · 机器学习课题组", "姓名  ·  课题组/单位");
+        var chkDate = makeCheck("显示日期", true);
+        var chkPage = makeCheck("每页右下角显示页码", true);
+        var chkFirst = makeCheck("仅首页显示页码", false);
+        var note = el("div", "tool-note", "为当前演示文稿全部页面底部添加页脚/页码文本框（若已有会叠加，可用撤销回退）。");
+        var run = runBtn("添加到全部页面", function () {
+            return Bridge.academicFooter({
+                footerText: footerText.value,
+                showDate: chkDate.querySelector("input").checked,
+                showPageNumber: chkPage.querySelector("input").checked,
+                firstOnly: chkFirst.querySelector("input").checked
+            }).then(function (d) { toast(d && d.message ? d.message : "完成", !d || !d.ok); });
+        });
+        box.appendChild(fld("页脚文本", footerText));
+        box.appendChild(fld("", chkDate));
+        box.appendChild(fld("", chkPage));
+        box.appendChild(fld("", chkFirst));
+        box.appendChild(note);
+        box.appendChild(fld("", run));
+        return box;
+    }
+
+    // ⑩ 导出 PDF / 讲义 / 大纲（学习资料）
+    function buildExportDocControls() {
+        var box = el("div", "tool-card-body");
+        var kind = makeSelect(["导出为 PDF（整稿）", "导出大纲文本（.txt）"], 0);
+        var dirRow = el("div", "dir-row");
+        var dirInput = makeInput("选择保存目录", "");
+        dirInput.id = "acadDir";
+        var dirBtn = el("button", "bar-btn", "浏览…");
+        dirBtn.addEventListener("click", function () {
+            Bridge.requestFolder("选择保存目录").then(function (d) {
+                if (d && d.path) dirInput.value = d.path;
+            }).catch(function (e) { toast(e.message, true); });
+        });
+        dirRow.appendChild(dirInput);
+        dirRow.appendChild(dirBtn);
+        var nameInput = makeInput("文件名（可留空）", "");
+        var preview = el("div", "tool-note"); preview.id = "acadOutlinePreview";
+        var run = runBtn("导出", function () {
+            var dir = dirInput.value.trim();
+            if (!dir) { toast("请先选择保存目录。", true); return Promise.resolve(); }
+            var isPdf = kind.selectedIndex === 0;
+            if (isPdf) {
+                return Bridge.academicExportPdf({ dir: dir, name: nameInput.value, style: 0, perPage: 1 })
+                    .then(function (d) { toast(d && d.message ? d.message : "导出完成", !d || !d.ok); });
+            }
+            // 大纲：先无目录请求文本预览？直接导出到文件并提示
+            return Bridge.academicExportOutline({ dir: dir, name: nameInput.value })
+                .then(function (d) { toast(d && d.message ? d.message : "导出完成", !d || !d.ok); });
+        });
+        box.appendChild(fld("导出类型", kind));
+        box.appendChild(fld("目录", dirRow));
+        box.appendChild(fld("文件名", nameInput));
+        box.appendChild(fld("", run));
+        box.appendChild(preview);
+        return box;
+    }
+
+    // ⑪ 图表一键美化
+    function buildChartControls() {
+        var box = el("div", "tool-card-body");
+        var palette = makeSelect(["学术蓝", "清新绿", "暖橙", "莫兰迪"], 0);
+        var fontName = makeSelect(["微软雅黑", "Arial", "Times New Roman", "Calibri"], 0);
+        var note = el("div", "tool-note", "请先在页面上选中一个图表，再点美化：按预设调色板重着系列色、统一图表字体。");
+        var run = runBtn("美化选中图表", function () {
+            return Bridge.academicBeautifyChart({ palette: palette.selectedIndex, fontName: fontName.value })
+                .then(function (d) { toast(d && d.message ? d.message : "完成", !d || !d.ok); });
+        });
+        box.appendChild(fld("配色方案", palette));
+        box.appendChild(fld("图表字体", fontName));
+        box.appendChild(note);
+        box.appendChild(fld("", run));
+        return box;
+    }
+
+    // ⑫ 参考文献（生成文本 → 弹窗展示，供复制插入）
+    var refRows = [{ a: "", t: "", s: "", y: "", p: "" }];
+    function buildRefsControls() {
+        var box = el("div", "tool-card-body");
+        var styleSel = makeSelect(["GB/T 7714（中文期刊）", "APA（英文）"], 0);
+        var titleInput = makeInput("参考文献", "标题（可留空默认参考文献）");
+        var listWrap = el("div", "ref-rows"); listWrap.id = "refRows";
+        function renderRows() {
+            listWrap.innerHTML = "";
+            refRows.forEach(function (r, i) {
+                var row = el("div", "tag-mgr-row");
+                row.style.flexWrap = "wrap";
+                var inp = function (ph, val) {
+                    var it = el("input", "ctl"); it.placeholder = ph || ""; it.value = val || ""; it.style.flex = "1"; it.style.minWidth = "70px";
+                    return it;
+                };
+                var f1 = inp("作者", r.a); f1.addEventListener("input", function (e) { r.a = e.target.value; });
+                var f2 = inp("标题", r.t); f2.addEventListener("input", function (e) { r.t = e.target.value; });
+                var f3 = inp("来源/期刊", r.s); f3.addEventListener("input", function (e) { r.s = e.target.value; });
+                var f4 = inp("年份", r.y); f4.addEventListener("input", function (e) { r.y = e.target.value; });
+                var f5 = inp("页码", r.p); f5.addEventListener("input", function (e) { r.p = e.target.value; });
+                row.appendChild(f1); row.appendChild(f4); row.appendChild(f3); row.appendChild(f5); row.appendChild(f2);
+                listWrap.appendChild(row);
+            });
+        }
+        renderRows();
+        var addBtn = el("button", "bar-btn", "+ 添加一条");
+        addBtn.addEventListener("click", function () {
+            refRows.push({ a: "", t: "", s: "", y: "", p: "" });
+            renderRows();
+        });
+        var run = runBtn("生成参考文献", function () {
+            var items = refRows.map(function (r) { return [r.a, r.t, r.s, r.y, r.p]; });
+            return Bridge.academicBuildRefs({
+                items: items,
+                style: styleSel.selectedIndex === 1 ? "APA" : "GBT",
+                insertTitle: titleInput.value
+            }).then(function (d) {
+                if (d && d.text) { showTextResult(d.text, "参考文献（复制到剪贴板后插入文本页）"); }
+                else { toast(d && d.message || "完成", !d || !d.ok); }
+            });
+        });
+        box.appendChild(fld("格式", styleSel));
+        box.appendChild(fld("标题", titleInput));
+        box.appendChild(listWrap);
+        box.appendChild(fld("", addBtn));
+        box.appendChild(fld("", run));
+        return box;
+    }
+
+    // 结果文本展示弹层（复制用）
+    function showTextResult(text, label) {
+        closeLightbox();
+        var mask = el("div", "lightbox-mask");
+        var lb = el("div", "lightbox");
+        lb.style.maxWidth = "520px";
+        var title = el("div", "lb-name", label);
+        var pre = el("pre", "text-result");
+        pre.textContent = text;
+        var btnRow = el("div", "lb-actions");
+        var copyBtn = el("button", "bar-btn primary", "复制全部");
+        copyBtn.addEventListener("click", function () {
+            try {
+                var ta = el("textarea");
+                ta.value = text;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand("copy");
+                ta.remove();
+                toast("已复制");
+            } catch (e) { toast("复制失败，请手动选择复制", true); }
+        });
+        var closeBtn = el("button", "bar-btn", "关闭");
+        closeBtn.addEventListener("click", function () { mask.remove(); document.removeEventListener("keydown", escH); });
+        btnRow.appendChild(copyBtn);
+        btnRow.appendChild(closeBtn);
+        lb.appendChild(title);
+        lb.appendChild(pre);
+        lb.appendChild(btnRow);
+        mask.appendChild(lb);
+        mask.addEventListener("click", function (e) { if (e.target === mask) { mask.remove(); document.removeEventListener("keydown", escH); } });
+        function escH(ev) { if (ev.key === "Escape") { mask.remove(); document.removeEventListener("keydown", escH); } }
+        document.body.appendChild(mask);
+        document.addEventListener("keydown", escH);
     }
 
     function fillSelect(sel, items, keepEmpty) {

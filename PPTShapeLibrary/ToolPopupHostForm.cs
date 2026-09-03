@@ -71,6 +71,10 @@ namespace PPTShapeLibrary
                 case "tool6": return "清理瘦身";
                 case "tool7": return "统一尺寸";
                 case "tool8": return "图片网格";
+                case "tool9": return "页脚页码";
+                case "tool10": return "导出 PDF / 大纲";
+                case "tool11": return "图表美化";
+                case "tool12": return "参考文献";
                 default: return "工具";
             }
         }

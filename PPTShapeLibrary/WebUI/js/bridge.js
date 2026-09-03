@@ -127,6 +127,12 @@
         formatRunClean: function (p) { return send("formatRunClean", p || {}); },
         formatResize: function (p) { return send("formatResize", p || {}); },
         formatImageGrid: function (p) { return send("formatImageGrid", p || {}); },
+        // 学术/学习工具
+        academicFooter: function (p) { return send("academicFooter", p || {}); },
+        academicExportPdf: function (p) { return send("academicExportPdf", p || {}); },
+        academicExportOutline: function (p) { return send("academicExportOutline", p || {}); },
+        academicBeautifyChart: function (p) { return send("academicBeautifyChart", p || {}); },
+        academicBuildRefs: function (p) { return send("academicBuildRefs", p || {}); },
         log: function (level, message) { return send("log", { level: level, message: message }); }
     };
 })();

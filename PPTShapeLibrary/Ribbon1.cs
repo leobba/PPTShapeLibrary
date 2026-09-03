@@ -21,6 +21,7 @@ namespace PPTShapeLibrary
         private RibbonGroup grpCollect;
         private RibbonGroup grpLibrary;
         private RibbonGroup grpTools;
+        private RibbonGroup grpAcademic;
         private RibbonButton btnCollectShapes;
         private RibbonButton btnCollectPage;
         private RibbonButton btnCollectStyle;
@@ -42,6 +43,7 @@ namespace PPTShapeLibrary
             this.grpCollect = f.CreateRibbonGroup();
             this.grpLibrary = f.CreateRibbonGroup();
             this.grpTools = f.CreateRibbonGroup();
+            this.grpAcademic = f.CreateRibbonGroup();
             this.btnCollectShapes = f.CreateRibbonButton();
             this.btnCollectPage = f.CreateRibbonButton();
             this.btnCollectStyle = f.CreateRibbonButton();
@@ -143,6 +145,10 @@ namespace PPTShapeLibrary
                 new[] { "清理瘦身", "tool6", RibbonIconFactory.Tool6Icon },
                 new[] { "统一尺寸", "tool7", RibbonIconFactory.Tool7Icon },
                 new[] { "图片网格", "tool8", RibbonIconFactory.Tool8Icon },
+                new[] { "页脚页码", "tool9", RibbonIconFactory.Tool9Icon },
+                new[] { "导出PDF/大纲", "tool10", RibbonIconFactory.Tool10Icon },
+                new[] { "图表美化", "tool11", RibbonIconFactory.Tool11Icon },
+                new[] { "参考文献", "tool12", RibbonIconFactory.Tool12Icon },
             };
             _toolButtons = new Microsoft.Office.Tools.Ribbon.RibbonButton[toolDefs.Length];
             for (int ti = 0; ti < toolDefs.Length; ti++)
@@ -157,15 +163,16 @@ namespace PPTShapeLibrary
                 b.ShowImage = true;
                 try
                 {
-                    string colorGroup = (ti < 4) ? "Tool" + (ti + 1) : "Tool" + (ti + 1);
-                    Image icon = RibbonIconFactory.GetActionGlyph(iconName, colorGroup, 32);
+                    Image icon = RibbonIconFactory.GetActionGlyph(iconName, "Tool" + (ti + 1), 32);
                     if (icon != null) b.Image = icon;
                 }
                 catch (Exception iex) { Log.Error(iex, "tool icon " + iconName); }
                 string captured = toolKey;
                 b.Click += (s, ev) => { try { OpenToolWindow(captured); } catch (Exception ex) { Log.Error(ex, "Ribbon tool " + captured); } };
                 _toolButtons[ti] = b;
-                this.grpTools.Items.Add(b);
+                // 前 8 个通用工具进 grpTools；后 4 个学术工具进 grpAcademic
+                if (ti < 8) this.grpTools.Items.Add(b);
+                else this.grpAcademic.Items.Add(b);
             }
 
             this.btnSettings.Label = "设置";
@@ -190,11 +197,13 @@ namespace PPTShapeLibrary
             this.grpTools.Label = "工具";
             this.grpTools.Items.Add(this.btnSettings);
             this.grpTools.Items.Add(this.btnAdvancedTools);
+            this.grpAcademic.Label = "学术/学习";
 
             // ---- 组装选项卡 ----
             this.tabLibrary.Groups.Add(this.grpCollect);
             this.tabLibrary.Groups.Add(this.grpLibrary);
             this.tabLibrary.Groups.Add(this.grpTools);
+            this.tabLibrary.Groups.Add(this.grpAcademic);
             this.tabLibrary.Label = "素材库";
 
             this.Tabs.Add(this.tabLibrary);

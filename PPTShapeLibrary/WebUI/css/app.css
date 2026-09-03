@@ -931,6 +931,19 @@ html, body {
 .dup-item input { accent-color: var(--accent); }
 .dup-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bar-sep { width: 1px; height: 18px; background: var(--border); flex-shrink: 0; }
+.ref-rows { display: flex; flex-direction: column; gap: 5px; max-height: 220px; overflow-y: auto; }
+.text-result {
+    max-height: 320px; overflow: auto;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 11.5px; line-height: 1.8;
+    color: var(--text);
+    white-space: pre-wrap;
+    word-break: break-all;
+    user-select: text;
+}
 
 /* ============ Toast ============ */
 .toast-wrap {
