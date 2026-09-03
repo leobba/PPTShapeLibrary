@@ -380,34 +380,6 @@ namespace PPTShapeLibrary
                                    r.Ok ? null : r.Message);
                             break;
                         }
-                    case "academicBuildRefs":
-                        {
-                            var list = new List<string[]>();
-                            if (payload.ContainsKey("items"))
-                            {
-                                var arrList = payload["items"] as System.Collections.ArrayList;
-                                if (arrList != null)
-                                {
-                                    foreach (var item in arrList)
-                                    {
-                                        if (item is System.Collections.ArrayList sub)
-                                        {
-                                            var row = new List<string>();
-                                            foreach (var cell in sub) row.Add(cell == null ? "" : cell.ToString());
-                                            list.Add(row.ToArray());
-                                        }
-                                        else if (item is string s)
-                                        {
-                                            list.Add(s.Split('|'));
-                                        }
-                                    }
-                                }
-                            }
-                            var r = AcademicToolService.BuildReferences(list, ToStr(payload, "style"), ToStr(payload, "insertTitle"));
-                            Result(reqId, r.Ok, r.Ok ? new Dictionary<string, object> { { "changed", r.Changed }, { "text", r.Message } } : null,
-                                   r.Ok ? null : r.Message);
-                            break;
-                        }
                     case "scanDuplicates":
                         {
                             // 全库扫描"完全重复"（同类型/同数量/同尺寸；保留最早，返回可删的重复项）

@@ -132,7 +132,6 @@
         academicExportPdf: function (p) { return send("academicExportPdf", p || {}); },
         academicExportOutline: function (p) { return send("academicExportOutline", p || {}); },
         academicBeautifyChart: function (p) { return send("academicBeautifyChart", p || {}); },
-        academicBuildRefs: function (p) { return send("academicBuildRefs", p || {}); },
         log: function (level, message) { return send("log", { level: level, message: message }); }
     };
 })();

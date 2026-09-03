@@ -74,7 +74,6 @@ namespace PPTShapeLibrary
                 case "tool9": return "页脚页码";
                 case "tool10": return "导出 PDF / 大纲";
                 case "tool11": return "图表美化";
-                case "tool12": return "参考文献";
                 default: return "工具";
             }
         }

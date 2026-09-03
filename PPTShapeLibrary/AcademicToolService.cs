@@ -237,57 +237,6 @@ namespace PPTShapeLibrary
             }
         }
 
-        // ================= A3 参考文献工具 =================
-
-        /// <summary>
-        /// 依据条目生成参考文献文本(GB/T7714 或 APA)。items 每项 "作者. 标题. 来源, 年份" 简化模板：
-        /// 约定格式 "作者|标题|来源|年份|页码" 用 | 分隔便于前端输入框逐字段。
-        /// </summary>
-        public static TextToolService.ToolResult BuildReferences(List<string[]> items, string style, string insertTitle)
-        {
-            try
-            {
-                if (items == null || items.Count == 0) return Err("请至少输入一条文献。");
-                var sb = new StringBuilder();
-                int i = 1;
-                foreach (var f in items)
-                {
-                    string author = f.Length > 0 ? f[0].Trim() : "";
-                    string paperTitle = f.Length > 1 ? f[1].Trim() : "";
-                    string source = f.Length > 2 ? f[2].Trim() : "";
-                    string year = f.Length > 3 ? f[3].Trim() : "";
-                    string pages = f.Length > 4 ? f[4].Trim() : "";
-                    bool apa = "APA".Equals(style, StringComparison.OrdinalIgnoreCase);
-                    string line;
-                    if (apa)
-                    {
-                        // APA: Author (Year). Title. Source, Pages.
-                        line = (author.Length > 0 ? author : "佚名") +
-                               (year.Length > 0 ? " (" + year + "). " : ". ") +
-                               (paperTitle.Length > 0 ? paperTitle : "(无题)") +
-                               (source.Length > 0 ? ". " + source : "") +
-                               (pages.Length > 0 ? ", " + pages : "") + ".";
-                    }
-                    else
-                    {
-                        // GB/T 7714: 作者. 标题[文献类型]. 来源, 年: 页码.
-                        string authors = author.Length > 0 ? author.Replace(";", ",") : "佚名";
-                        line = authors + ". " + (paperTitle.Length > 0 ? paperTitle : "(无题)") +
-                               "[J]. " + (source.Length > 0 ? source : "") +
-                               (year.Length > 0 ? ", " + year : "") +
-                               (pages.Length > 0 ? ": " + pages : "") + ".";
-                    }
-                    sb.AppendLine("[" + i + "] " + line);
-                    i++;
-                }
-                string title = string.IsNullOrWhiteSpace(insertTitle) ? "参考文献" : insertTitle.Trim();
-                string body = title + "\n" + sb.ToString();
-                return Ok(body, items.Count);
-            }
-            catch (Exception ex)
-            {
-                return Err(ex.Message);
-            }
-        }
+        // ================= A3 已移除：参考文献（不再提供） =================
     }
 }
