@@ -178,6 +178,44 @@ namespace PPTShapeLibrary
                             Ok(reqId, new Dictionary<string, object> { { "moved", n } });
                             break;
                         }
+                    // ---------------- 一级分组管理 ----------------
+                    case "setGroup":
+                        {
+                            string id = ToStr(payload, "id");
+                            ShapeLibraryService.SetGroup(id, ToStr(payload, "group"));
+                            Ok(reqId, new Dictionary<string, object>());
+                            break;
+                        }
+                    case "batchMoveGroup":
+                        {
+                            int n = 0;
+                            string g = ToStr(payload, "group");
+                            foreach (var id in GetIds(payload))
+                            {
+                                ShapeLibraryService.SetGroup(id, g);
+                                n++;
+                            }
+                            Ok(reqId, new Dictionary<string, object> { { "moved", n } });
+                            break;
+                        }
+                    case "createGroup":
+                        {
+                            bool ok = ShapeLibraryService.CreateUserGroup(ToStr(payload, "name"));
+                            Ok(reqId, new Dictionary<string, object> { { "ok", ok } });
+                            break;
+                        }
+                    case "renameGroup":
+                        {
+                            ShapeLibraryService.RenameGroup(ToStr(payload, "oldName"), ToStr(payload, "newName"));
+                            Ok(reqId, new Dictionary<string, object>());
+                            break;
+                        }
+                    case "deleteGroup":
+                        {
+                            int n = ShapeLibraryService.DeleteGroup(ToStr(payload, "name"));
+                            Ok(reqId, new Dictionary<string, object> { { "moved", n } });
+                            break;
+                        }
                     case "reorder":
                         {
                             var ordered = payload.ContainsKey("orderedIds") ? payload["orderedIds"] as System.Collections.ArrayList : null;
@@ -499,6 +537,18 @@ namespace PPTShapeLibrary
                     { "previewUrl", "https://data.pptshapes.local/" + m.Id + "/preview.png?v=" + PreviewStamp(m.Id) }
                 })
                 .ToList();
+
+            // 一级分组元数据：顺序组列表、计数、每组 icon 与“该组二级分类列表”
+            var groups = ShapeLibraryService.GetGroups();
+            d["groups"] = groups;
+            d["presetGroups"] = ShapeLibraryService.PresetGroups.ToList();
+            d["groupCounts"] = ShapeLibraryService.GetGroupCounts();
+            var groupCats = new Dictionary<string, object>();
+            foreach (var g in groups)
+            {
+                groupCats[g] = ShapeLibraryService.GetCategoriesOfGroup(g);
+            }
+            d["groupCategories"] = groupCats;
             return d;
         }
 
@@ -508,6 +558,7 @@ namespace PPTShapeLibrary
             string category = ToStr(payload, "category");
             string kind = ToStr(payload, "kind");
             string tag = ToStr(payload, "tag");
+            string group = ToStr(payload, "group");
             string sort = ToStr(payload, "sort");
             int offset = ToInt(payload, "offset");
             int limit = ToInt(payload, "limit");
@@ -536,6 +587,11 @@ namespace PPTShapeLibrary
                 string t = tag;
                 items = items.Where(m => m.GetTags().Any(x => x.Equals(t, StringComparison.OrdinalIgnoreCase)));
             }
+            if (!string.IsNullOrEmpty(group) && group != "全部")
+            {
+                string g = group;
+                items = items.Where(m => m.GetGroup() == g);
+            }
 
             int filteredTotal = items.Count();
             switch (sort)
@@ -560,6 +616,7 @@ namespace PPTShapeLibrary
                     { "name", m.Name },
                     { "kind", m.Kind },
                     { "category", m.GetCategory() },
+                    { "group", m.GetGroup() },
                     { "tags", tags },
                     { "shapeCount", m.ShapeCount },
                     { "width", m.Width },

@@ -32,6 +32,8 @@ namespace PPTShapeLibrary
         public string SourceSlide { get; set; }
         [DataMember(Name = "category")]
         public string Category { get; set; }
+        [DataMember(Name = "group", EmitDefaultValue = false)]
+        public string Group { get; set; }          // 一级分组（我的/模板/素材/文字/背景/图例/自定义…），缺省=我的
         [DataMember(Name = "tags")]
         public string Tags { get; set; }
         [DataMember(Name = "lastUsedAt")]
@@ -50,6 +52,13 @@ namespace PPTShapeLibrary
         public string GetCategory()
         {
             return string.IsNullOrWhiteSpace(Category) ? "未分类" : Category;
+        }
+
+        public const string DefaultGroup = "我的";
+
+        public string GetGroup()
+        {
+            return string.IsNullOrWhiteSpace(Group) ? DefaultGroup : Group;
         }
 
         public string[] GetTags()
@@ -72,7 +81,8 @@ namespace PPTShapeLibrary
         {
             get
             {
-                string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "素材库");
+                // 注意：目录名保持 "PPTShapeLibrary"（历史数据/备份路径兼容），勿改为中文
+                string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PPTShapeLibrary");
                 Directory.CreateDirectory(dir);
                 return dir;
             }
@@ -310,6 +320,156 @@ namespace PPTShapeLibrary
                 }
             }
             return list.OrderBy(t => t).ToList();
+        }
+
+        // ---------------- 一级分组（Group） ----------------
+
+        /// <summary>预设组（固定顺序与图标名；「全部」为前端虚拟）。图标名供前端 msym 用。</summary>
+        public static readonly string[] PresetGroups = { "我的", "模板", "素材", "文字", "背景", "图例" };
+
+        /// <summary>用户自建组文件（保留顺序）。</summary>
+        private static string UserGroupsFile
+        {
+            get { return Path.Combine(RootDir, "usergroups.json"); }
+        }
+
+        private static List<string> _userGroups;
+
+        public static List<string> GetUserGroups()
+        {
+            if (_userGroups == null)
+            {
+                _userGroups = new List<string>();
+                try
+                {
+                    if (File.Exists(UserGroupsFile))
+                    {
+                        string json = File.ReadAllText(UserGroupsFile);
+                        var ser = new System.Web.Script.Serialization.JavaScriptSerializer();
+                        var arr = ser.Deserialize<List<string>>(json);
+                        if (arr != null) _userGroups = arr.Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
+                    }
+                }
+                catch { }
+            }
+            return new List<string>(_userGroups);
+        }
+
+        private static void SaveUserGroups()
+        {
+            try
+            {
+                var ser = new System.Web.Script.Serialization.JavaScriptSerializer();
+                File.WriteAllText(UserGroupsFile, ser.Serialize(_userGroups ?? new List<string>()));
+            }
+            catch { }
+        }
+
+        /// <summary>全部一级组（含「全部」占位由前端处理，这里只给实体组），图标名映射前端。</summary>
+        public static List<string> GetGroups()
+        {
+            var list = new List<string>();
+            foreach (var g in PresetGroups) list.Add(g);
+            foreach (var g in GetUserGroups())
+            {
+                if (!list.Contains(g)) list.Add(g);
+            }
+            return list;
+        }
+
+        /// <summary>组 → 条目计数（供前端右侧栏角标）。</summary>
+        public static Dictionary<string, int> GetGroupCounts()
+        {
+            var counts = new Dictionary<string, int>();
+            foreach (var m in LoadAllItems())
+            {
+                string g = m.GetGroup();
+                counts.TryGetValue(g, out int n);
+                counts[g] = n + 1;
+            }
+            return counts;
+        }
+
+        public static void SetGroup(string id, string group)
+        {
+            var meta = LoadMeta(id);
+            if (meta == null) return;
+            meta.Group = string.IsNullOrWhiteSpace(group) ? LibraryMeta.DefaultGroup : group.Trim();
+            SaveMeta(meta);
+            InvalidateCache();
+        }
+
+        /// <summary>新建自定义组。返回 false 表示重名或非法。</summary>
+        public static bool CreateUserGroup(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return false;
+            name = name.Trim();
+            if (PresetGroups.Contains(name)) return false;
+            var ug = GetUserGroups();
+            if (ug.Contains(name)) return false;
+            ug.Add(name);
+            _userGroups = ug;
+            SaveUserGroups();
+            return true;
+        }
+
+        /// <summary>重命名组：groups.json 更名，并把该组条目的 Group 一并更新。</summary>
+        public static void RenameGroup(string oldName, string newName)
+        {
+            if (string.IsNullOrWhiteSpace(oldName) || string.IsNullOrWhiteSpace(newName)) return;
+            newName = newName.Trim();
+            if (PresetGroups.Contains(oldName)) return;          // 预设组不允许改名
+            var ug = GetUserGroups();
+            int i = ug.IndexOf(oldName);
+            if (i < 0) return;
+            ug[i] = newName;
+            _userGroups = ug;
+            SaveUserGroups();
+            foreach (var m in LoadAllItems())
+            {
+                if (m.GetGroup() == oldName)
+                {
+                    m.Group = newName;
+                    SaveMeta(m);
+                }
+            }
+            InvalidateCache();
+        }
+
+        /// <summary>删除用户组：其条目移到「我的」。返回受影响条目数。</summary>
+        public static int DeleteGroup(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return 0;
+            if (PresetGroups.Contains(name)) return 0;
+            var ug = GetUserGroups();
+            if (!ug.Remove(name)) return 0;
+            _userGroups = ug;
+            SaveUserGroups();
+            int n = 0;
+            foreach (var m in LoadAllItems())
+            {
+                if (m.GetGroup() == name)
+                {
+                    m.Group = LibraryMeta.DefaultGroup;
+                    SaveMeta(m);
+                    n++;
+                }
+            }
+            InvalidateCache();
+            return n;
+        }
+
+        /// <summary>某组内出现的全部二级分类（按条目 category 汇总 + 组预设空分类也列出空组）。</summary>
+        public static List<string> GetCategoriesOfGroup(string group)
+        {
+            var list = new List<string>();
+            foreach (var m in LoadAllItems())
+            {
+                if (m.GetGroup() != group) continue;
+                string c = m.GetCategory();
+                if (!list.Contains(c)) list.Add(c);
+            }
+            return list.OrderBy(c => c).ToList();
         }
 
         /// <summary>标签使用计数（供标签管理器显示）。</summary>
