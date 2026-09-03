@@ -33,16 +33,15 @@
 - **批量应用到同类**：把样式应用到本页 / 整份演示文稿所有同类型形状
 
 ### 界面
-- **顶部导航**：素材库 / 各工具 / 设置 全部平铺于面板顶部横向滚动条（Ribbon「小工具」「设置」直达对应项）
+- **工具入口**：Ribbon「素材库」选项卡内 8 个工具按钮直接弹独立窗口；面板顶部另有可换行横向导航（素材库/各工具/设置）用于窗格内切换
 - Canva 风格：圆角卡片、阴影、悬停高亮、悬停删除、空状态引导、玻璃浮动条、统一 CSS 变量深浅双主题
 - **深色/浅色主题**切换、卡片密度（紧凑/标准/大图）、面板宽度可调
 
-### 导航与工具（全部 Web 化）
-面板顶部横向导航：**素材库 / 文字样式 / 一键换字体 / 查找替换 / 文字清理 / 导出图片 / 清理瘦身 / 统一尺寸 / 图片网格 / 设置**。
-- 素材库 = 收藏网格（分类/标签/类型筛选、搜索、拖拽排序、多选管理）
-- 工具项均为 Web 表单，点 Ribbon「小工具」直达「文字样式」；Ribbon「设置」直达「设置」
-- 全部表单基于共享服务层（TextToolService / FormatToolService），与原生窗体同一实现
-- Ribbon「高级工具」保留原生版式批处理 Hub 作兜底
+### 工具入口（Ribbon 按钮 → 独立工具窗口）
+Ribbon「素材库」选项卡 →「工具」组，每个工具是独立按钮，点击**直接弹出独立工具窗口**（与收藏按钮同层）：
+**文字样式 / 一键换字体 / 查找替换 / 文字清理 / 导出图片 / 清理瘦身 / 统一尺寸 / 图片网格**，另附「设置」「高级批处理（原生 Hub 兜底）」。
+- 8 个窗口均复用共享服务层（TextToolService / FormatToolService），逻辑与面板内 Web 表单同源
+- 面板顶部保留同套 10 项横向导航（素材库 / 各工具 / 设置）用于在右侧面板内浏览与切换
 
 ### PPT 工具能力清单
 - **批量修改文字样式**：选中/当前页/全部页统一字体字号加粗斜体颜色对齐
@@ -81,10 +80,12 @@ PPTShapeLibrary\            # VSTO 项目（PowerPoint 2016+ / M365 x64）
   FormatToolService.cs    # 版式批处理共享服务层（导出图片/清理瘦身/统一尺寸/图片网格）
   StylePreset.cs          # 样式数据结构
   Settings.cs / SettingsForm.cs / TagManagerForm.cs / InputDialog.cs
-  ToolsHubForm.cs          # 高级工具 Hub（Ribbon「高级工具」入口，原生兜底）
-  PPTToolsForm.cs          # 原生窗体兜底：批量文字样式 / 一键换字体
-  PPTTextToolsForm.cs      # 原生窗体兜底：文本查找替换 / 文字清理
-  PPTFormatToolsForm.cs    # 原生窗体兜底：整稿导出图片 / 清理瘦身 / 统一尺寸 / 图片网格
+  ToolsHubForm.cs          # 高级批处理 Hub（Ribbon「高级批处理」入口）
+  TextStyleToolForm.cs     # 工具窗：文字样式（Ribbon 直达）
+  FontReplaceToolForm.cs   # 工具窗：一键换字体（Ribbon 直达）
+  PPTTextToolsForm.cs      # 工具窗：查找替换 / 文字清理（单模式直达）
+  PPTFormatToolsForm.cs    # 工具窗：导出图片/清理瘦身/统一尺寸/图片网格（startTab+singleMode 直达）
+  PPTToolsForm.cs          # 旧文字样式/换字体整窗（兼容保留）
   Log.cs                   # 日志（>1MB 轮转）
   WebUI\                  # 前端 SPA（免构建，随程序集复制）
     index.html + css\app.css + js\bridge.js(通信) + js\app.js(应用)
