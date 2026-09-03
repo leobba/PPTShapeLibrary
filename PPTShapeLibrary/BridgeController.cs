@@ -338,6 +338,76 @@ namespace PPTShapeLibrary
                                    r.Ok ? null : r.Message);
                             break;
                         }
+                    // ---------------- 学术/学习工具（AcademicToolService） ----------------
+                    case "academicFooter":
+                        {
+                            var r = AcademicToolService.AddFooterPageNumbers(
+                                ToStr(payload, "footerText"),
+                                true == ToBoolNullable(payload, "showDate"),
+                                true == ToBoolNullable(payload, "showPageNumber"),
+                                true == ToBoolNullable(payload, "firstOnly"));
+                            Result(reqId, r.Ok, r.Ok ? new Dictionary<string, object> { { "changed", r.Changed } } : null,
+                                   r.Ok ? null : r.Message);
+                            break;
+                        }
+                    case "academicExportPdf":
+                        {
+                            var r = AcademicToolService.ExportPdf(
+                                ToStr(payload, "dir"),
+                                ToStr(payload, "name"),
+                                ToInt(payload, "style"),
+                                Math.Max(1, Math.Min(9, ToInt(payload, "perPage"))));
+                            Result(reqId, r.Ok, r.Ok ? new Dictionary<string, object> { { "changed", r.Changed } } : null,
+                                   r.Ok ? null : r.Message);
+                            break;
+                        }
+                    case "academicExportOutline":
+                        {
+                            var r = AcademicToolService.ExportOutlineText(
+                                ToStr(payload, "dir"),
+                                ToStr(payload, "name"));
+                            // Ok 时 dir 为空则 Message 是大纲文本（供前端复制）
+                            Result(reqId, r.Ok, r.Ok ? new Dictionary<string, object> { { "changed", r.Changed }, { "text", r.Message } } : null,
+                                   r.Ok ? null : r.Message);
+                            break;
+                        }
+                    case "academicBeautifyChart":
+                        {
+                            var r = AcademicToolService.BeautifyChart(
+                                ToInt(payload, "palette"),
+                                ToStr(payload, "fontName"));
+                            Result(reqId, r.Ok, r.Ok ? new Dictionary<string, object> { { "changed", r.Changed } } : null,
+                                   r.Ok ? null : r.Message);
+                            break;
+                        }
+                    case "academicBuildRefs":
+                        {
+                            var list = new List<string[]>();
+                            if (payload.ContainsKey("items"))
+                            {
+                                var arrList = payload["items"] as System.Collections.ArrayList;
+                                if (arrList != null)
+                                {
+                                    foreach (var item in arrList)
+                                    {
+                                        if (item is System.Collections.ArrayList sub)
+                                        {
+                                            var row = new List<string>();
+                                            foreach (var cell in sub) row.Add(cell == null ? "" : cell.ToString());
+                                            list.Add(row.ToArray());
+                                        }
+                                        else if (item is string s)
+                                        {
+                                            list.Add(s.Split('|'));
+                                        }
+                                    }
+                                }
+                            }
+                            var r = AcademicToolService.BuildReferences(list, ToStr(payload, "style"), ToStr(payload, "insertTitle"));
+                            Result(reqId, r.Ok, r.Ok ? new Dictionary<string, object> { { "changed", r.Changed }, { "text", r.Message } } : null,
+                                   r.Ok ? null : r.Message);
+                            break;
+                        }
                     case "scanDuplicates":
                         {
                             // 全库扫描"完全重复"（同类型/同数量/同尺寸；保留最早，返回可删的重复项）
