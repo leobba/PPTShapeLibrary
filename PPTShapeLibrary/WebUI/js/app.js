@@ -1812,6 +1812,7 @@
         mi("标签管理…", "label", showTagManager);
         mi("去重清理…", "delete_sweep", showDuplicateCleaner);
         mi("导入素材包…", "package_2", importPackPrompt);
+        mi("管理分组…", "folder", showGroupManager);
         document.body.appendChild(menu);
 
         var r = anchor.getBoundingClientRect();
@@ -1824,6 +1825,70 @@
     function closeMgmtMenu() {
         var m = $("#mgmtMenu");
         if (m) m.remove();
+    }
+
+    // ---------------- 管理分组（一级，仅自定义组可改名/删除） ----------------
+    function showGroupManager() {
+        var presets = ["我的", "模板", "素材", "文字", "背景", "图例"];
+        var userGroups = (state.groups || []).filter(function (g) { return presets.indexOf(g) < 0; });
+
+        closeModal();
+        var mask = el("div", "modal-mask");
+        mask.id = "modal";
+        var modal = el("div", "modal");
+        modal.style.width = "300px";
+        modal.appendChild(el("div", "modal-title", "管理一级分组"));
+        var body = el("div");
+        var list = el("div", "tag-mgr-list");
+        list.id = "groupMgrList";
+        body.appendChild(list);
+        modal.appendChild(body);
+        var actions = el("div", "modal-actions");
+        var addBtn = el("button", "bar-btn", "＋ 新建");
+        addBtn.addEventListener("click", function () {
+            closeModal();
+            inputModal("新建一级分组", "分组名称：", "", function (v) {
+                if (!v) return;
+                Bridge.createGroup({ name: v }).then(function () { refreshAllGroups(); }).catch(function (e) { toast(e.message, true); });
+            });
+        });
+        var closeBtn = el("button", "bar-btn primary", "完成");
+        closeBtn.addEventListener("click", function () { closeModal(); refreshAllGroups(); });
+        actions.appendChild(addBtn);
+        actions.appendChild(closeBtn);
+        modal.appendChild(actions);
+        mask.appendChild(modal);
+        document.body.appendChild(mask);
+        mask.addEventListener("click", function (e) { if (e.target === mask) { closeModal(); refreshAllGroups(); } });
+
+        // 说明 + 自定义组列表
+        var note = el("div", "tool-note", "预设组：我的 / 模板 / 素材 / 文字 / 背景 / 图例（不可改名删除）。以下为你的自定义组：");
+        list.appendChild(note);
+        if (userGroups.length === 0) {
+            list.appendChild(el("div", "modal-msg", "暂无自定义分组。可在右侧栏「新建分组」或此处新建。"));
+        }
+        userGroups.forEach(function (g) {
+            var row = el("div", "tag-mgr-row");
+            row.appendChild(el("span", "tag-mgr-name", g));
+            var rn = el("button", "tag-mgr-btn", "重命名");
+            rn.addEventListener("click", function () {
+                closeModal();
+                inputModal("重命名分组", "新名称：", g, function (v) {
+                    if (!v || v === g) return;
+                    Bridge.renameGroup(g, v).then(function () { refreshAllGroups(); }).catch(function (e) { toast(e.message, true); });
+                });
+            });
+            var dl = el("button", "tag-mgr-btn danger", "删除");
+            dl.addEventListener("click", function () {
+                closeModal();
+                confirmModal("删除分组「" + g + "」？其下条目将移到「我的」。", function () {
+                    Bridge.deleteGroup(g).then(function () { refreshAllGroups(); }).catch(function (e) { toast(e.message, true); });
+                });
+            });
+            row.appendChild(rn);
+            row.appendChild(dl);
+            list.appendChild(row);
+        });
     }
 
     // ---------------- 标签管理器（Web） ----------------
