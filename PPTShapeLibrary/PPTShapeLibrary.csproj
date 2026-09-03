@@ -154,6 +154,8 @@
     <Compile Include="PPTToolsForm.cs" />
     <Compile Include="PPTTextToolsForm.cs" />
     <Compile Include="PPTFormatToolsForm.cs" />
+    <Compile Include="TextStyleToolForm.cs" />
+    <Compile Include="FontReplaceToolForm.cs" />
     <Compile Include="ToolsHubForm.cs" />
     <Compile Include="FallbackPane.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

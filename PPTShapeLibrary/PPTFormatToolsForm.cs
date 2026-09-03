@@ -13,9 +13,20 @@ namespace PPTShapeLibrary
     /// </summary>
     public class PPTFormatToolsForm : Form
     {
-        public PPTFormatToolsForm()
+        private TabControl _tabs;
+
+        public PPTFormatToolsForm() : this(0, false) { }
+
+        /// <summary>
+        /// startTab：0=导出图片 1=清理瘦身 2=统一尺寸 3=图片网格。
+        /// singleMode=true 时隐藏 Tab 头并只显示该 tab（作为独立单工具弹窗）。
+        /// </summary>
+        public PPTFormatToolsForm(int startTab, bool singleMode)
         {
-            Text = "PPT 版式 / 批处理工具";
+            if (startTab < 0) startTab = 0;
+            if (startTab > 3) startTab = 3;
+            string[] titles = { "导出图片", "清理瘦身", "统一尺寸", "图片网格" };
+            Text = singleMode ? titles[startTab] : "版式 / 批处理工具";
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
@@ -23,12 +34,19 @@ namespace PPTShapeLibrary
             ClientSize = new Size(470, 400);
             var font = new Font("Microsoft YaHei", 9F);
 
-            var tabs = new TabControl { Dock = DockStyle.Fill, Font = font };
-            tabs.TabPages.Add(BuildExportTab(font));
-            tabs.TabPages.Add(BuildCleanTab(font));
-            tabs.TabPages.Add(BuildSizeTab(font));
-            tabs.TabPages.Add(BuildGridTab(font));
-            Controls.Add(tabs);
+            _tabs = new TabControl { Dock = DockStyle.Fill, Font = font };
+            _tabs.TabPages.Add(BuildExportTab(font));
+            _tabs.TabPages.Add(BuildCleanTab(font));
+            _tabs.TabPages.Add(BuildSizeTab(font));
+            _tabs.TabPages.Add(BuildGridTab(font));
+            if (singleMode)
+            {
+                _tabs.Appearance = TabAppearance.FlatButtons;
+                _tabs.ItemSize = new Size(0, 1);
+                _tabs.SizeMode = TabSizeMode.Fixed;
+            }
+            _tabs.SelectedIndex = startTab;
+            Controls.Add(_tabs);
 
             var btnClose = new Button { Text = "关闭", DialogResult = DialogResult.Cancel, Anchor = AnchorStyles.Bottom | AnchorStyles.Right, Location = new Point(358, 366), Size = new Size(100, 28), Font = font };
             CancelButton = btnClose;

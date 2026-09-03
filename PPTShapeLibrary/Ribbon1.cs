@@ -132,29 +132,29 @@ namespace PPTShapeLibrary
             this.grpLibrary.Items.Add(this.btnRestore);
             this.grpLibrary.Items.Add(this.btnExportPptx);
 
-            // ---- 工具组（8 个 Web 工具按钮，与 Ribbon 其它按钮同级平铺）----
+            // ---- 工具组（8 个 Web 工具按钮，点击直接弹出独立工具窗口）----
             string[][] toolDefs =
             {
-                new[] { "文字样式", "tool1" },
-                new[] { "一键换字体", "tool2" },
-                new[] { "查找替换", "tool3" },
-                new[] { "文字清理", "tool4" },
-                new[] { "导出图片", "tool5" },
-                new[] { "清理瘦身", "tool6" },
-                new[] { "统一尺寸", "tool7" },
-                new[] { "图片网格", "tool8" },
+                new[] { "文字样式", "textStyle" },
+                new[] { "一键换字体", "fontReplace" },
+                new[] { "查找替换", "findReplace" },
+                new[] { "文字清理", "cleanText" },
+                new[] { "导出图片", "exportImages" },
+                new[] { "清理瘦身", "scanClean" },
+                new[] { "统一尺寸", "resize" },
+                new[] { "图片网格", "imageGrid" },
             };
             _toolButtons = new Microsoft.Office.Tools.Ribbon.RibbonButton[toolDefs.Length];
             for (int ti = 0; ti < toolDefs.Length; ti++)
             {
                 string label = toolDefs[ti][0];
-                string view = toolDefs[ti][1];
+                string toolKey = toolDefs[ti][1];
                 var b = f.CreateRibbonButton();
                 b.Label = label;
                 b.ScreenTip = label;
-                b.SuperTip = "打开「" + label + "」工具（右侧素材库面板内）。";
-                string captured = view;
-                b.Click += (s, ev) => { try { Globals.ThisAddIn.ShowToolView(captured); } catch (Exception ex) { Log.Error(ex, "Ribbon tool " + captured); } };
+                b.SuperTip = "打开「" + label + "」工具窗口。";
+                string captured = toolKey;
+                b.Click += (s, ev) => { try { OpenToolWindow(captured); } catch (Exception ex) { Log.Error(ex, "Ribbon tool " + captured); } };
                 _toolButtons[ti] = b;
                 this.grpTools.Items.Add(b);
             }
@@ -300,6 +300,27 @@ namespace PPTShapeLibrary
             catch (Exception ex)
             {
                 Log.Error(ex, "Ribbon AdvancedTools");
+            }
+        }
+
+        /// <summary>按工具键弹出独立工具窗口（与 Ribbon 其它按钮一致，点击即弹窗）。</summary>
+        private void OpenToolWindow(string key)
+        {
+            System.Windows.Forms.Form frm = null;
+            switch (key)
+            {
+                case "textStyle": frm = new TextStyleToolForm(); break;
+                case "fontReplace": frm = new FontReplaceToolForm(); break;
+                case "findReplace": frm = new PPTTextToolsForm("replace"); break;
+                case "cleanText": frm = new PPTTextToolsForm("clean"); break;
+                case "exportImages": frm = new PPTFormatToolsForm(0, true); break;
+                case "scanClean": frm = new PPTFormatToolsForm(1, true); break;
+                case "resize": frm = new PPTFormatToolsForm(2, true); break;
+                case "imageGrid": frm = new PPTFormatToolsForm(3, true); break;
+            }
+            if (frm != null)
+            {
+                using (frm) { frm.ShowDialog(); }
             }
         }
 

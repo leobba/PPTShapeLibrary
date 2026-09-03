@@ -1,10 +1,6 @@
 using System;
-using System.Collections.Generic;
 using System.Drawing;
-using System.Linq;
 using System.Windows.Forms;
-using Microsoft.Office.Core;
-using PowerPoint = Microsoft.Office.Interop.PowerPoint;
 
 namespace PPTShapeLibrary
 {
@@ -22,10 +18,15 @@ namespace PPTShapeLibrary
         private readonly CheckBox chkCleanPunct;
         private readonly Button btnReplace;
         private readonly Button btnClean;
+        private GroupBox _grpReplace;
+        private GroupBox _grpClean;
 
-        public PPTTextToolsForm()
+        public PPTTextToolsForm() : this("both") { }
+
+        /// <summary>mode: "replace"(仅查找替换) / "clean"(仅文字清理) / "both"(默认全部)。</summary>
+        public PPTTextToolsForm(string mode)
         {
-            Text = "文本查找替换 / 清理";
+            Text = mode == "replace" ? "查找 / 替换" : mode == "clean" ? "文字清理" : "文本工具";
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
@@ -35,7 +36,7 @@ namespace PPTShapeLibrary
 
             // ---- 查找替换 ----
             var grp1 = new GroupBox { Text = "查找 / 替换（保留格式）", Location = new Point(14, 10), Size = new Size(400, 160), Font = font };
-            var lblScope = new Label { Text = "作用范围：", Location = new Point(16, 28), AutoSize = true, Font = font };
+            _grpReplace = grp1;            var lblScope = new Label { Text = "作用范围：", Location = new Point(16, 28), AutoSize = true, Font = font };
             cmbScope = new ComboBox
             {
                 Location = new Point(130, 25), Size = new Size(240, 25), DropDownStyle = ComboBoxStyle.DropDownList, Font = font
@@ -63,6 +64,7 @@ namespace PPTShapeLibrary
 
             // ---- 清理 ----
             var grp2 = new GroupBox { Text = "文字清理（整份演示文稿）", Location = new Point(14, 178), Size = new Size(400, 110), Font = font };
+            _grpClean = grp2;
             chkCleanWs = new CheckBox
             {
                 Text = "去多余空白（连续空格/全角空格、行首尾空格）",
@@ -87,43 +89,10 @@ namespace PPTShapeLibrary
             CancelButton = btnClose;
 
             Controls.Add(grp1); Controls.Add(grp2); Controls.Add(btnClose);
-        }
 
-        private static PowerPoint.Application App
-        {
-            get { return Globals.ThisAddIn.Application; }
-        }
-
-        /// <summary>按范围返回全部文本形状。</summary>
-        private List<PowerPoint.Shape> TextShapesByScope(string scope)
-        {
-            var result = new List<PowerPoint.Shape>();
-            try
-            {
-                if (scope == "当前页")
-                {
-                    var slide = App.ActivePresentation.Slides[App.ActiveWindow.View.Slide.SlideIndex];
-                    for (int i = 1; i <= slide.Shapes.Count; i++) result.Add(slide.Shapes[i]);
-                }
-                else
-                {
-                    foreach (PowerPoint.Slide slide in App.ActivePresentation.Slides)
-                    {
-                        for (int i = 1; i <= slide.Shapes.Count; i++) result.Add(slide.Shapes[i]);
-                    }
-                }
-            }
-            catch { }
-            return result;
-        }
-
-        private bool IsTextShape(PowerPoint.Shape shp)
-        {
-            try
-            {
-                return shp.HasTextFrame == MsoTriState.msoTrue && shp.TextFrame.HasText == MsoTriState.msoTrue;
-            }
-            catch { return false; }
+            // mode 聚焦：隐藏非目标区块，并把窗体调紧凑
+            if (mode == "replace") { grp2.Visible = false; ClientSize = new Size(430, 210); btnClose.Location = new Point(314, 178); }
+            else if (mode == "clean") { grp1.Visible = false; ClientSize = new Size(430, 210); btnClose.Location = new Point(314, 178); }
         }
 
         private void DoReplace()
@@ -132,54 +101,14 @@ namespace PPTShapeLibrary
             {
                 string find = txtFind.Text;
                 string rep = txtReplace.Text;
-                string scope = cmbScope.SelectedItem as string ?? "当前页";
-                if (find.Length == 0)
-                {
-                    MessageBox.Show("请输入查找内容。", "文本工具");
-                    return;
-                }
-                var cmp = chkCase.Checked ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
-
-                int total = 0;
-                int shapesTouched = 0;
-                int skippedShapes = 0;
+                string scopeSel = cmbScope.SelectedItem as string ?? "全部页面";
+                bool allSlides = scopeSel == "全部页面";
                 Cursor = Cursors.WaitCursor;
-                try
-                {
-                    foreach (var shp in TextShapesByScope(scope))
-                    {
-                        if (!IsTextShape(shp)) continue;
-                        try
-                        {
-                            var textRange = shp.TextFrame.TextRange;
-                            string full = textRange.Text ?? "";
-                            int fromIdx = 0;          // 已替换末尾游标（防重入/防漂移）
-                            int inShape = 0;
-                            int safety = 0;           // 兜底：单 shape 上限 2000 次，防异常宿主死循环
-                            while (safety++ < 2000)
-                            {
-                                int idx = full.IndexOf(find, fromIdx, cmp);
-                                if (idx < 0) break;
-                                // 用 Characters 定位替换（保留该处原格式：赋值只改文本，字符属性继承原字符）
-                                var part = textRange.Characters(idx + 1, find.Length);
-                                part.Text = rep;
-                                total++;
-                                inShape++;
-                                // 全文重读；游标推进到替换文本末尾（+find.Length 保守：rep 可能被 COM 归一化换行，一律按 rep 原长后移，必要时再靠 IndexOf 从 fromIdx 找，天然防死循环）
-                                full = textRange.Text ?? "";
-                                fromIdx = idx + find.Length;
-                            }
-                            if (inShape > 0) shapesTouched++;
-                        }
-                        catch { skippedShapes++; }
-                    }
-                }
+                TextToolService.ToolResult r;
+                try { r = TextToolService.FindReplace(find, rep, chkCase.Checked, allSlides); }
                 finally { Cursor = Cursors.Default; }
-                string note = skippedShapes > 0
-                    ? "\n（" + skippedShapes + " 个文本形状因异常跳过，详情见日志）"
-                    : "";
-                MessageBox.Show("共替换 " + total + " 处，涉及 " + shapesTouched + " 个文本形状。" + note,
-                    "文本工具", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show(r.Message, "查找 / 替换", MessageBoxButtons.OK,
+                    r.Ok ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
             }
             catch (Exception ex)
             {
@@ -196,65 +125,12 @@ namespace PPTShapeLibrary
                     MessageBox.Show("请至少勾选一项清理规则。", "文本工具");
                     return;
                 }
-                int changed = 0;
                 Cursor = Cursors.WaitCursor;
-                try
-                {
-                    foreach (var shp in TextShapesByScope("全部页面"))
-                    {
-                        if (!IsTextShape(shp)) continue;
-                        try
-                        {
-                            var textRange = shp.TextFrame.TextRange;
-                            string t = textRange.Text ?? "";
-                            string o = t;
-                            if (chkCleanWs.Checked)
-                            {
-                                // 全角空格→普通空格；连续空格→单个；行首尾空白修剪
-                                t = t.Replace('\u3000', ' ');
-                                t = System.Text.RegularExpressions.Regex.Replace(t, "[ ]{2,}", " ");
-                                t = System.Text.RegularExpressions.Regex.Replace(t, "(?m)^[ \t]+|[ \t]+$", "");
-                            }
-                            if (chkCleanPunct.Checked)
-                            {
-                                // 中文语境：西文逗号/句号/问号/感叹号 → 全角（仅当两侧为 CJK 时，保守不破坏英文/数字）
-                                t = System.Text.RegularExpressions.Regex.Replace(t, "([\u4e00-\u9fff])\\s*,\\s*([\u4e00-\u9fff])", "$1，$2");
-                                t = System.Text.RegularExpressions.Regex.Replace(t, "([\u4e00-\u9fff])\\s*\\.\\s*([\u4e00-\u9fff])", "$1。$2");
-                                t = System.Text.RegularExpressions.Regex.Replace(t, "([\u4e00-\u9fff])\\s*\\?\\s*([\u4e00-\u9fff])", "$1？$2");
-                                t = System.Text.RegularExpressions.Regex.Replace(t, "([\u4e00-\u9fff])\\s*!\\s*([\u4e00-\u9fff])", "$1！$2");
-                            }
-                            if (t != o)
-                            {
-                                // 整段重设前记录该段首字符主导格式，重设后刷回，避免整段丢格式。
-                                // （跨段多格式文本会统一为首段格式——清理语义下可接受，弹窗已提示。）
-                                try
-                                {
-                                    var f = textRange.Characters(1, 1).Font;
-                                    string fontName = f.Name; float size = f.Size; int rgb = f.Color.RGB;
-                                    bool bold = f.Bold == MsoTriState.msoTrue;
-                                    textRange.Text = t;
-                                    if (textRange.Text.Length > 0)
-                                    {
-                                        var nf = textRange.Font;
-                                        if (!string.IsNullOrEmpty(fontName)) nf.Name = fontName;
-                                        if (size > 0) nf.Size = size;
-                                        nf.Color.RGB = rgb;
-                                        nf.Bold = bold ? MsoTriState.msoTrue : MsoTriState.msoFalse;
-                                    }
-                                }
-                                catch
-                                {
-                                    textRange.Text = t;   // 读取格式失败仍完成清理（格式按默认）
-                                }
-                                changed++;
-                            }
-                        }
-                        catch { }
-                    }
-                }
+                TextToolService.ToolResult r;
+                try { r = TextToolService.CleanText(chkCleanWs.Checked, chkCleanPunct.Checked); }
                 finally { Cursor = Cursors.Default; }
-                MessageBox.Show("已清理 " + changed + " 个文本形状。\n（文本会按首字符格式统一；若文档内含多格式混排需保留，请谨慎使用或事后撤销。）",
-                    "文本工具", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show(r.Message + "\n（文本会按首字符格式统一；多格式混排需保留时请谨慎使用或事后撤销。）",
+                    "文字清理", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
