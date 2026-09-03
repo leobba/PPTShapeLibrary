@@ -143,6 +143,53 @@
 }
 .lib-view { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 
+/* 主体行：左侧主内容 + 右侧一级分组栏 */
+.lib-body { display: flex; flex: 1; min-height: 0; }
+.lib-main { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; position: relative; }
+.side-groups {
+    flex: none;
+    width: 96px;
+    border-left: 1px solid var(--border);
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 6px;
+    overflow-y: auto;
+}
+.g-item {
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    border: none; background: transparent; cursor: pointer;
+    border-radius: 9px; padding: 7px 2px 6px;
+    color: var(--text-sub); font-size: 10.5px; font-family: inherit;
+    position: relative;
+}
+.g-item .msym { font-size: 21px; color: var(--text-sub); }
+.g-item:hover { background: var(--surface-hover); color: var(--text); }
+.g-item:hover .msym { color: var(--text); }
+.g-item.active { background: var(--accent-soft); color: var(--accent); }
+.g-item.active .msym { color: var(--accent); }
+.g-name { line-height: 1.2; text-align: center; word-break: break-all; max-width: 86px; }
+.g-cnt {
+    position: absolute; top: 2px; right: 5px;
+    background: var(--chip-bg); border-radius: 8px;
+    font-size: 9px; padding: 0 4px; color: var(--text-sub);
+}
+.g-item.active .g-cnt { background: var(--accent); color: #fff; }
+.g-add {
+    margin-top: 6px;
+    border: 1px dashed var(--border); background: transparent;
+    border-radius: 9px; padding: 6px 2px; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    color: var(--text-sub); font-size: 10px; font-family: inherit;
+}
+.g-add .msym { font-size: 18px; }
+.g-add:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+
+/* 二级分类条加号胶囊 */
+.chip-add { background: transparent; border: 1px dashed var(--border); font-size: 14px; padding: 0 8px; }
+.chip-add:hover { border-color: var(--accent); color: var(--accent); }
+
 /* 素材库标题条 */
 .lib-topbar {
     display: flex; align-items: center; justify-content: space-between;
@@ -729,11 +776,16 @@ html, body {
 .card.skeleton .sk-line { height: 9px; margin: 3px 7px; width: 70%; }
 /* ============ 空状态 ============ */
 .empty-state {
+    position: absolute;
+    left: 0; right: 0; top: 34%;
+    transform: translateY(-50%);
     text-align: center;
     color: var(--text-sub);
-    padding: 48px 24px;
+    padding: 24px;
     font-size: 11.5px;
     line-height: 1.9;
+    pointer-events: none;
+    z-index: 2;
 }
 .empty-ico {
     font-size: 46px; color: var(--border);

@@ -10,6 +10,10 @@
         categories: [],
         filter: "",
         category: "全部",
+        group: "全部",          // 一级分组："全部" 或 组名（我的/模板/…）
+        groups: [],             // 实体组列表（不含"全部"）
+        groupCounts: {},
+        groupCategories: {},    // 组名 -> [二级分类]
         kind: "全部",           // 类型过滤：全部/Shape/Style
         tag: "",                // 标签过滤：""=全部
         sort: "最新",
@@ -64,9 +68,13 @@
             state.categoryCounts = data.categoryCounts || {};
             state.recentTop = data.recentTop || [];
             state._tagCounts = data.tagCounts || {};
+            state.groups = data.groups || [];
+            state.groupCounts = data.groupCounts || {};
+            state.groupCategories = data.groupCategories || {};
             applyTheme(data.theme || "light");
             applyCardSize(data.cardSize || "compact");
-            renderCategories(data.categories || []);
+            renderGroups();
+            renderCategoryBarForGroup();
             renderTagSelect(data.tags || []);
             reload();
         }).catch(function (err) {
@@ -81,7 +89,11 @@
             state.recentTop = data.recentTop || [];
             state.categoryCounts = data.categoryCounts || {};
             state._tagCounts = data.tagCounts || {};
-            renderCategories(data.categories || []);
+            state.groups = data.groups || [];
+            state.groupCounts = data.groupCounts || {};
+            state.groupCategories = data.groupCategories || {};
+            renderGroups();
+            renderCategoryBarForGroup();
             renderTagSelect(data.tags || []);
         }).catch(function () {});
         reload();
@@ -149,6 +161,18 @@
         topBar.appendChild(tbRight);
         libView.appendChild(topBar);
 
+        // 主体行：左为主内容区 mainArea，右侧窄栏为一级分组（创客贴式）
+        var bodyRow = el("div", "lib-body");
+        bodyRow.id = "libBody";
+        libView.appendChild(bodyRow);
+        var mainArea = el("div", "lib-main");
+        mainArea.id = "mainArea";
+        bodyRow.appendChild(mainArea);
+        var sideGroups = el("div", "side-groups");
+        sideGroups.id = "sideGroups";
+        bodyRow.appendChild(sideGroups);
+        state.group = "全部";   // 一级组：全部 或 组名
+
         // ① 头部
         var header = el("div", "header");
         var hrow = el("div", "header-row");
@@ -170,7 +194,7 @@
         sort.id = "sortSelect";
         hrow.appendChild(sort);
         header.appendChild(hrow);
-        libView.appendChild(header);
+        mainArea.appendChild(header);
 
         // ② 分类条
         var catBar = el("div", "category-bar");
@@ -286,13 +310,18 @@
         toastWrap.className = "toast-wrap";
         app.appendChild(toastWrap);
 
-        // 素材库内容已直接构建进 #libView；header..batch 若挂在 #app 则收进 #libView（toast 除外）
-        var libViewBox = $("#libView");
+        // 素材库内容（catBar/filterRow/status/scroll/empty/adjust/batch 等）收进 #mainArea（toast 除外）
+        var mainBox = $("#mainArea");
         Array.prototype.slice.call(app.children).forEach(function (c) {
-            if (c === libViewBox) return;
+            if (c === mainBox) return;
             if (c.classList && c.classList.contains("toast-wrap")) return;
-            libViewBox.appendChild(c);
+            if (c.classList && c.classList.contains("lib-view")) return;
+            mainBox.appendChild(c);
         });
+
+        // 渲染一级分组侧栏与二级分类
+        renderGroups();
+        renderCategoryBarForGroup();
     }
 
     // ---------------- 视图切换 ----------------
@@ -1028,7 +1057,7 @@
         if (state.loading) return;
         state.loading = true;
         if (offset === 0) showSkeletons();
-        Bridge.list(state.filter, state.category, state.kind, state.tag, state.sort, offset, getPageSize())
+        Bridge.list(state.filter, state.category, state.kind, state.tag, state.group, state.sort, offset, getPageSize())
             .then(function (data) {
                 state.loading = false;
                 state.filteredTotal = data.filteredTotal;
@@ -1067,16 +1096,74 @@
         return isNaN(n) || n <= 0 ? 200 : n;
     }
 
-    // ---------------- 渲染 ----------------
-    function renderCategories(cats) {
+    // ---------------- 渲染（分组双级） ----------------
+
+    // 一级组 → 图标（Material Symbols ligature）
+    var GROUP_ICONS = {
+        "我的": "star", "模板": "auto_awesome", "素材": "category",
+        "文字": "text_fields", "背景": "wallpaper", "图例": "stacked_bar_chart"
+    };
+
+    /** 右侧一级分组栏：全部 + 预设组 + 用户组 + 新建。 */
+    function renderGroups() {
+        var side = $("#sideGroups");
+        if (!side) return;
+        side.innerHTML = "";
+
+        function item(name, icon, active) {
+            var b = el("button", "g-item" + (active ? " active" : ""));
+            var ic = el("span", "msym", icon || "folder");
+            ic.setAttribute("aria-hidden", "true");
+            b.appendChild(ic);
+            var label = el("span", "g-name", name);
+            b.appendChild(label);
+            var cnt = state.groupCounts && state.groupCounts[name];
+            if (cnt) b.appendChild(el("span", "g-cnt", cnt > 99 ? "99+" : String(cnt)));
+            b.addEventListener("click", function () {
+                selectGroup(name);
+            });
+            side.appendChild(b);
+        }
+
+        var groups = state.groups || [];
+        // 全部（虚拟）
+        item("全部", "apps", state.group === "全部");
+        groups.forEach(function (g) {
+            var icon = GROUP_ICONS[g] || "folder";
+            item(g, icon, state.group === g);
+        });
+
+        // 新建分组
+        var add = el("button", "g-add");
+        var addIc = el("span", "msym", "add");
+        addIc.setAttribute("aria-hidden", "true");
+        add.appendChild(addIc);
+        add.appendChild(el("span", "", "新建分组"));
+        add.addEventListener("click", function () {
+            inputModal("新建一级分组", "分组名称：", "", function (v) {
+                if (!v) return;
+                Bridge.createGroup({ name: v }).then(function (d) {
+                    if (d && d.ok === false) { toast("分组已存在或名称无效", true); return; }
+                    refreshAllGroups();
+                    selectGroup(v);
+                }).catch(function (e) { toast(e.message, true); });
+            });
+        });
+        side.appendChild(add);
+    }
+
+    /** 二级分类条（顶部胶囊）：当前组的全部二级 + 新建二级。 */
+    function renderCategoryBarForGroup() {
         var bar = $("#categoryBar");
-        if (!bar) return;        bar.innerHTML = "";
-        var counts = state.categoryCounts || {};
-        var names = ["全部"].concat((cats || []).filter(function (c) { return c !== "全部"; }));
+        if (!bar) return;
+        bar.innerHTML = "";
+
+        var groupCats = (state.group === "全部")
+            ? allGroupCategories()
+            : (state.groupCategories && state.groupCategories[state.group]) || [];
+        var names = ["全部"].concat(groupCats.filter(function (c) { return c && c !== "全部"; }));
         names.forEach(function (c) {
-            var label = c;
-            if (c !== "全部" && counts[c]) label += " " + counts[c];
-            var chip = el("button", "chip" + (c === state.category ? " active" : ""), label);
+            var chip = el("button", "chip" + (c === state.category ? " active" : ""), c);
             chip.addEventListener("click", function () {
                 state.category = c;
                 bar.querySelectorAll(".chip").forEach(function (x) { x.classList.remove("active"); });
@@ -1085,6 +1172,49 @@
             });
             bar.appendChild(chip);
         });
+
+        // 组内新建二级分类（= 新建分类并切过去；条目后续右键/批量移动可归入）
+        var addCat = el("button", "chip chip-add", "+");
+        addCat.title = "新建二级分类（并在组内添加）";
+        addCat.addEventListener("click", function () {
+            inputModal("新建二级分类", "分类名称：", "", function (v) {
+                if (!v) return;
+                state.category = v;
+                reload();
+                toast("已切到新分类「" + v + "」\n右键素材可移动到该分类", false);
+            });
+        });
+        bar.appendChild(addCat);
+    }
+
+    function allGroupCategories() {
+        var out = [];
+        var map = state.groupCategories || {};
+        Object.keys(map).forEach(function (g) {
+            (map[g] || []).forEach(function (c) {
+                if (out.indexOf(c) < 0) out.push(c);
+            });
+        });
+        return out.sort();
+    }
+
+    function selectGroup(name) {
+        state.group = name;
+        state.category = "全部";
+        renderGroups();
+        renderCategoryBarForGroup();
+        reload();
+    }
+
+    /** 分组/计数刷新（新建/改名/删除分组后）。 */
+    function refreshAllGroups() {
+        Bridge.init().then(function (data) {
+            state.groups = data.groups || [];
+            state.groupCounts = data.groupCounts || {};
+            state.groupCategories = data.groupCategories || {};
+            renderGroups();
+            renderCategoryBarForGroup();
+        }).catch(function () {});
     }
 
     /** 填充"标签筛选"下拉（tags 来自 init 的 tags 数组），保留当前选中值。 */
@@ -1815,7 +1945,11 @@
             state.recentTop = data.recentTop || [];
             state.categoryCounts = data.categoryCounts || {};
             state._tagCounts = data.tagCounts || {};
-            renderCategories(data.categories || []);
+            state.groups = data.groups || [];
+            state.groupCounts = data.groupCounts || {};
+            state.groupCategories = data.groupCategories || {};
+            renderGroups();
+            renderCategoryBarForGroup();
             renderTagSelect(data.tags || []);
             reload();
         }).catch(function () { reload(); });

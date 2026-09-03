@@ -88,8 +88,8 @@
         on: on,
         /** 快捷方法 */
         init: function () { return send("init"); },
-        list: function (filter, category, kind, tag, sort, offset, limit) {
-            return send("list", { filter: filter, category: category, kind: kind, tag: tag, sort: sort, offset: offset, limit: limit });
+        list: function (filter, category, kind, tag, group, sort, offset, limit) {
+            return send("list", { filter: filter, category: category, kind: kind, tag: tag, group: group, sort: sort, offset: offset, limit: limit });
         },
         insert: function (id) { return send("insert", { id: id }); },
         applyStyle: function (id) { return send("applyStyle", { id: id }); },
