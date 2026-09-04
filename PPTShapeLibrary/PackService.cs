@@ -148,16 +148,21 @@ namespace PPTShapeLibrary
                         ? new HashSet<string>(manifest.Items.Select(i => i.Id))
                         : null;
 
-                    // 第一遍：遍历 zip 内 items/{id}/ 条目，确定 id 映射并落盘文件
+                    // 第一遍：遍历 zip 内 items/{id}/{file} 条目，确定 id 映射并落盘文件
                     foreach (var entry in zip.Entries)
                     {
                         string path = entry.FullName.Replace('\\', '/');
                         if (!path.StartsWith("items/", StringComparison.OrdinalIgnoreCase)) continue;
                         string[] parts = path.Split('/');
-                        if (parts.Length < 3) continue;              // items/{id}/{file}
+                        // 必须恰为三段 items/{id}/{file}；多余段（含 .. 穿越/嵌套目录）一律拒绝
+                        if (parts.Length != 3) throw new InvalidDataException("素材包包含非法条目：" + entry.FullName);
                         string srcId = parts[1];
                         string fileName = parts[2];
-                        if (string.IsNullOrWhiteSpace(srcId) || string.IsNullOrWhiteSpace(fileName)) continue;
+                        // srcId 白名单 + fileName 不得含分隔符或 .. 或空
+                        if (!ShapeLibraryService.IsSafeId(srcId)) throw new InvalidDataException("素材包包含非法 id：" + entry.FullName);
+                        if (string.IsNullOrWhiteSpace(fileName) || fileName == "." || fileName == ".."
+                            || fileName.IndexOf('/') >= 0 || fileName.IndexOf('\\') >= 0 || fileName.IndexOf(':') >= 0)
+                            throw new InvalidDataException("素材包包含非法文件名：" + entry.FullName);
                         if (validIds != null && !validIds.Contains(srcId)) continue; // 不在 manifest 的孤儿文件跳过
 
                         if (!idMap.ContainsKey(srcId))
@@ -177,7 +182,11 @@ namespace PPTShapeLibrary
                             idMap[srcId] = destId;
                         }
 
-                        string destFile = Path.Combine(ShapeLibraryService.ItemsDir, idMap[srcId], fileName);
+                        // 落盘前双重校验：最终完整路径必须位于 ItemsDir 下（防任何遗漏的穿越向量）
+                        string itemsRoot = Path.GetFullPath(ShapeLibraryService.ItemsDir) + Path.DirectorySeparatorChar;
+                        string destFile = Path.GetFullPath(Path.Combine(ShapeLibraryService.ItemsDir, idMap[srcId], fileName));
+                        if (!destFile.StartsWith(itemsRoot, StringComparison.OrdinalIgnoreCase))
+                            throw new InvalidDataException("素材包条目越出库目录：" + entry.FullName);
                         Directory.CreateDirectory(Path.GetDirectoryName(destFile));
                         using (var es = entry.Open())
                         using (var outFs = File.Create(destFile))
