@@ -1451,6 +1451,164 @@ namespace PPTShapeLibrary
             try { if (System.IO.File.Exists(path)) System.IO.File.Delete(path); } catch { }
         }
 
+        // ---------------- 图片素材：导入入库 + 程序生成示意 ---------------
+
+        /// <summary>把本地图片文件入库为 素材>图片 收藏（单图单页 pptx）。返回条目 id。</summary>
+        public static string ImportPictureToLibrary(string filePath)
+        {
+            if (string.IsNullOrEmpty(filePath) || !System.IO.File.Exists(filePath)) return null;
+            PowerPoint.Presentation tempPres = null;
+            try
+            {
+                tempPres = App.Presentations.Add(MsoTriState.msoFalse);
+                tempPres.PageSetup.SlideSize = PowerPoint.PpSlideSizeType.ppSlideSizeOnScreen;
+                var slide = tempPres.Slides.Add(1, PowerPoint.PpSlideLayout.ppLayoutBlank);
+                var pic = slide.Shapes.AddPicture(filePath, MsoTriState.msoFalse, MsoTriState.msoTrue, 0, 0, 640, 360);
+                if (pic == null) return null;
+                // 等比适配
+                try
+                {
+                    float pw = (float)pic.Width, ph = (float)pic.Height;
+                    float scale = System.Math.Min(640f / pw, 360f / ph);
+                    pic.Width = pw * scale; pic.Height = ph * scale;
+                }
+                catch { }
+
+                string id = ShapeLibraryService.NewId();
+                ShapeLibraryService.CreateItemDir(id);
+                try
+                {
+                    string previewPath = System.IO.Path.Combine(ShapeLibraryService.ItemsDir, id + "_tmp.png");
+                    slide.Export(previewPath, "PNG", 320, 240);
+                    ShapeLibraryService.SavePreviewImage(id, System.IO.File.ReadAllBytes(previewPath));
+                    TryDelete(previewPath);
+                }
+                catch { }
+                tempPres.SaveAs(ShapeLibraryService.ShapeFile(id), PowerPoint.PpSaveAsFileType.ppSaveAsOpenXMLPresentation);
+
+                var meta = new LibraryMeta
+                {
+                    Id = id,
+                    Name = System.IO.Path.GetFileNameWithoutExtension(filePath),
+                    Kind = "Shape",
+                    CreatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                    ShapeCount = 1,
+                    Category = "图片",
+                    Group = "素材",
+                    Tags = "图片",
+                    LastUsedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                    SortOrder = Environment.TickCount
+                };
+                ShapeLibraryService.SaveMeta(meta);
+                return id;
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "ImportPicture");
+                return null;
+            }
+            finally
+            {
+                if (tempPres != null) { try { tempPres.Close(); } catch { } }
+            }
+        }
+
+        /// <summary>程序生成示意图片（PNG 字节→临时文件→入库 素材>图片）。离线、无版权。</summary>
+        public static void GenerateSamplePictures()
+        {
+            try
+            {
+                var types = new System.Collections.Generic.List<Tuple<string, string>>  // name, kind
+                {
+                    Tuple.Create("示意·蓝紫渐变", "grad"),
+                    Tuple.Create("示意·斜纹纹理", "stripes"),
+                    Tuple.Create("示意·圆点纹理", "dots"),
+                    Tuple.Create("示意·网格底图", "grid"),
+                };
+                foreach (var t in types)
+                {
+                    try
+                    {
+                        string tmp = System.IO.Path.Combine(ShapeLibraryService.ItemsDir, ShapeLibraryService.NewId() + "_gen.png");
+                        DrawSamplePng(tmp, t.Item2);
+                        if (!System.IO.File.Exists(tmp)) continue;
+                        string id = ImportPictureToLibrary(tmp);
+                        TryDelete(tmp);
+                        if (id != null)
+                        {
+                            // 改名带“示意·”
+                            var m = ShapeLibraryService.LoadMeta(id);
+                            if (m != null) { m.Name = t.Item1; ShapeLibraryService.SaveMeta(m); }
+                        }
+                    }
+                    catch (Exception ex) { Log.Error(ex, "Sample:" + t.Item1); }
+                }
+            }
+            catch (Exception ex) { Log.Error(ex, "GenerateSamplePictures"); }
+        }
+
+        private static void DrawSamplePng(string path, string kind)
+        {
+            try
+            {
+                int w = 640, h = 360;
+                using (var bmp = new System.Drawing.Bitmap(w, h))
+                {
+                    using (var g = System.Drawing.Graphics.FromImage(bmp))
+                    {
+                        switch (kind)
+                        {
+                            case "grad":
+                                {
+                                    var r = new System.Drawing.Rectangle(0, 0, w, h);
+                                    using (var br = new System.Drawing.Drawing2D.LinearGradientBrush(r,
+                                        System.Drawing.Color.FromArgb(0x8A2BE2), System.Drawing.Color.FromArgb(0x1F6FA2), 60f))
+                                    { g.FillRectangle(br, r); }
+                                    break;
+                                }
+                            case "stripes":
+                                {
+                                    g.Clear(System.Drawing.Color.White);
+                                    using (var pen = new System.Drawing.Pen(System.Drawing.Color.FromArgb(0x1F6FA2), 10))
+                                    {
+                                        for (int x = -h; x < w; x += 46)
+                                            g.DrawLine(pen, x, h, x + h, 0);
+                                    }
+                                    break;
+                                }
+                            case "dots":
+                                {
+                                    g.Clear(System.Drawing.Color.FromArgb(0xEEF2F7));
+                                    using (var br = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(0x9FB6CC)))
+                                    {
+                                        for (int y = 20; y < h; y += 44)
+                                            for (int x = 20; x < w; x += 44)
+                                                g.FillEllipse(br, x, y, 14, 14);
+                                    }
+                                    break;
+                                }
+                            case "grid":
+                                {
+                                    g.Clear(System.Drawing.Color.FromArgb(0xF7F9FB));
+                                    using (var pen = new System.Drawing.Pen(System.Drawing.Color.FromArgb(0xD5DEE8), 1))
+                                    {
+                                        for (int x = 0; x <= w; x += 40) g.DrawLine(pen, x, 0, x, h);
+                                        for (int y = 0; y <= h; y += 40) g.DrawLine(pen, 0, y, w, y);
+                                    }
+                                    using (var br = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(0x1F6FA2)))
+                                    {
+                                        g.FillRectangle(br, 0, 0, 12, h);
+                                    }
+                                    break;
+                                }
+                        }
+                    }
+                    bmp.Save(path, System.Drawing.Imaging.ImageFormat.Png);
+                }
+            }
+            catch (Exception ex) { Log.Error(ex, "DrawSamplePng"); }
+        }
+
         // ---------------- 内置内容库（背景/文字/图例 等） ----------------
 
         private static string ContentMarker
@@ -1537,6 +1695,8 @@ namespace PPTShapeLibrary
                         Log.Error(ex, "Content:" + spec.Item1);
                     }
                 }
+                // 程序生成示意图片 → 素材>图片
+                GenerateSamplePictures();
                 System.IO.File.WriteAllText(ContentMarker, DateTime.Now.ToString());
             }
             catch (Exception ex)

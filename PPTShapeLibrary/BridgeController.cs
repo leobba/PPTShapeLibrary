@@ -372,6 +372,32 @@ namespace PPTShapeLibrary
                             }
                             break;
                         }
+                    case "importPictures":
+                        {
+                            using (var dlg = new System.Windows.Forms.OpenFileDialog
+                            {
+                                Title = "选择要导入的图片",
+                                Multiselect = true,
+                                Filter = "图片文件 (*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp)|*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp"
+                            })
+                            {
+                                int n = 0;
+                                if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                                {
+                                    foreach (var f in dlg.FileNames)
+                                    {
+                                        try
+                                        {
+                                            if (ShapeExporter.ImportPictureToLibrary(f) != null) n++;
+                                        }
+                                        catch { }
+                                    }
+                                }
+                                Ok(reqId, new Dictionary<string, object> { { "imported", n } });
+                            }
+                            PushRefresh();
+                            break;
+                        }
                     case "formatExportImages":
                         {
                             var r = FormatToolService.ExportImages(

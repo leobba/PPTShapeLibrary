@@ -11,12 +11,14 @@ namespace PPTShapeLibrary
         private ILibraryPane _paneControl;
         private UserControl _paneHost;
         private Microsoft.Office.Tools.CustomTaskPane _taskPane;
+        private System.Windows.Forms.Timer _refreshDebounce;
 
         private void ThisAddIn_Startup(object sender, EventArgs e)
         {
             try
             {
                 Log.Write("Startup begin");
+                HookAppEvents();
                 CreatePane();
                 Log.Write("TaskPane created");
                 _taskPane = this.CustomTaskPanes.Add(_paneHost, "素材库");
@@ -51,6 +53,58 @@ namespace PPTShapeLibrary
 
         private void ThisAddIn_Shutdown(object sender, EventArgs e)
         {
+            try
+            {
+                if (_refreshDebounce != null) { _refreshDebounce.Stop(); _refreshDebounce.Dispose(); _refreshDebounce = null; }
+            }
+            catch { }
+        }
+
+        /// <summary>订阅演示文稿生命周期事件：打开/关闭/新建/激活/停用任一演示文稿时防抖刷新素材库。</summary>
+        private void HookAppEvents()
+        {
+            try
+            {
+                var app = this.Application;
+                if (app == null) return;
+                // 经 ApplicationEvents_Event 事件接口订阅
+                var events = (PowerPoint.EApplication_Event)app;
+                events.NewPresentation += OnNewPres;
+                events.PresentationOpen += OnPresOpen;
+                events.PresentationClose += OnPresClose;
+                Log.Write("App events hooked");
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "HookAppEvents");
+            }
+        }
+
+        private void OnNewPres(PowerPoint.Presentation pres) { ScheduleRefresh(); }
+        private void OnPresOpen(PowerPoint.Presentation pres) { ScheduleRefresh(); }
+        private void OnPresClose(PowerPoint.Presentation pres) { ScheduleRefresh(); }
+
+        private void ScheduleRefresh()
+        {
+            try
+            {
+                if (_refreshDebounce == null)
+                {
+                    _refreshDebounce = new System.Windows.Forms.Timer { Interval = 600 };
+                    _refreshDebounce.Tick += (s, e) =>
+                    {
+                        _refreshDebounce.Stop();
+                        Log.Write("Doc event -> refresh library");
+                        if (_paneControl != null) _paneControl.RefreshLibrary();
+                    };
+                }
+                _refreshDebounce.Stop();
+                _refreshDebounce.Start();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "ScheduleRefresh");
+            }
         }
 
         /// <summary>宿主选择决策树：WebView2 Runtime 检测 + 失败降级到极薄提示页。</summary>
