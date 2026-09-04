@@ -218,6 +218,7 @@ export default function LibraryView({
             placeholder="搜索 名称 / 分类 / 标签"
             value={lib.filter}
             onChange={(e) => lib.setFilter(e.target.value)}
+            onFocus={(e) => e.target.select()}
             onKeyDown={(e) => {
               if (e.key === "Escape") lib.setFilter("");
             }}
@@ -430,11 +431,24 @@ export default function LibraryView({
 
           {/* 状态行 */}
           <div className="flex items-center justify-between px-3 py-1 text-[11px] text-muted-foreground">
-            <span>
-              {lib.group !== "全部" ? lib.group + " · " : ""}
-              {lib.category !== "全部" || lib.kind !== "全部" || lib.filter || lib.tag
-                ? `筛选 ${items.length} / ${lib.filteredTotal}`
-                : `共 ${lib.total} 项`}
+            <span className="flex items-center gap-1">
+              {lib.group !== "全部" && <span className="font-medium text-foreground">{lib.group}</span>}
+              {lib.group !== "全部" && lib.category !== "全部" && <span>›</span>}
+              {lib.category !== "全部" && <span className="text-foreground">{lib.category}</span>}
+              {lib.loading ? (
+                <span className="italic">加载中…</span>
+              ) : lib.category !== "全部" || lib.kind !== "全部" || lib.filter || lib.tag ? (
+                <span>
+                  <span className="font-semibold text-foreground">{items.length}</span>
+                  {" / "}
+                  <span className="font-semibold text-foreground">{lib.filteredTotal}</span>
+                  {" 条匹配"}
+                </span>
+              ) : (
+                <span>
+                  共 <span className="font-semibold text-foreground">{lib.total}</span> 项
+                </span>
+              )}
             </span>
             {/* 撤销/重做 */}
             <span className="flex items-center gap-1">
