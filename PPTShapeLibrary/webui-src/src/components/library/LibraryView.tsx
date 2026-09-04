@@ -47,6 +47,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Folder,
   Search,
@@ -89,6 +90,7 @@ export default function LibraryView({
   const [showTrash, setShowTrash] = useState(false);
   const [showGroups, setShowGroups] = useState(false);
   const [showTags, setShowTags] = useState(false);
+  const [showDupes, setShowDupes] = useState(false);
   const [trashConfirmIds, setTrashConfirmIds] = useState<string[] | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const toastTimer = useRef<number | undefined>(undefined);
@@ -182,6 +184,9 @@ export default function LibraryView({
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setShowTags(true)}>
               <span className="flex size-4 items-center justify-center text-xs">#</span> 标签管理
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setShowDupes(true)}>
+              <span className="flex size-4 items-center justify-center text-xs">⧉</span> 去重清理
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setShowTrash(true)}>
               <Trash2 className="size-4" /> 回收站
@@ -468,6 +473,15 @@ export default function LibraryView({
           onClose={() => {
             setShowTags(false);
             lib.refreshMeta();
+          }}
+        />
+      )}
+      {showDupes && (
+        <DuplicatesDialog
+          onClose={() => {
+            setShowDupes(false);
+            lib.refreshMeta();
+            lib.reload(true);
           }}
         />
       )}
@@ -877,6 +891,86 @@ function TagDialog({ onClose }: { onClose: () => void }) {
             完成
           </Button>
         </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** 去重清理：扫描完全重复（同类型/数量/尺寸）的条目，可勾选批量移入回收站 */
+function DuplicatesDialog({ onClose }: { onClose: () => void }) {
+  const [list, setList] = useState<any[] | null>(null);
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const scan = () => {
+    setList(null);
+    setChecked(new Set());
+    bridge
+      .scanDuplicates()
+      .then((d) => {
+        const arr = (d.duplicates as any[]) || [];
+        setList(arr);
+        // 默认全选可删项
+        setChecked(new Set(arr.map((x) => x.id)));
+      })
+      .catch((e: Error) => alert("扫描失败：" + e.message));
+  };
+  useEffect(scan, []); // eslint-disable-line
+  const toggle = (id: string) => {
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>去重清理</DialogTitle>
+          <DialogDescription>
+            按 同类型/同形状数量/同尺寸 判定"完全重复"，保留最早收藏，其余可移入回收站（可恢复）。
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex max-h-[50vh] flex-col gap-1 overflow-y-auto">
+          {list === null ? (
+            <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">扫描中…</div>
+          ) : list.length === 0 ? (
+            <p className="py-6 text-center text-xs text-muted-foreground">未发现完全重复的素材。</p>
+          ) : (
+            list.map((m) => (
+              <label
+                key={m.id}
+                className="flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-xs"
+              >
+                <Checkbox checked={checked.has(m.id)} onCheckedChange={() => toggle(m.id)} />
+                <img src={m.previewUrl} alt="" className="h-8 w-12 rounded object-cover" />
+                <span className="min-w-0 flex-1 truncate">{m.name}</span>
+                <span className="shrink-0 text-muted-foreground">{m.kind === "Style" ? "样式" : "形状"}</span>
+              </label>
+            ))
+          )}
+        </div>
+        {list !== null && list.length > 0 && (
+          <div className="flex justify-between gap-2">
+            <Button variant="ghost" size="sm" onClick={scan}>
+              重新扫描
+            </Button>
+            <Button
+              size="sm"
+              disabled={checked.size === 0}
+              onClick={() => {
+                const ids = Array.from(checked);
+                if (confirm("将 " + ids.length + " 条重复项移入回收站？（保留最早收藏）")) {
+                  bridge.del(ids).then(() => {
+                    onClose();
+                  }).catch((e: Error) => alert("删除失败：" + e.message));
+                }
+              }}
+            >
+              移入回收站 ({checked.size})
+            </Button>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );

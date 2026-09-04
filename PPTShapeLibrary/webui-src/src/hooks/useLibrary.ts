@@ -35,6 +35,7 @@ export function useLibrary() {
   const page = useRef(0);
   const debounceRef = useRef<number | undefined>(undefined);
   const seqRef = useRef(0); // 请求序号：丢弃过期响应，防快速切组/筛选时旧结果覆盖新结果
+  const pageSizeRef = useRef(200); // 每页条数（取自设置 pageSize，默认 200）
 
   const reload = useCallback(
     (resetPage = true) => {
@@ -47,7 +48,7 @@ export function useLibrary() {
       const seq = ++seqRef.current;
       setLoading(true);
       bridge
-        .list(filter, category, kind, tag, group, sort, offset, 200)
+        .list(filter, category, kind, tag, group, sort, offset, pageSizeRef.current)
         .then((d) => {
           if (seq !== seqRef.current) return; // 过期响应丢弃
           setLoading(false);
@@ -74,7 +75,11 @@ export function useLibrary() {
       bridge
         .init()
         .then((d) => {
-          if (alive) setInit(d);
+          if (alive) {
+            setInit(d);
+            const ps = (d as any)?.pageSize;
+            if (typeof ps === "number" && ps > 0 && ps <= 500) pageSizeRef.current = ps;
+          }
         })
         .catch(() => {
           tries++;
