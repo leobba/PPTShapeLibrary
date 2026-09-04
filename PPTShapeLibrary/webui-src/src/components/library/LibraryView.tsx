@@ -504,6 +504,14 @@ function ItemCard({
         </ContextMenuItem>
         <ContextMenuItem
           onSelect={() => {
+            const c = prompt("分类名称（输入新分类或已有分类）：", item.category || "");
+            if (c?.trim()) bridge.setCategory(item.id, c.trim()).then(onChanged);
+          }}
+        >
+          移动到分类…
+        </ContextMenuItem>
+        <ContextMenuItem
+          onSelect={() => {
             const n = prompt("新名称：", item.name);
             if (n?.trim()) bridge.rename(item.id, n.trim()).then(onChanged);
           }}
@@ -518,6 +526,18 @@ function ItemCard({
           }}
         >
           编辑标签…
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onSelect={() => bridge.openFolder(item.id)}>打开收藏文件夹</ContextMenuItem>
+        <ContextMenuItem
+          onSelect={() => {
+            bridge
+              .exportPack([item.id], "")
+              .then(onChanged)
+              .catch(() => {});
+          }}
+        >
+          导出到素材包…
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem
