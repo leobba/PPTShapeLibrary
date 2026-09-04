@@ -262,7 +262,16 @@ namespace PPTShapeLibrary
                 tempPres.PageSetup.SlideSize = PowerPoint.PpSlideSizeType.ppSlideSizeOnScreen;
                 var slide = tempPres.Slides.Add(1, PowerPoint.PpSlideLayout.ppLayoutBlank);
 
-                var pasted = CopyPasteWithRetry(() => range.Copy(), slide.Shapes);
+                var clip = ClipboardGuard.Snapshot();   // 收藏也保护剪贴板（Copy 会覆盖）
+                PowerPoint.ShapeRange pasted;
+                try
+                {
+                    pasted = CopyPasteWithRetry(() => range.Copy(), slide.Shapes);
+                }
+                finally
+                {
+                    ClipboardGuard.Restore(clip);
+                }
                 // 归一化：把整组移动到 (0,0)，保证插入时坐标可控
                 float minLeft = float.MaxValue, minTop = float.MaxValue;
                 foreach (PowerPoint.Shape s in pasted)
@@ -436,7 +445,16 @@ namespace PPTShapeLibrary
                 var range = slide.Shapes.Range(ids);
 
                 PowerPoint.Shapes targetShapes = App.ActivePresentation.Slides[App.ActiveWindow.View.Slide.SlideIndex].Shapes;
-                var pasted = CopyPasteWithRetry(() => range.Copy(), targetShapes);
+                var clip = ClipboardGuard.Snapshot();   // 保护用户剪贴板（Copy 会覆盖它）
+                PowerPoint.ShapeRange pasted = null;
+                try
+                {
+                    pasted = CopyPasteWithRetry(() => range.Copy(), targetShapes);
+                }
+                finally
+                {
+                    ClipboardGuard.Restore(clip);        // 尽快恢复，避免残留我们的内容
+                }
 
                 // 粘贴到页面中心
                 float sw = (float)App.ActivePresentation.PageSetup.SlideWidth;
@@ -1210,6 +1228,7 @@ namespace PPTShapeLibrary
         public static bool ExportLibraryToPptx(string path)
         {
             PowerPoint.Presentation outPres = null;
+            System.Windows.Forms.IDataObject clip = ClipboardGuard.Snapshot();   // 保护剪贴板
             try
             {
                 outPres = App.Presentations.Add(MsoTriState.msoFalse);
@@ -1281,6 +1300,7 @@ namespace PPTShapeLibrary
             }
             finally
             {
+                ClipboardGuard.Restore(clip);
                 if (outPres != null) { try { outPres.Close(); } catch { } }
             }
         }
