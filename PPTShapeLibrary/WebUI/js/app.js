@@ -1736,41 +1736,53 @@
     // ---------------- hover 放大预览 ----------------
     var _hoverEl = null;
     var _hoverCard = null;
+    var _hoverHideTimer = null;
 
+    /** 图片查看器式放大预览：半透明遮罩 + 中央大图 + 信息条（近似 lightbox 质感） */
     function showHoverPreview(meta, card) {
         if (!card || _hoverCard === card) return;
         hideHoverPreview();
-        // 无缩略图的卡片不放大
         var img = card.querySelector("img.thumb");
         if (!img || !img.src) return;
-        var el = el("div", "hover-pop");
+
+        var lens = el("div", "hover-lens");
+        var stage = el("div", "hover-lens-stage");
         var big = el("img");
         big.src = meta.previewUrl || img.src;
         big.draggable = false;
-        el.appendChild(big);
-        var cap = el("div", "hover-pop-cap");
-        cap.appendChild(el("div", "hover-pop-name", meta.name || ""));
-        var sub = el("span", "", (meta.group || "我的") + " › " + (meta.category || "未分类") +
-            " · " + (meta.kind === "Style" ? "样式" : "形状"));
-        cap.appendChild(sub);
-        el.appendChild(cap);
-        document.body.appendChild(el);
-        _hoverEl = el;
+        stage.appendChild(big);
+        lens.appendChild(stage);
+
+        var cap = el("div", "hover-lens-cap");
+        cap.appendChild(el("div", "hover-lens-name", meta.name || ""));
+        cap.appendChild(el("div", "hover-lens-sub",
+            (meta.group || "我的") + " › " + (meta.category || "未分类") +
+            " · " + (meta.kind === "Style" ? "样式" : "形状") +
+            (meta.useCount ? " · 使用 " + meta.useCount + " 次" : "")));
+        var hint = el("div", "hover-lens-hint");
+        hint.innerHTML = '<span class="msym" aria-hidden="true">click</span> 单击插入到当前页 · 右键更多操作';
+        cap.appendChild(hint);
+        lens.appendChild(cap);
+
+        document.body.appendChild(lens);
+        _hoverEl = lens;
         _hoverCard = card;
 
-        // 定位：优先卡片右侧，空间不足则左侧；垂直随卡片
-        var r = card.getBoundingClientRect();
-        var vw = window.innerWidth;
-        var pw = Math.min(240, vw * 0.62);
-        var left = r.right + 10;
-        if (left + pw > vw - 6) left = Math.max(6, r.left - pw - 10);
-        var top = Math.max(6, Math.min(r.top, window.innerHeight - 200));
-        el.style.left = left + "px";
-        el.style.top = top + "px";
-        el.style.width = pw + "px";
+        // 防抖隐藏：移出卡片后短暂保留，避免在卡片边缘抖动
+        if (_hoverHideTimer) clearTimeout(_hoverHideTimer);
     }
 
-    function hideHoverPreview() {
+    function hideHoverPreview(card) {
+        if (card && _hoverCard === card) {
+            if (_hoverHideTimer) clearTimeout(_hoverHideTimer);
+            _hoverHideTimer = setTimeout(function () {
+                // 仅当仍是同一卡片时移除（期间可能已切到新卡）
+                if (_hoverCard === card && _hoverEl) { _hoverEl.remove(); _hoverEl = null; }
+                if (_hoverCard === card) _hoverCard = null;
+            }, 220);
+            return;
+        }
+        if (_hoverHideTimer) clearTimeout(_hoverHideTimer);
         if (_hoverEl) { _hoverEl.remove(); _hoverEl = null; }
         _hoverCard = null;
     }
