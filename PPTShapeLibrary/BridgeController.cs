@@ -413,6 +413,53 @@ namespace PPTShapeLibrary
                             }
                             break;
                         }
+                    case "importPackFile":
+                        {
+                            // 直接弹文件选择器选 .ppack.zip → 导入素材库（点对点分享一键导入）
+                            using (var dlg = new System.Windows.Forms.OpenFileDialog
+                            {
+                                Title = "选择要导入的素材包",
+                                Multiselect = true,
+                                Filter = "素材包 (*.ppack.zip)|*.ppack.zip|所有文件 (*.*)|*.*"
+                            })
+                            {
+                                int total = 0, conflicts = 0;
+                                bool hadSelection = false;
+                                string lastAuthor = "", lastLicense = "", lastSource = "", lastName = "";
+                                if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                                {
+                                    hadSelection = true;
+                                    foreach (var f in dlg.FileNames)
+                                    {
+                                        try
+                                        {
+                                            int n = PackService.ImportPack(f, out int cf, out string err, out var meta);
+                                            if (err == null)
+                                            {
+                                                total += n;
+                                                conflicts += cf;
+                                                if (meta != null)
+                                                {
+                                                    if (!string.IsNullOrEmpty(meta.Author)) lastAuthor = meta.Author;
+                                                    if (!string.IsNullOrEmpty(meta.License)) lastLicense = meta.License;
+                                                    if (!string.IsNullOrEmpty(meta.SourceUrl)) lastSource = meta.SourceUrl;
+                                                    if (!string.IsNullOrEmpty(meta.Name)) lastName = meta.Name;
+                                                }
+                                            }
+                                        }
+                                        catch { }
+                                    }
+                                }
+                                var res = new Dictionary<string, object> { { "imported", total }, { "conflicts", conflicts }, { "hadSelection", hadSelection } };
+                                if (!string.IsNullOrEmpty(lastName)) res["packName"] = lastName;
+                                if (!string.IsNullOrEmpty(lastAuthor)) res["author"] = lastAuthor;
+                                if (!string.IsNullOrEmpty(lastLicense)) res["license"] = lastLicense;
+                                if (!string.IsNullOrEmpty(lastSource)) res["sourceUrl"] = lastSource;
+                                Ok(reqId, res);
+                            }
+                            BroadcastRefresh();
+                            break;
+                        }
                     case "importPictures":
                         {
                             using (var dlg = new System.Windows.Forms.OpenFileDialog

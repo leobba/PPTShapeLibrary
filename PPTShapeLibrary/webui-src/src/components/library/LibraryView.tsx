@@ -272,28 +272,26 @@ export default function LibraryView({
             </DropdownMenuItem>
             <DropdownMenuItem
               onSelect={async () => {
-                // 引导：素材包放 %APPDATA%\PPTShapeLibrary\packs\ 后输入文件名导入
-                await dialogs.alert(
-                  "导入素材包：请先把 .ppack.zip 文件放入素材包目录，然后点确定继续。\n\n素材包目录（Windows）：\n%APPDATA%\\PPTShapeLibrary\\packs\\\n（可在文件资源管理器地址栏粘贴打开）"
-                );
-                const name = await dialogs.prompt("输入素材包文件名（不含扩展名）：", {
-                  placeholder: "如：答辩模板包",
-                  okText: "导入",
-                });
-                if (name?.trim()) {
-                  try {
-                    const d = await bridge.importPack(name.trim());
+                // 直接弹文件选择器选 .ppack.zip（点对点分享一键导入，可多选）
+                try {
+                  const d = await bridge.importPackFile();
+                  if (d.imported > 0) {
                     lib.refreshMeta();
                     lib.reload(true);
                     let msg = "已导入 " + (d.imported || 0) + " 个素材";
                     if (d.conflicts > 0) msg += "（" + d.conflicts + " 个 id 冲突已自动换新）";
+                    if (d.packName) msg += "\n素材包：" + d.packName;
                     if (d.author) msg += "\n作者：" + d.author;
                     if (d.license) msg += "  · 许可：" + d.license;
                     if (d.sourceUrl) msg += "\n来源：" + d.sourceUrl;
                     dialogs.alert(msg);
-                  } catch (e: any) {
-                    dialogs.alert("导入失败：" + (e?.message || e));
                   }
+                  // imported=0：取消选择则静默；选了但没导入成功则提示
+                  if (d.imported === 0 && d.hadSelection) {
+                    dialogs.alert("所选文件未能导入：请确认是有效的素材包（.ppack.zip）。");
+                  }
+                } catch (e: any) {
+                  dialogs.alert("导入失败：" + (e?.message || e));
                 }
               }}
             >

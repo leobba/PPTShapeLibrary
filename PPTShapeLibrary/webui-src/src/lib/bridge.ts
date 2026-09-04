@@ -118,6 +118,7 @@ export const bridge = {
   deleteTag: (tag: string) => send("deleteTag", { tag }),
   exportPack: (ids: string[], saveAs: string) => send("exportPack", { ids, saveAs }, 60000),
   importPack: (openFrom: string) => send("importPack", { openFrom }, 60000),
+  importPackFile: () => send("importPackFile", {}, 0), // 弹文件选择器选 zip（模态，不超时）
   importPictures: () => send("importPictures", {}, 0), // 模态选文件对话框，不设超时
   // 工具
   toolGetFonts: () => send("toolGetFonts", {}),
