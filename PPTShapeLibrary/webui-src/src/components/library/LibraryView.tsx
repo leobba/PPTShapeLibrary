@@ -128,13 +128,17 @@ export default function LibraryView({
     const el = gridRef.current;
     if (!el) return;
     if (typeof ResizeObserver === "undefined") return;
+    // 卡片密度系数：compact 小卡 / standard 标准 / large 大图
+    const k =
+      (init as any)?.cardSize === "compact" ? 0.85 : (init as any)?.cardSize === "large" ? 1.3 : 1;
     const ro = new ResizeObserver(() => {
       const w = el.clientWidth;
-      setGridMin(w >= 620 ? 148 : w >= 420 ? 120 : w >= 300 ? 98 : 84);
+      const base = w >= 620 ? 148 : w >= 420 ? 120 : w >= 300 ? 98 : 84;
+      setGridMin(Math.round(base * k));
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [init]);
 
   const groups = useMemo(() => ["全部", ...(init?.groups || [])], [init]);
 
@@ -172,7 +176,19 @@ export default function LibraryView({
             placeholder="搜索 名称 / 分类 / 标签"
             value={lib.filter}
             onChange={(e) => lib.setFilter(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") lib.setFilter("");
+            }}
           />
+          {lib.filter && (
+            <button
+              className="flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+              title="清空搜索 (Esc)"
+              onClick={() => lib.setFilter("")}
+            >
+              ✕
+            </button>
+          )}
         </div>
         <Select
           value={lib.tag || "__all__"}
