@@ -15,21 +15,25 @@ function post(msg: object): boolean {
   }
 }
 
-function send(type: string, payload: any = {}): Promise<any> {
+function send(type: string, payload: any = {}, timeoutMs: number = TIMEOUT): Promise<any> {
   return new Promise((resolve, reject) => {
     const reqId = "r" + ++reqSeq;
     pending.set(reqId, {
       resolve,
       reject,
-      timer: window.setTimeout(() => {
-        if (pending.has(reqId)) {
-          pending.delete(reqId);
-          reject(new Error("timeout: " + type));
-        }
-      }, TIMEOUT),
+      timer:
+        timeoutMs > 0
+          ? window.setTimeout(() => {
+              if (pending.has(reqId)) {
+                pending.delete(reqId);
+                reject(new Error("timeout: " + type));
+              }
+            }, timeoutMs)
+          : 0, // timeoutMs<=0: 不超时（模态对话框类：用户在系统对话框停留多久都等）
     });
     if (!post({ type, reqId, payload })) {
-      clearTimeout(pending.get(reqId)!.timer);
+      const p = pending.get(reqId);
+      if (p && p.timer) clearTimeout(p.timer);
       pending.delete(reqId);
       reject(new Error("no host"));
     }
@@ -112,17 +116,17 @@ export const bridge = {
   scanDuplicates: () => send("scanDuplicates", {}),
   renameTag: (oldTag: string, newTag: string) => send("renameTag", { oldTag, newTag }),
   deleteTag: (tag: string) => send("deleteTag", { tag }),
-  exportPack: (ids: string[], saveAs: string) => send("exportPack", { ids, saveAs }),
-  importPack: (openFrom: string) => send("importPack", { openFrom }),
-  importPictures: () => send("importPictures", {}),
+  exportPack: (ids: string[], saveAs: string) => send("exportPack", { ids, saveAs }, 60000),
+  importPack: (openFrom: string) => send("importPack", { openFrom }, 60000),
+  importPictures: () => send("importPictures", {}, 0), // 模态选文件对话框，不设超时
   // 工具
   toolGetFonts: () => send("toolGetFonts", {}),
   applyTextStyle: (p: object) => send("applyTextStyle", p),
   replaceFont: (p: object) => send("replaceFont", p),
   findReplace: (p: object) => send("findReplace", p),
   cleanText: (p: object) => send("cleanText", p),
-  requestFolder: (title: string) => send("requestFolder", { title }),
-  requestFiles: (title: string, filter: string) => send("requestFiles", { title, filter }),
+  requestFolder: (title: string) => send("requestFolder", { title }, 0), // 模态目录对话框：不设超时
+  requestFiles: (title: string, filter: string) => send("requestFiles", { title, filter }, 0),
   formatExportImages: (p: object) => send("formatExportImages", p),
   formatScanClean: (p: object) => send("formatScanClean", p),
   formatRunClean: (p: object) => send("formatRunClean", p),

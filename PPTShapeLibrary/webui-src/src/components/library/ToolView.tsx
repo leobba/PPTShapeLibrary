@@ -41,11 +41,16 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 /** HTML 颜色 #RRGGBB → PowerPoint RGB int(BGR 字节序) */
+/**
+ * HTML 颜色 #RRGGBB → PowerPoint 颜色 int。
+ * PowerPoint 的 .Color.RGB 为 0xBBGGRR 字节序（低字节=R，见 C# HexToRgb: r|g<<8|b<<16）。
+ * #RRGGBB 解析后 r=RR,g=GG,b=BB，返回 (BB<<16)|(GG<<8)|RR。
+ */
 function toBgr(hex: string): number {
-  const n = parseInt(hex.replace("#", ""), 16) || 0;
-  const r = n & 0xff;
-  const g = (n >> 8) & 0xff;
-  const b = (n >> 16) & 0xff;
+  const h = hex.replace("#", "");
+  const r = parseInt(h.slice(0, 2), 16) || 0;
+  const g = parseInt(h.slice(2, 4), 16) || 0;
+  const b = parseInt(h.slice(4, 6), 16) || 0;
   return (b << 16) | (g << 8) | r;
 }
 
@@ -369,7 +374,10 @@ function Tool1() {
           <span className="text-xs text-muted-foreground">{selColor || "未设置（保持原色）"}</span>
         </div>
       </Field>
-      <Button onClick={apply}>应用</Button>
+      <Button onClick={apply} disabled={noDoc} title={noDoc ? "请先打开演示文稿" : undefined}>
+        应用
+      </Button>
+      {noDoc && <p className="text-xs text-muted-foreground">打开演示文稿后即可应用。</p>}
       <Result out={out} />
     </Shell>
   );

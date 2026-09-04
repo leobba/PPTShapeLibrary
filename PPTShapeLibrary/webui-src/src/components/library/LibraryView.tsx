@@ -90,6 +90,21 @@ export default function LibraryView({
   const [showGroups, setShowGroups] = useState(false);
   const [showTags, setShowTags] = useState(false);
   const [trashConfirmIds, setTrashConfirmIds] = useState<string[] | null>(null);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const toastTimer = useRef<number | undefined>(undefined);
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToastMsg(null), 3000);
+  };
+  const applyStyleWithFeedback = (id: string, all?: boolean) => {
+    const p = all ? bridge.applyStyleSameTypeAllSlides(id) : bridge.applyStyle(id);
+    p.then(() => {
+      showToast("样式已应用");
+      lib.refreshMeta();
+      lib.reload(true); // TouchUsed 更新了使用统计/最近使用排序，重载列表
+    }).catch((e: Error) => showToast(e.message || "应用失败（请先选中形状）"));
+  };
   // 面板宽度自适应：容器宽度 → 卡片列最小宽（窄面板小卡，宽面板大卡）
   const [gridMin, setGridMin] = useState(96);
   const gridRef = useRef<HTMLDivElement | null>(null);
@@ -106,6 +121,11 @@ export default function LibraryView({
   }, []);
 
   const groups = useMemo(() => ["全部", ...(init?.groups || [])], [init]);
+
+  // 列表内容变化（插入/删除/重载后卡片可能已不存在）时清除 hover 大图，防遮罩残留
+  useEffect(() => {
+    setHoverImg(null);
+  }, [items]);
   const cats = useMemo(() => {
     if (lib.group === "全部") {
       const set = new Set<string>();
@@ -337,7 +357,13 @@ export default function LibraryView({
                       onToggle={() => lib.toggleSelect(item.id)}
                       onPreview={() => setPreview(item)}
                       onHover={setHoverImg}
-                      onInsert={() => bridge.insert(item.id).then(() => lib.reload(true))}
+                      onInsert={() =>
+                        bridge
+                          .insert(item.id)
+                          .then(() => lib.reload(true))
+                          .catch((e: Error) => showToast(e.message || "插入失败"))
+                      }
+                      onApplyStyle={() => applyStyleWithFeedback(item.id)}
                       onChanged={() => lib.refreshMeta()}
                     />
                   ))}
@@ -472,6 +498,11 @@ export default function LibraryView({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {toastMsg && (
+        <div className="pointer-events-none fixed bottom-6 left-1/2 z-[200] -translate-x-1/2 rounded-lg bg-foreground px-3.5 py-2 text-sm text-background shadow-lg">
+          {toastMsg}
+        </div>
+      )}
     </div>
   );
 }
@@ -484,6 +515,7 @@ function ItemCard({
   onPreview,
   onHover,
   onInsert,
+  onApplyStyle,
   onChanged,
 }: {
   item: ListItem;
@@ -492,6 +524,7 @@ function ItemCard({
   onPreview: () => void;
   onHover: (url: string | null) => void;
   onInsert: () => void;
+  onApplyStyle: () => void;
   onChanged: () => void;
 }) {
   const isStyle = item.kind === "Style";
@@ -508,9 +541,20 @@ function ItemCard({
               onToggle();
               return;
             }
+            if (item.kind === "Style") {
+              // 样式卡：单击应用到选中形状（无选中时 C# 返回错误，经全局 toast 提示）
+              onApplyStyle();
+              return;
+            }
             onInsert();
           }}
-          onDoubleClick={() => {}}
+          onDoubleClick={() => {
+            if (item.kind === "Style") {
+              onApplyStyle();
+              return;
+            }
+            onPreview();
+          }}
           onMouseEnter={() => onHover(item.previewUrl)}
           onMouseLeave={() => onHover(null)}
           title={item.name}

@@ -38,7 +38,11 @@ export function useLibrary() {
 
   const reload = useCallback(
     (resetPage = true) => {
-      if (resetPage) page.current = 0;
+      if (resetPage) {
+        page.current = 0;
+        // 筛选/切组/搜索会改变可见集：清空旧选中，防止"看不到却可批量删除"的误删
+        setSelected(new Set());
+      }
       const offset = resetPage ? 0 : page.current;
       const seq = ++seqRef.current;
       setLoading(true);
@@ -62,22 +66,56 @@ export function useLibrary() {
     [filter, category, kind, tag, group, sort]
   );
 
-  // init 加载
+  // init 加载（失败自动重试最多 3 次，避免大库冷启动偶发超时后永久骨架）
   useEffect(() => {
-    bridge.init().then((d) => setInit(d));
+    let tries = 0;
+    let alive = true;
+    const load = () => {
+      bridge
+        .init()
+        .then((d) => {
+          if (alive) setInit(d);
+        })
+        .catch(() => {
+          tries++;
+          if (alive && tries < 3) window.setTimeout(load, 1200);
+        });
+    };
+    load();
+    return () => {
+      alive = false;
+    };
   }, []);
 
-  // 防抖搜索
+  // 首次 init 到位后加载一次列表（仅一次；后续 refresh/refreshMeta 只更新元数据，不再整表跳回第一页）
+  const didInitialLoad = useRef(false);
   useEffect(() => {
     if (!init) return;
+    if (!didInitialLoad.current) {
+      didInitialLoad.current = true;
+      reload(true);
+    }
+  }, [init, reload]);
+
+  // 组/分类有效性：当前选中的组或分类已被删除时回退（避免请求旧名返回空、筛选态悬空）
+  useEffect(() => {
+    if (!init) return;
+    if (group !== "全部" && !(init.groups || []).includes(group)) {
+      setGroup("全部");
+    }
+  }, [init, group]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 防抖搜索（筛选/排序变化 150ms 后重载；不依赖 init——init 仅首次驱动加载）
+  useEffect(() => {
+    if (!didInitialLoad.current) return;
     if (debounceRef.current) window.clearTimeout(debounceRef.current);
     debounceRef.current = window.setTimeout(() => reload(true), 150);
     return () => {
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
     };
-  }, [filter, category, kind, tag, group, sort, init, reload]);
+  }, [filter, category, kind, tag, group, sort, reload]);
 
-  // 下行 refresh（C# 数据变化）
+  // 下行 refresh（C# 数据变化）：仅刷新元数据(侧栏/计数)，不整表重载
   useEffect(() => {
     const fn = () => bridge.init().then(setInit).catch(() => {});
     bridge.on("refresh", fn);
