@@ -605,6 +605,23 @@ export default function LibraryView({
             移动分组…
           </Button>
           <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => {
+              const ids = Array.from(selected);
+              bridge
+                .exportPack(ids, "")
+                .then((d) => {
+                  lib.clearSelection();
+                  showToast("已导出素材包" + (d?.path ? "：" + (d.path as string).split(/[\\/]/).pop() : ""));
+                })
+                .catch((e: Error) => showToast(e.message || "导出失败"));
+            }}
+          >
+            导出素材包…
+          </Button>
+          <Button
             variant="destructive"
             size="sm"
             className="h-7 text-xs"
