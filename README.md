@@ -24,14 +24,18 @@
 - **排序**：最新/最旧/名称/最近使用/最常用/自定义（拖拽卡片排序）
 - **多选**：Ctrl 单击多选 → 批量删除/移动分类/移动分组/批量重命名/导出素材包
 - **回收站**：删除先入回收站（库管理→回收站 可恢复/彻底清除/清空）
-- **搜索**：实时过滤
+- **搜索**：实时过滤（✕/Esc 清空）
+- **最近使用横条**：「全部」视图且无筛选时顶部展示最近使用 Top6（可点插）
+- **插入后调整条**：插入成功浮现旋转/透明度/八向微调 + 撤销/重做（10 秒自动隐藏）
 - **去重清理**：收藏相似形状时提醒；库管理里可扫描完全重复项并批量清理
+- **对话框统一**：全部 confirm/prompt/alert 均 shadcn 组件（无系统灰框）
 
 ### 素材库与分享
 - **内置预设素材**：首次运行自动安装 15 个常用形状组合（卡片/箭头/流程框/图表元素等）
-- **素材包**：选中收藏导出为 .ppack.zip（存于 packs 目录），可导入他人素材包；id 冲突自动重写
+- **素材包（v1.1）**：选中收藏导出为 `.ppack.zip`（含 manifest.json + 条目目录；带 作者署名/CC BY 4.0 许可/来源 元数据，格式规范见 `docs/material-pack-spec.md`）；「库管理 → 导入素材包…」直接弹文件选择器（可多选），id 冲突自动重写，导入后显示数量/作者/许可/来源——点对点分享、将来社区合集流通皆可
 - **导出 PPTX**：把收藏库导出为 .pptx 分享
 - **备份/恢复**：zip 打包备份、一键恢复（可跨电脑迁移）
+- **开源状态**：代码暂不开源（开发成熟后再开源）；素材包格式与分享链路已就绪
 
 ### 样式进阶
 - **主题色适配**：应用样式时可选把主色映射到当前文档主题色
@@ -62,9 +66,9 @@ Ribbon「素材库」选项卡 →「工具」组：文字样式 / 一键换字�
 
 ### 学术/学习工具（Ribbon「学术/学习」组 → Web 弹窗，面向学生科研汇报）
 - **页脚页码**：一键为全部页加页脚（姓名/课题组/日期）与页码
-- **导出 PDF / 大纲**：整稿导出 PDF，或把全部文字整理为 .txt 大纲（做笔记/打印）
+- **导出 PDF / 大纲**：整稿导出 PDF；大纲文本可存文件或直接预览/复制（留空目录时）
 - **图表美化**：选中图表套用 4 套预设配色（学术蓝/清新绿/暖橙/莫兰迪）+ 统一字体
-- **成套模板**：插入封面/目录/内容×N/结束成套结构页
+- **成套模板**：插入封面/目录/内容×N/结束成套结构页（毕业答辩/开题报告/课程汇报/组会汇报）
 - **学术模板素材**：首次启动自动装入「学术模板」分类（答辩封面/开题封面/研究要点页/结论页），素材库单击插入后改字即用
 
 ## 开发与运行
@@ -83,13 +87,15 @@ cd PPTShapeLibrary/webui-src
 npm install          # 首次：安装依赖
 npm run dev          # 开发：热更新预览（无宿主时可浏览器看 UI，桥调用会失败仅 UI）
 npm run build        # 生产：产出到 webui-src/dist
-# 构建后部署到 WebUI/（VSTO 加载目录）：
-#   PowerShell: 拷贝 webui-src/dist/* → PPTShapeLibrary/WebUI/（或运行 deploy 脚本）
+npm run smoke        # 产物完整性自检（引用/字体文件存在性）
+npm run deploy       # 拷贝 dist → ../WebUI（VSTO 加载目录）
+npm run build:all    # 一键：build → smoke → deploy
 ```
 
 - 源码在 `webui-src/src`；旧版纯静态前端备份于 `webui-legacy/`（可回退）
-- C#↔JS 桥协议不变（`src/lib/bridge.ts` 与旧 bridge.js 一致）；`npm run build` 后重启 PowerPoint 生效
+- C#↔JS 桥协议见 `src/lib/bridge.ts`（默认 30s 超时；模态对话框类请求不超时）
 - 新增 shadcn 组件：`npx shadcn add <组件>`；主题 tokens 见 `src/index.css`（`.dark` 类切深色）
+- 原生 confirm/prompt/alert 已全局替换为 shadcn（`src/lib/dialogs.tsx` 的 `dialogs.*` + `<DialogsHost/>`）
 - 注意：`webui-src/node_modules` 与 `dist` 不入 git；`WebUI/` 下提交的是构建产物
 
 ## 文件结构
@@ -97,32 +103,23 @@ npm run build        # 生产：产出到 webui-src/dist
 ```
 PPTShapeLibrary\            # VSTO 项目（PowerPoint 2016+ / M365 x64）
   宿主与面板
-  ThisAddIn.cs            # 任务窗格创建 + WebView2 决策树/降级
-  Ribbon1.cs              # 「素材库」选项卡（收藏/素材库/工具/设置）
-  ILibraryPane.cs         # 面板统一接口（宿主对面板零感知）
-  WebPaneHost.cs          # WebView2 宿主：虚拟域名映射/消息桥/失败信号
-  ToolPopupHostForm.cs    # WebView2 工具/设置独立弹窗宿主（?view=toolX|settings）
-  FallbackPane.cs         # 极薄降级提示页（WebView2 不可用时的兜底）
+  ThisAddIn.cs            # 任务窗格创建 + 事件订阅/退订 + WebView2 决策树/降级
+  Ribbon1.cs              # 「素材库」选项卡（收藏/素材库/工具/设置，自绘图标）
+  ILibraryPane.cs / WebPaneHost.cs / ToolPopupHostForm.cs / FallbackPane.cs
   BridgeController.cs     # C#↔JS 消息路由器（协议翻译，不含业务逻辑）
   业务层
-  ShapeExporter.cs        # 收藏/插入/应用样式/内置素材/导出 PPTX/微调/撤销
-  ShapeStyleExtractor.cs  # 样式提取与应用
-  ShapeLibraryService.cs  # 存储/分类/标签/去重/备份/缓存
-  PackService.cs          # 素材包（.ppack.zip）导出/导入
-  TextToolService.cs      # 文本工具共享服务层（Web 与 WinForms 共用）
-  FormatToolService.cs    # 版式批处理共享服务层（导出图片/清理瘦身/统一尺寸/图片网格）
-  AcademicToolService.cs  # 学术工具服务层（页脚页码/PDF与大纲/图表美化/参考文献）
-  StylePreset.cs          # 样式数据结构
-  Settings.cs / SettingsForm.cs / TagManagerForm.cs / InputDialog.cs
-  ToolsHubForm.cs          # 高级批处理 Hub（Ribbon「高级批处理」入口）
-  TextStyleToolForm.cs     # 工具窗：文字样式（Ribbon 直达）
-  FontReplaceToolForm.cs   # 工具窗：一键换字体（Ribbon 直达）
-  PPTTextToolsForm.cs      # 工具窗：查找替换 / 文字清理（单模式直达）
-  PPTFormatToolsForm.cs    # 工具窗：导出图片/清理瘦身/统一尺寸/图片网格（startTab+singleMode 直达）
-  PPTToolsForm.cs          # 旧文字样式/换字体整窗（兼容保留）
-  Log.cs                   # 日志（>1MB 轮转）
-  WebUI\                  # 前端 SPA（免构建，随程序集复制）
-    index.html + css\app.css + js\bridge.js(通信) + js\app.js(应用)
+  ShapeExporter.cs        # 收藏/插入/应用样式/内置素材/导出PPTX/微调/图片导入/预览生成
+  ShapeStyleExtractor.cs / StylePreset.cs / ClipboardGuard.cs
+  ShapeLibraryService.cs  # 存储/分类/标签/去重/备份/缓存/回收站/孤儿清理/id白名单
+  PackService.cs          # 素材包（.ppack.zip v1.1）导出/导入
+  TextToolService.cs / FormatToolService.cs / AcademicToolService.cs
+  Settings.cs / Log.cs / InputDialog.cs（收藏命名）
+  ToolsHubForm.cs          # Ribbon「高级批处理」Hub（打开 Web 工具弹窗）
+  RibbonIconFactory.cs     # Ribbon 图标：本地 TTF 字库按族名匹配 + 码点表
+  WebUI\                  # 前端构建产物（React+shadcn，随程序集复制）
+  webui-src\              # React 前端工程（Vite；node_modules/dist 不入库）
+  webui-legacy\           # 迁移前的纯静态前端备份（可回退）
+docs\                     # 设计/清单/素材包格式规范（material-pack-spec.md）
 ```
 
 UI 演进：A 阶段 WPF 面板 → B 阶段 WebView2 Web UI（业务层 C# 原样复用；
