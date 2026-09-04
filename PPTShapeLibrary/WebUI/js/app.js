@@ -1375,7 +1375,7 @@
             if (recentExcluded[meta.id]) return;   // 已在"最近使用"横条展示
             grid.appendChild(createCard(meta));
         });
-        updateSelectionUI();
+        updateBatchUI();   // 重渲染后同步批量条（卡片 .selected 高亮由 createCard 恢复）
 
         // 分页哨兵
         var sentinel = $("#sentinel");

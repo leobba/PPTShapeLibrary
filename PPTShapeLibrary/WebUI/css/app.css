@@ -950,20 +950,20 @@ html, body {
 }
 :root[data-theme="light"] .hover-lens { background: rgba(240, 244, 248, .55); }
 .hover-lens-stage {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    max-width: min(560px, 94%);
-    max-height: 78%;
-    flex: 1 1 auto;
-    min-height: 0;
+    flex: 0 1 auto;
+    max-width: min(600px, 92%);
+    max-height: 74%;
+    padding: 8px;
     background:
         linear-gradient(45deg, #e8ecf1 25%, transparent 25%, transparent 75%, #e8ecf1 75%),
         linear-gradient(45deg, #e8ecf1 25%, transparent 25%, transparent 75%, #e8ecf1 75%);
     background-size: 22px 22px;
     background-position: 0 0, 11px 11px;
     background-color: #f4f6f9;
-    border-radius: 16px;
+    border-radius: 14px;
     box-shadow: var(--shadow-3);
     overflow: hidden;
 }
@@ -972,10 +972,12 @@ html, body {
     border: 1px solid #2A313C;
 }
 .hover-lens-stage img {
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain;
     display: block;
+    width: auto;
+    height: auto;
+    max-width: min(640px, 100%);        /* 不超过源图原生宽度，避免放大发虚 */
+    max-height: calc(74vh - 120px);   /* 贴图显示，避免上下大段空白 */
+    object-fit: contain;
 }
 .hover-lens-cap {
     margin-top: 12px;
