@@ -110,46 +110,10 @@ namespace PPTShapeLibrary
         /// 高辨识彩色字形：纯彩色字形（无底色块），内部 4x 超采样后缩回，
         /// 小尺寸下依然清晰锐利；颜色按功能语义分配。
         /// </summary>
-        public static Image GetColorGlyph(string iconName, int size, Color color)
+                public static Image GetColorGlyph(string iconName, int size, Color color)
         {
-            try
-            {
-                EnsureLoaded();
-                FontFamily fam;
-                int cp;
-                if (!ResolveGlyph(iconName, out fam, out cp)) return null;
-                int ss = size * 4;                       // 超采样
-                var bmp = new Bitmap(ss, ss, PixelFormat.Format32bppArgb);
-                using (var g = Graphics.FromImage(bmp))
-                {
-                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                    g.TextRenderingHint = TextRenderingHint.AntiAlias;
-                    using (var font = new Font(fam, ss * 0.92f, FontStyle.Regular, GraphicsUnit.Pixel))
-                    using (var brush = new SolidBrush(color))
-                    {
-                        string ch = char.ConvertFromUtf32(cp);
-                        var fmt = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-                        RectangleF rc = new RectangleF(0, -ss * 0.02f, ss, ss);
-                        g.DrawString(ch, font, brush, rc, fmt);
-                    }
-                }
-                // 缩回目标尺寸
-                var small = new Bitmap(size, size, PixelFormat.Format32bppArgb);
-                using (var g2 = Graphics.FromImage(small))
-                {
-                    g2.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
-                    g2.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-                    g2.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
-                    g2.DrawImage(bmp, 0, 0, size, size);
-                }
-                bmp.Dispose();
-                return small;
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "RibbonIconFactory glyph " + iconName);
-                return null;
-            }
+            // Ribbon 图标字体已停用（第十八批）：Office Ribbon 改纯文字按钮，节省 10.6MB TTF 与加载开销。
+            return null;
         }
 
         /// <summary>每个动作的独立高辨识色（按功能语义，颜色鲜艳且彼此可区分）。</summary>

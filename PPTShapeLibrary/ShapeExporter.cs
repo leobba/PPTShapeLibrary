@@ -1487,6 +1487,62 @@ namespace PPTShapeLibrary
             try { if (System.IO.File.Exists(path)) System.IO.File.Delete(path); } catch { }
         }
 
+        // ---------------- 预览重建（修复历史错位缩略图） ----------------
+
+        /// <summary>重建单个条目的预览缩略图：打开其库文稿，从归一化形状自然尺寸导出（与插入一致）。</summary>
+        public static bool RebuildPreview(string id)
+        {
+            if (!ShapeLibraryService.IsSafeId(id)) return false;
+            string shapePath = ShapeLibraryService.ShapeFile(id);
+            if (!System.IO.File.Exists(shapePath)) return false;
+            PowerPoint.Presentation libPres = null;
+            try
+            {
+                libPres = App.Presentations.Open(shapePath, MsoTriState.msoTrue, MsoTriState.msoFalse, MsoTriState.msoFalse);
+                var slide = libPres.Slides[1];
+                if (slide.Shapes.Count == 0) return false;
+                var idx = new System.Collections.Generic.List<int>();
+                for (int i = 1; i <= slide.Shapes.Count; i++)
+                {
+                    if (!IsPlaceholder(slide.Shapes[i])) idx.Add(i);
+                }
+                if (idx.Count == 0) return false;
+                var range = slide.Shapes.Range(idx.ToArray());
+                string tmp = System.IO.Path.Combine(ShapeLibraryService.ItemsDir, id + "_rebuild_tmp.png");
+                range.Export(tmp, PowerPoint.PpShapeFormat.ppShapeFormatPNG);
+                if (System.IO.File.Exists(tmp))
+                {
+                    ShapeLibraryService.SavePreviewImage(id, System.IO.File.ReadAllBytes(tmp));
+                    TryDelete(tmp);
+                    return true;
+                }
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "RebuildPreview " + id);
+                return false;
+            }
+            finally
+            {
+                if (libPres != null) { try { libPres.Close(); } catch { } }
+            }
+        }
+
+        /// <summary>重建全部形状条目的预览缩略图。返回成功数。</summary>
+        public static int RebuildAllPreviews()
+        {
+            int ok = 0;
+            foreach (var m in ShapeLibraryService.LoadAllItems())
+            {
+                if (m.Kind != "Shape") continue;
+                try { if (RebuildPreview(m.Id)) ok++; }
+                catch { }
+            }
+            return ok;
+        }
+
+
         // ---------------- 图片素材：导入入库 + 程序生成示意 ---------------
 
         /// <summary>把本地图片文件入库为 素材>图片 收藏（单图单页 pptx）。返回条目 id。</summary>

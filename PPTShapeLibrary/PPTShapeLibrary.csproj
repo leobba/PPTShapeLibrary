@@ -166,11 +166,6 @@
     </Content>
   </ItemGroup>
   <ItemGroup>
-    <Content Include="RibbonFonts\**\*">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-  </ItemGroup>
-  <ItemGroup>
     <None Include="PPTShapeLibrary_TemporaryKey.pfx" />
   </ItemGroup>
   <PropertyGroup>

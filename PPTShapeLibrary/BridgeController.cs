@@ -301,6 +301,14 @@ namespace PPTShapeLibrary
                             Ok(reqId, new Dictionary<string, object>());
                             break;
                         }
+                    case "rebuildPreviews":
+                        {
+                            // 修复历史错位缩略图：重建全部形状条目预览（逐条打开库文稿导出）
+                            int n = ShapeExporter.RebuildAllPreviews();
+                            Ok(reqId, new Dictionary<string, object> { { "rebuilt", n } });
+                            BroadcastRefresh();
+                            break;
+                        }
                     // ---------------- PPT 工具（Web 工具页） ----------------
                     case "toolGetFonts":
                         {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { bridge } from "@/lib/bridge";
+import { X, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -109,7 +110,9 @@ function FontPicker({
         <span className="truncate" style={value ? { fontFamily: value } : undefined}>
           {value || placeholder || "选择字体…"}
         </span>
-        <span className="ml-2 shrink-0 text-muted-foreground">▾</span>
+        <span className="ml-2 flex shrink-0 text-muted-foreground">
+          <ChevronDown className="size-3.5" />
+        </span>
       </button>
       {open && (
         <>
@@ -238,7 +241,7 @@ export default function ToolView({
           aria-label="关闭"
           onClick={close}
         >
-          ✕
+          <X className="size-4" />
         </Button>
       </div>
       <div className="flex-1 overflow-y-auto p-4">

@@ -61,15 +61,30 @@ import {
   RotateCcw,
   RotateCw,
   Star,
+  Tags,
+  Download,
+  RefreshCw,
+  X,
+  ScanSearch,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  ArrowDown,
+  EyeOff,
+  Eye,
+  LayoutTemplate,
+  Type,
+  Palette,
+  ChartPie,
 } from "lucide-react";
 
 const GROUP_ICONS: Record<string, React.ReactNode> = {
   我的: <Star className="size-4" />,
-  模板: <span className="text-base">📐</span>,
+  模板: <LayoutTemplate className="size-4" />,
   素材: <Folder className="size-4" />,
-  文字: <span className="text-base">🔤</span>,
-  背景: <span className="text-base">🎨</span>,
-  图例: <span className="text-base">📊</span>,
+  文字: <Type className="size-4" />,
+  背景: <Palette className="size-4" />,
+  图例: <ChartPie className="size-4" />,
 };
 
 function tooltip(e: React.MouseEvent) {
@@ -211,7 +226,7 @@ export default function LibraryView({
               title="清空搜索 (Esc)"
               onClick={() => lib.setFilter("")}
             >
-              ✕
+              <X className="size-3" />
             </button>
           )}
         </div>
@@ -252,10 +267,29 @@ export default function LibraryView({
               <Folder className="size-4" /> 管理分组
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setShowTags(true)}>
-              <span className="flex size-4 items-center justify-center text-xs">#</span> 标签管理
+              <Tags className="size-4" /> 标签管理
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setShowDupes(true)}>
-              <span className="flex size-4 items-center justify-center text-xs">⧉</span> 去重清理
+              <ScanSearch className="size-4" /> 去重清理
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={async () => {
+                const ok = await dialogs.confirm(
+                  "重建全部形状条目的预览缩略图？\n（修复旧收藏中预览与内容错位的问题，按新方式从收藏文件重新生成）",
+                  { title: "重建预览图", okText: "重建", danger: false }
+                );
+                if (!ok) return;
+                try {
+                  const d = await bridge.rebuildPreviews();
+                  dialogs.alert("已重建 " + (d.rebuilt || 0) + " 条预览缩略图。");
+                  lib.refreshMeta();
+                  lib.reload(true);
+                } catch (e: any) {
+                  dialogs.alert("重建失败：" + (e?.message || e));
+                }
+              }}
+            >
+              <RefreshCw className="size-4" /> 重建预览图…
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setShowTrash(true)}>
               <Trash2 className="size-4" /> 回收站
@@ -295,7 +329,7 @@ export default function LibraryView({
                 }
               }}
             >
-              <span className="flex size-4 items-center justify-center text-xs">⇩</span> 导入素材包…
+              <Download className="size-4" /> 导入素材包…
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -505,6 +539,7 @@ export default function LibraryView({
                       item={item}
                       selected={selected.has(item.id)}
                       dragEnabled={lib.sort === "自定义"}
+                      clickToInsert={(init as any)?.clickToInsert !== false}
                       onDropCard={(fromId, toId) => {
                         // 自定义排序：把 from 移到 to 的位置并持久化全量顺序
                         const ids = items.map((x) => x.id);
@@ -555,24 +590,24 @@ export default function LibraryView({
         <div className="fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-1 rounded-xl border bg-popover px-2 py-1.5 shadow-xl">
           <span className="mr-1 px-1 text-[10px] text-muted-foreground">微调</span>
           {[
-            ["↺", "rotateL", "左转 15°"],
-            ["↻", "rotateR", "右转 15°"],
-            ["◐", "opacityDown", "透明度 -"],
-            ["◑", "opacityUp", "透明度 +"],
-            ["←", "nudgeL", "左移"],
-            ["→", "nudgeR", "右移"],
-            ["↑", "nudgeU", "上移"],
-            ["↓", "nudgeD", "下移"],
-          ].map(([t, a, tip]) => (
+            [<RotateCcw key="rl" className="size-3.5" />, "rotateL", "左转 15°"],
+            [<RotateCw key="rr" className="size-3.5" />, "rotateR", "右转 15°"],
+            [<EyeOff key="od" className="size-3.5" />, "opacityDown", "透明度 -"],
+            [<Eye key="ou" className="size-3.5" />, "opacityUp", "透明度 +"],
+            [<ArrowLeft key="nl" className="size-3.5" />, "nudgeL", "左移"],
+            [<ArrowRight key="nr" className="size-3.5" />, "nudgeR", "右移"],
+            [<ArrowUp key="nu" className="size-3.5" />, "nudgeU", "上移"],
+            [<ArrowDown key="nd" className="size-3.5" />, "nudgeD", "下移"],
+          ].map(([icon, a, tip]) => (
             <Button
               key={a as string}
               variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-sm"
+              size="icon-sm"
+              className="h-7 w-7"
               title={tip as string}
               onClick={() => adjust(a as string)}
             >
-              {t}
+              {icon as React.ReactNode}
             </Button>
           ))}
           <Button
@@ -582,7 +617,8 @@ export default function LibraryView({
             title="撤销上一步"
             onClick={() => bridge.undo().catch(() => {})}
           >
-            ↶撤销
+            <RotateCcw className="mr-1 size-3" />
+            撤销
           </Button>
           <Button
             variant="ghost"
@@ -591,7 +627,8 @@ export default function LibraryView({
             title="重做"
             onClick={() => bridge.redo().catch(() => {})}
           >
-            ↷重做
+            <RotateCw className="mr-1 size-3" />
+            重做
           </Button>
         </div>
       )}
@@ -812,6 +849,7 @@ function ItemCard({
   onChanged,
   dragEnabled,
   onDropCard,
+  clickToInsert,
 }: {
   item: ListItem;
   selected: boolean;
@@ -823,8 +861,37 @@ function ItemCard({
   onChanged: () => void;
   dragEnabled?: boolean;
   onDropCard?: (fromId: string, toId: string) => void;
+  /** 设置：true=单击即插；false=单击预览、双击插入 */
+  clickToInsert?: boolean;
 }) {
   const isStyle = item.kind === "Style";
+  const clickTimerRef = useRef<number | undefined>(undefined);
+  const handleClick = (e: React.MouseEvent) => {
+    if (e.ctrlKey) {
+      onToggle();
+      return;
+    }
+    if (isStyle) {
+      onApplyStyle();
+      return;
+    }
+    if (clickToInsert !== false) {
+      // 单击即插入
+      onInsert();
+      return;
+    }
+    // 单击预览 / 双击插入：延迟判定双击
+    if (clickTimerRef.current) {
+      window.clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = undefined;
+      onInsert(); // 第二次点击构成双击 → 插入
+      return;
+    }
+    clickTimerRef.current = window.setTimeout(() => {
+      clickTimerRef.current = undefined;
+      onPreview(); // 无双击 → 预览
+    }, 260);
+  };
   return (
     <ContextMenu>
       <ContextMenuTrigger>
@@ -851,25 +918,7 @@ function ItemCard({
               if (fromId && fromId !== item.id) onDropCard(fromId, item.id);
             }
           }}
-          onClick={(e) => {
-            if (e.ctrlKey) {
-              onToggle();
-              return;
-            }
-            if (item.kind === "Style") {
-              // 样式卡：单击应用到选中形状（无选中时 C# 返回错误，经全局 toast 提示）
-              onApplyStyle();
-              return;
-            }
-            onInsert();
-          }}
-          onDoubleClick={() => {
-            if (item.kind === "Style") {
-              onApplyStyle();
-              return;
-            }
-            onPreview();
-          }}
+          onClick={handleClick}
           onMouseEnter={() => onHover(item.previewUrl)}
           onMouseLeave={() => onHover(null)}
           title={item.name}
