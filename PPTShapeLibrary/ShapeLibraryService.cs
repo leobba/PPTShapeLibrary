@@ -228,23 +228,24 @@ namespace PPTShapeLibrary
             }
         }
 
-        /// <summary>软删除：把条目移入回收站（可恢复）。</summary>
-        public static void DeleteItem(string id)
+        /// <summary>软删除：把条目移入回收站（可恢复）。失败时保留原位并返回 false（不静默删除）。</summary>
+        public static bool DeleteItem(string id)
         {
             string dir = Path.Combine(ItemsDir, id);
-            if (!Directory.Exists(dir)) return;
+            if (!Directory.Exists(dir)) return true;
             string trash = Path.Combine(TrashDir, id);
             try
             {
                 if (Directory.Exists(trash)) Directory.Delete(trash, true);
                 Directory.Move(dir, trash);
+                InvalidateCache();
+                return true;
             }
-            catch
+            catch (Exception ex)
             {
-                // 移动失败（占用等）则直接删除，避免残留
-                try { Directory.Delete(dir, true); } catch { }
+                Log.Error(ex, "DeleteItem(soft) id=" + id);
+                return false;   // 保留原位，调用方提示，绝不静默永久删除
             }
-            InvalidateCache();
         }
 
         /// <summary>彻底删除（回收站内清除）。</summary>

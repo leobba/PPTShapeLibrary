@@ -141,12 +141,17 @@ namespace PPTShapeLibrary
                     case "delete":
                         {
                             int n = 0;
+                            int failed = 0;
                             foreach (var id in GetIds(payload))
                             {
-                                ShapeLibraryService.DeleteItem(id);
-                                n++;
+                                if (ShapeLibraryService.DeleteItem(id)) n++;
+                                else failed++;
                             }
-                            Ok(reqId, new Dictionary<string, object> { { "deleted", n } });
+                            if (failed > 0)
+                                Result(reqId, false, null,
+                                    "有 " + failed + " 项移入回收站失败（可能被占用或文件锁定），已保留在原位。");
+                            else
+                                Ok(reqId, new Dictionary<string, object> { { "deleted", n } });
                             break;
                         }
                     case "rename":
