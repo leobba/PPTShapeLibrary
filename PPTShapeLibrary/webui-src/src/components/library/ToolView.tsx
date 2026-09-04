@@ -400,7 +400,14 @@ function Tool3() {
         <Checkbox id="t3case" checked={match} onCheckedChange={(v) => setMatch(!!v)} />
         <Label htmlFor="t3case" className="text-sm">区分大小写</Label>
       </div>
-      <Button onClick={() => run(() => bridge.findReplace({ find, replace: rep, matchCase: match, allSlides: all }))}>替换全部</Button>
+      <Button
+        disabled={!find}
+        onClick={() => run(() => bridge.findReplace({ find, replace: rep, matchCase: match, allSlides: all }))}
+      >
+        替换全部
+      </Button>
+      {!find && <p className="text-xs text-muted-foreground">请先输入查找内容。</p>}
+      {find && !rep && <p className="text-xs text-muted-foreground">提示：替换为空即删除查找到的文本。</p>}
       <Result out={out} />
     </Shell>
   );
@@ -455,7 +462,13 @@ function Tool5() {
           </Select>
         </Field>
       </div>
-      <Button onClick={() => run(() => bridge.formatExportImages({ dir, format: fmt, width: parseInt(w) }))}>开始导出</Button>
+      <Button
+        disabled={!dir.trim()}
+        onClick={() => run(() => bridge.formatExportImages({ dir: dir.trim(), format: fmt, width: parseInt(w) || 0 }))}
+      >
+        开始导出
+      </Button>
+      {!dir.trim() && <p className="text-xs text-muted-foreground">请先选择导出目录。</p>}
       <Result out={out} />
     </Shell>
   );
@@ -526,10 +539,16 @@ function Tool7() {
         </Select>
       </Field>
       <div className="flex items-center gap-3">
-        <Field label="宽度(磅)"><Input value={w} onChange={(e) => setW(e.target.value)} /></Field>
-        <Field label="高度(磅)"><Input value={h} onChange={(e) => setH(e.target.value)} /></Field>
+        <Field label="宽度(磅)"><Input value={w} onChange={(e) => setW(e.target.value)} inputMode="decimal" /></Field>
+        <Field label="高度(磅)"><Input value={h} onChange={(e) => setH(e.target.value)} inputMode="decimal" /></Field>
       </div>
-      <Button onClick={() => run(() => bridge.formatResize({ scope, width: parseFloat(w) || 0, height: parseFloat(h) || 0, forceImageRatio: false }))}>应用尺寸</Button>
+      <Button
+        disabled={!parseFloat(w) && !parseFloat(h)}
+        onClick={() => run(() => bridge.formatResize({ scope, width: parseFloat(w) || 0, height: parseFloat(h) || 0, forceImageRatio: false }))}
+      >
+        应用尺寸
+      </Button>
+      {!parseFloat(w) && !parseFloat(h) && <p className="text-xs text-muted-foreground">请至少填写宽度或高度。</p>}
       <Result out={out} />
     </Shell>
   );
@@ -554,7 +573,13 @@ function Tool8() {
         <Checkbox id="t8n" checked={toNew} onCheckedChange={(v) => setToNew(!!v)} />
         <Label htmlFor="t8n" className="text-sm">排满自动翻新页（取消则插入当前页）</Label>
       </div>
-      <Button onClick={() => run(() => bridge.formatImageGrid({ files, cols: parseInt(cols) || 3, toNewPage: toNew }))}>生成网格</Button>
+      <Button
+        disabled={files.length === 0}
+        onClick={() => run(() => bridge.formatImageGrid({ files, cols: parseInt(cols) || 3, toNewPage: toNew }))}
+      >
+        生成网格
+      </Button>
+      {files.length === 0 && <p className="text-xs text-muted-foreground">请先选择至少一张图片。</p>}
       <Result out={out} />
     </Shell>
   );
@@ -564,12 +589,35 @@ function Tool8() {
 function Tool9() {
   const { out, run } = useRun();
   const [text, setText] = useState("");
+  const [showDate, setShowDate] = useState(true);
+  const [showPage, setShowPage] = useState(true);
+  const [firstOnly, setFirstOnly] = useState(false);
   return (
-    <Shell title="页脚页码" desc="为全部页添加页脚与页码（可撤销）">
+    <Shell title="页脚页码" desc="为页面添加页脚文本/日期/页码（可撤销）">
       <Field label="页脚文本（姓名/单位，可留空）">
         <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="张三 · 课题组" />
       </Field>
-      <Button onClick={() => run(() => bridge.academicFooter({ footerText: text, showDate: true, showPageNumber: true, firstOnly: false }))}>添加到全部页面</Button>
+      <div className="flex items-center gap-2">
+        <Checkbox id="t9d" checked={showDate} onCheckedChange={(v) => setShowDate(!!v)} />
+        <Label htmlFor="t9d" className="text-sm">显示日期</Label>
+      </div>
+      <div className="flex items-center gap-2">
+        <Checkbox id="t9p" checked={showPage} onCheckedChange={(v) => setShowPage(!!v)} />
+        <Label htmlFor="t9p" className="text-sm">显示页码</Label>
+      </div>
+      <div className="flex items-center gap-2">
+        <Checkbox id="t9f" checked={firstOnly} onCheckedChange={(v) => setFirstOnly(!!v)} />
+        <Label htmlFor="t9f" className="text-sm">仅添加到当前页</Label>
+      </div>
+      <Button
+        disabled={!showDate && !showPage && !text.trim()}
+        onClick={() => run(() => bridge.academicFooter({ footerText: text, showDate, showPageNumber: showPage, firstOnly }))}
+      >
+        添加
+      </Button>
+      {!showDate && !showPage && !text.trim() && (
+        <p className="text-xs text-muted-foreground">请至少勾选日期/页码或填写页脚文本。</p>
+      )}
       <Result out={out} />
     </Shell>
   );
@@ -595,18 +643,20 @@ function Tool10() {
           <Button variant="outline" onClick={() => bridge.requestFolder("选择保存目录").then((d) => d?.path && setDir(d.path))}>浏览…</Button>
         </div>
       </Field>
-      <Field label="文件名（可留空）"><Input value={name} onChange={(e) => setName(e.target.value)} /></Field>
+      <Field label="文件名（可留空，自动命名）"><Input value={name} onChange={(e) => setName(e.target.value)} /></Field>
       <Button
+        disabled={!dir.trim()}
         onClick={() =>
           run(() =>
             mode === "pdf"
-              ? bridge.academicExportPdf({ dir, name, style: 0, perPage: 1 })
-              : bridge.academicExportOutline({ dir, name })
+              ? bridge.academicExportPdf({ dir: dir.trim(), name: name.trim(), style: 0, perPage: 1 })
+              : bridge.academicExportOutline({ dir: dir.trim(), name: name.trim() })
           )
         }
       >
         导出
       </Button>
+      {!dir.trim() && <p className="text-xs text-muted-foreground">请先选择保存目录。</p>}
       <Result out={out} />
     </Shell>
   );
