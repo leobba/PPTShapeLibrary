@@ -104,7 +104,7 @@ export default function LibraryView({
   const { init, items, selected, loadMore } = lib;
   const selCount = selected.size;
   const [preview, setPreview] = useState<ListItem | null>(null);
-  const [hoverImg, setHoverImg] = useState<string | null>(null);
+  const [hoverImg, setHoverImg] = useState<{ url: string; kind: string } | null>(null);
   const [showTrash, setShowTrash] = useState(false);
   const [showGroups, setShowGroups] = useState(false);
   const [showTags, setShowTags] = useState(false);
@@ -597,7 +597,7 @@ export default function LibraryView({
           </div>
 
           {/* hover 大图预览（图片查看器式，纯展示不拦截事件） */}
-          {hoverImg && <HoverLens src={hoverImg} />}
+          {hoverImg && <HoverLens data={hoverImg} />}
         </div>
       </div>
 
@@ -884,7 +884,7 @@ function ItemCard({
   selected: boolean;
   onToggle: () => void;
   onPreview: () => void;
-  onHover: (url: string | null) => void;
+  onHover: (v: { url: string; kind: string } | null) => void;
   onInsert: () => void;
   onApplyStyle: () => void;
   onChanged: () => void;
@@ -948,7 +948,7 @@ function ItemCard({
             }
           }}
           onClick={handleClick}
-          onMouseEnter={() => onHover(item.previewUrl)}
+          onMouseEnter={() => onHover({ url: item.previewUrl, kind: item.kind })}
           onMouseLeave={() => onHover(null)}
           title={item.name}
         >
@@ -1063,12 +1063,16 @@ function ItemCard({
   );
 }
 
-/** hover 放大预览 */
-function HoverLens({ src }: { src: string }) {
+/** hover 放大预览（图片查看器式，纯展示不拦截事件；提示文案随素材类型） */
+function HoverLens({ data }: { data: { url: string; kind: string } }) {
+  const isStyle = data.kind === "Style";
   return (
     <div className="pointer-events-none fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/45 p-6 backdrop-blur-[2px]">
       <div className="flex max-h-[74%] max-w-[min(560px,92%)] items-center justify-center overflow-hidden rounded-xl bg-muted/80 p-2 shadow-2xl">
-        <img src={src} alt="" className="max-h-[70vh] w-auto rounded object-contain" />
+        <img src={data.url} alt="" className="max-h-[70vh] w-auto rounded object-contain" />
+      </div>
+      <div className="mt-3 flex items-center gap-1.5 rounded-full bg-black/50 px-3 py-1 text-xs text-white">
+        {isStyle ? "单击 应用到选中形状 · 右键更多操作" : "单击 插入到当前页 · 右键更多操作"}
       </div>
     </div>
   );
