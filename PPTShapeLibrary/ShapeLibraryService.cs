@@ -366,7 +366,11 @@ namespace PPTShapeLibrary
         {
             var meta = LoadMeta(id);
             if (meta == null) return;
-            meta.Name = newName;
+            // 空名/纯空白保持原名，超长截断，避免列表出现空白条目或异常名
+            if (string.IsNullOrWhiteSpace(newName)) return;
+            string name = newName.Trim();
+            if (name.Length > 120) name = name.Substring(0, 120);
+            meta.Name = name;
             SaveMeta(meta);
             InvalidateCache();
         }
@@ -374,6 +378,34 @@ namespace PPTShapeLibrary
         public static void SaveStyleJson(string id, string json)
         {
             File.WriteAllText(StyleFile(id), json, Encoding.UTF8);
+        }
+
+        /// <summary>孤儿目录清理：把 items 下没有 meta.json（收藏流程中断残留）的目录移入回收站，返回清理数。
+        /// 不硬删，用户仍可在回收站查看/彻底删除。</summary>
+        public static int CollectOrphanDirs()
+        {
+            int n = 0;
+            try
+            {
+                if (!Directory.Exists(ItemsDir)) return 0;
+                foreach (var dir in Directory.GetDirectories(ItemsDir))
+                {
+                    string id = Path.GetFileName(dir);
+                    if (!IsSafeId(id)) continue;
+                    if (File.Exists(Path.Combine(dir, "meta.json"))) continue;
+                    string trash = Path.Combine(TrashDir, id);
+                    try
+                    {
+                        if (Directory.Exists(trash)) Directory.Delete(trash, true);
+                        Directory.Move(dir, trash);
+                        n++;
+                    }
+                    catch { }
+                }
+                if (n > 0) InvalidateCache();
+            }
+            catch { }
+            return n;
         }
 
         public static string LoadStyleJson(string id)

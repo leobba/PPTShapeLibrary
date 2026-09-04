@@ -474,12 +474,13 @@ namespace PPTShapeLibrary
                 if (groupW > maxW || groupH > maxH)
                 {
                     float scale = Math.Min(maxW / groupW, maxH / groupH);
+                    bool scaled = true;
                     try
                     {
                         pasted.ScaleWidth(scale, MsoTriState.msoFalse, MsoScaleFrom.msoScaleFromMiddle);
                         pasted.ScaleHeight(scale, MsoTriState.msoFalse, MsoScaleFrom.msoScaleFromMiddle);
                     }
-                    catch { }
+                    catch { scaled = false; }   // 缩放失败：保持原位置（下方不再居中），防止按未缩放尺寸计算而偏出画布
                     // 缩放后重新计算边界
                     minL = float.MaxValue; minT = float.MaxValue; maxR = float.MinValue; maxB = float.MinValue;
                     foreach (PowerPoint.Shape s in pasted)
@@ -488,6 +489,13 @@ namespace PPTShapeLibrary
                         minT = Math.Min(minT, (float)s.Top);
                         maxR = Math.Max(maxR, (float)(s.Left + s.Width));
                         maxB = Math.Max(maxB, (float)(s.Top + s.Height));
+                    }
+                    if (!scaled)
+                    {
+                        // 缩放失败：不居中（dx/dy 会基于失真尺寸），仅记录并保持原坐标
+                        try { pasted.Select(); } catch { }
+                        ShapeLibraryService.TouchUsed(id);
+                        return true;
                     }
                 }
 

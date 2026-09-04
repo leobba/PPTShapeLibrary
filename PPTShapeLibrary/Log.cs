@@ -31,10 +31,25 @@ namespace PPTShapeLibrary
                     string path = Path.Combine(LogDir, "app.log");
                     if (File.Exists(path) && new FileInfo(path).Length > 1024 * 1024)
                     {
-                        try { File.Delete(path); } catch { }
+                        // 轮转：优先删（同进程内）→ 失败则改名 .old（可能被其他进程占用时也能腾出空间）
+                        try { File.Delete(path); }
+                        catch
+                        {
+                            try
+                            {
+                                string old = Path.Combine(LogDir, "app.old.log");
+                                if (File.Exists(old)) { try { File.Delete(old); } catch { } }
+                                try { File.Move(path, old); } catch { }
+                            }
+                            catch { }
+                        }
                     }
-                    File.AppendAllText(path,
-                        DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") + " " + msg + Environment.NewLine);
+                    // FileShare.ReadWrite：多个 PowerPoint 实例共写同一日志不互斥崩溃
+                    using (var fs = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
+                    using (var sw = new StreamWriter(fs))
+                    {
+                        sw.WriteLine(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") + " " + msg);
+                    }
                 }
             }
             catch { }

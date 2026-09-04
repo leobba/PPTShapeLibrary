@@ -40,16 +40,29 @@ namespace PPTShapeLibrary
                     if (File.Exists(mainTtf))
                     {
                         _fonts.AddFontFile(mainTtf);
-                        if (_fonts.Families.Length > 0) _familyMain = _fonts.Families[0];
                         LoadCodepoints(Path.Combine(baseDir, "RibbonFonts", "MaterialIcons-Regular.codepoints"), _codepoints);
                     }
                     string altTtf = Path.Combine(baseDir, "RibbonFonts", "MaterialSymbolsOutlined.ttf");
                     if (File.Exists(altTtf))
                     {
                         _fonts.AddFontFile(altTtf);
-                        if (_fonts.Families.Length > 1) _familyAlt = _fonts.Families[1];
                         LoadCodepoints(Path.Combine(baseDir, "RibbonFonts", "MaterialSymbolsOutlined.codepoints"), _codepointsAlt);
                     }
+                    // 按字体族名匹配主/备字体（不依赖 Families 索引顺序，防止主 TTF 缺失时
+                    // 把备字体误当主字体使用导致字形与码点表错位）
+                    foreach (var fam in _fonts.Families)
+                    {
+                        string nm = fam.Name;
+                        if (nm.IndexOf("Material Icons", StringComparison.OrdinalIgnoreCase) >= 0 && _familyMain == null)
+                            _familyMain = fam;
+                        else if (nm.IndexOf("Material Symbols", StringComparison.OrdinalIgnoreCase) >= 0 && _familyAlt == null)
+                            _familyAlt = fam;
+                    }
+                    if (_familyMain == null && _familyAlt != null) _familyMain = _familyAlt;
+                    if (_familyMain == null && _fonts.Families.Length > 0)
+                        _familyMain = _fonts.Families[0]; // 兜底：有任何字体都比无字强
+                    if (_familyMain == null)
+                        Log.Error(new Exception("Ribbon fonts missing: neither MaterialIcons nor MaterialSymbols ttf found in " + baseDir + "\\RibbonFonts"), "RibbonIconFactory");
                 }
                 catch (Exception ex)
                 {

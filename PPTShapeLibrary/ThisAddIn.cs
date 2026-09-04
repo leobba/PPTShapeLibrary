@@ -43,6 +43,8 @@ namespace PPTShapeLibrary
                     catch (Exception ex) { Log.Error(ex, "GenerateSamplePictures"); }
                     try { ShapeExporter.EnsureGroupAssignments(); }
                     catch (Exception ex) { Log.Error(ex, "EnsureGroupAssignments"); }
+                    try { int orphans = ShapeLibraryService.CollectOrphanDirs(); if (orphans > 0) Log.Write("Orphan dirs cleaned: " + orphans); }
+                    catch (Exception ex) { Log.Error(ex, "CollectOrphanDirs"); }
                 };
                 timer.Start();
                 Log.Write("Startup done");

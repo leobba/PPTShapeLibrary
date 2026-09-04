@@ -308,8 +308,10 @@ namespace PPTShapeLibrary
                                     foreach (var fam in fc.Families)
                                     {
                                         string n = fam.Name;
-                                        // 排除图标字体与样式后缀（如 "Segoe UI Semibold"），保留主族名
-                                        if (n.Contains("Material") || n.Contains("Symbols")) continue;
+                                        // 仅排除本插件的图标字体家族（MaterialIcons/Material Symbols），
+                                        // 保留 Segoe UI Symbol 等真实可用符号字体
+                                        if (n.StartsWith("Material", StringComparison.OrdinalIgnoreCase)) continue;
+                                        if (n.Contains("PPTShapeLibrary")) continue;
                                         if (!sysFonts.Contains(n)) sysFonts.Add(n);
                                     }
                                 }
@@ -568,6 +570,12 @@ namespace PPTShapeLibrary
                             string dir = System.IO.Path.Combine(ShapeLibraryService.RootDir, "packs");
                             try { System.IO.Directory.CreateDirectory(dir); } catch { }
                             string saveAs = System.IO.Path.Combine(dir, name + ".ppack.zip");
+                            // 已存在则追加时间戳，避免静默覆盖旧素材包
+                            if (System.IO.File.Exists(saveAs))
+                            {
+                                saveAs = System.IO.Path.Combine(dir,
+                                    name + "_" + DateTime.Now.ToString("HHmmss") + ".ppack.zip");
+                            }
                             bool ok = PackService.ExportPack(GetIds(payload), saveAs, out string pkErr);
                             Result(reqId, ok,
                                    ok ? new Dictionary<string, object> { { "path", saveAs } } : null,
