@@ -633,7 +633,7 @@ function Tool9() {
       </div>
       <div className="flex items-center gap-2">
         <Checkbox id="t9f" checked={firstOnly} onCheckedChange={(v) => setFirstOnly(!!v)} />
-        <Label htmlFor="t9f" className="text-sm">仅添加到当前页</Label>
+        <Label htmlFor="t9f" className="text-sm">页码仅首页显示（文本/日期仍加到每页）</Label>
       </div>
       <Button
         disabled={!showDate && !showPage && !text.trim()}

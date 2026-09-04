@@ -24,30 +24,40 @@ namespace PPTShapeLibrary
             public int Changed;
         }
 
-        /// <summary>按范围枚举文本形状：selection(选中)/page(当前页)/all(全部页)。</summary>
+        /// <summary>按范围枚举文本形状：selection(选中)/page(当前页)/all(全部页)。
+        /// 无演示文稿/无活动窗口时抛 InvalidOperationException（上层转为明确错误），避免静默"已处理 0 个"假成功。</summary>
         private static List<PowerPoint.Shape> ShapesByScope(string scope)
         {
             var result = new List<PowerPoint.Shape>();
             try
             {
+                var pres = App.ActivePresentation;
+                if (pres == null) throw new InvalidOperationException("没有打开的演示文稿。");
                 if (scope == "selection")
                 {
-                    var sel = App.ActiveWindow.Selection;
+                    var win = App.ActiveWindow;
+                    if (win == null) throw new InvalidOperationException("没有可用的活动窗口。");
+                    var sel = win.Selection;
                     if (sel != null && sel.Type == PowerPoint.PpSelectionType.ppSelectionShapes && sel.ShapeRange != null)
                         for (int i = 1; i <= sel.ShapeRange.Count; i++) result.Add(sel.ShapeRange[i]);
+                    if (result.Count == 0) throw new InvalidOperationException("未选中形状。请先选中要处理的形状。");
                 }
                 else if (scope == "page")
                 {
-                    var slide = App.ActivePresentation.Slides[App.ActiveWindow.View.Slide.SlideIndex];
+                    var win = App.ActiveWindow;
+                    if (win == null || win.View == null || win.View.Slide == null)
+                        throw new InvalidOperationException("没有可用的活动窗口/页面。");
+                    var slide = pres.Slides[win.View.Slide.SlideIndex];
                     for (int i = 1; i <= slide.Shapes.Count; i++) result.Add(slide.Shapes[i]);
                 }
                 else
                 {
-                    foreach (PowerPoint.Slide slide in App.ActivePresentation.Slides)
+                    foreach (PowerPoint.Slide slide in pres.Slides)
                         for (int i = 1; i <= slide.Shapes.Count; i++) result.Add(slide.Shapes[i]);
                 }
             }
-            catch { }
+            catch (InvalidOperationException) { throw; }
+            catch { throw new InvalidOperationException("没有打开的演示文稿或活动窗口。"); }
             return result;
         }
 
