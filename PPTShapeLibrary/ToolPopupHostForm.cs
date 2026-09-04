@@ -55,6 +55,16 @@ namespace PPTShapeLibrary
 
             _webView = new WebView2 { Dock = DockStyle.Fill };
             Controls.Add(_webView);
+            // Esc 直接关闭（无边框弹窗，页内 ✕ 与 Esc 双途径，避免"关不掉"）
+            KeyPreview = true;
+            KeyDown += (s, e) =>
+            {
+                if (e.KeyCode == Keys.Escape)
+                {
+                    e.Handled = true;
+                    Close();
+                }
+            };
             Load += (s, e) => InitAsync();
         }
 

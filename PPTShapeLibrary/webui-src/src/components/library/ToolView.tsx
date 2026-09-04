@@ -77,13 +77,29 @@ export default function ToolView({
   useEffect(() => {
     const head = document.getElementById("popup-drag");
     if (!head) return;
-    const onDown = () => {
+    const onDown = (e: MouseEvent) => {
+      // 交互控件(关闭钮/可点元素)上按下不拖动窗口，避免系统拖拽吞掉 click 导致关不掉
+      const t = e.target as HTMLElement;
+      if (t && (t.closest("button") || t.closest("input") || t.closest("select") || t.closest("[role='combobox']"))) return;
       try {
         (window as any).chrome?.webview?.postMessage(JSON.stringify({ type: "popupDrag" }));
       } catch {}
     };
     head.addEventListener("mousedown", onDown);
     return () => head.removeEventListener("mousedown", onDown);
+  }, []);
+
+  // Esc 兜底关闭（宿主无边框无系统按钮）
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        try {
+          (window as any).chrome?.webview?.postMessage(JSON.stringify({ type: "popupClose" }));
+        } catch {}
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   const close = () => {
@@ -102,7 +118,13 @@ export default function ToolView({
           <h1 className="text-sm font-semibold">{meta.title}</h1>
           <span className="text-xs text-muted-foreground">{meta.desc}</span>
         </div>
-        <Button variant="ghost" size="icon" className="h-6 w-6" aria-label="关闭" onClick={close}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+          aria-label="关闭"
+          onClick={close}
+        >
           ✕
         </Button>
       </div>
