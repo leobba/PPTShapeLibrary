@@ -121,6 +121,15 @@ namespace PPTShapeLibrary
             return DateTime.Now.ToString("yyyyMMdd-HHmmss-") + Guid.NewGuid().ToString("N").Substring(0, 6);
         }
 
+        private static readonly System.Text.RegularExpressions.Regex IdSafeRegex =
+            new System.Text.RegularExpressions.Regex("^[0-9A-Za-z_\\-]+$");
+
+        /// <summary>安全 id 校验：id 只允许字母数字下划线连字符（NewId 生成格式），杜绝路径穿越（..、盘符、分隔符）。</summary>
+        public static bool IsSafeId(string id)
+        {
+            return !string.IsNullOrEmpty(id) && id.Length <= 80 && IdSafeRegex.IsMatch(id);
+        }
+
         public static string ShapeFile(string id)
         {
             return Path.Combine(ItemsDir, id, "shape.pptx");
@@ -231,6 +240,7 @@ namespace PPTShapeLibrary
         /// <summary>软删除：把条目移入回收站（可恢复）。失败时保留原位并返回 false（不静默删除）。</summary>
         public static bool DeleteItem(string id)
         {
+            if (!IsSafeId(id)) { Log.Error(new Exception("DeleteItem: unsafe id=" + (id ?? "")), "Security"); return false; }
             string dir = Path.Combine(ItemsDir, id);
             if (!Directory.Exists(dir)) return true;
             string trash = Path.Combine(TrashDir, id);
@@ -251,6 +261,7 @@ namespace PPTShapeLibrary
         /// <summary>彻底删除（回收站内清除）。</summary>
         public static void HardDelete(string id)
         {
+            if (!IsSafeId(id)) { Log.Error(new Exception("HardDelete: unsafe id=" + (id ?? "")), "Security"); return; }
             string dir = Path.Combine(TrashDir, id);
             if (Directory.Exists(dir))
             {
@@ -268,18 +279,24 @@ namespace PPTShapeLibrary
         /// <summary>从回收站恢复条目到素材库。</summary>
         public static bool RestoreTrashItem(string id)
         {
+            if (!IsSafeId(id)) { Log.Error(new Exception("RestoreTrashItem: unsafe id=" + (id ?? "")), "Security"); return false; }
             string trash = Path.Combine(TrashDir, id);
             if (!Directory.Exists(trash)) return false;
             string dest = Path.Combine(ItemsDir, id);
             if (Directory.Exists(dest))
             {
-                // 目标冲突：改名恢复
+                // 目标冲突：改名恢复（新 id 安全）
                 dest = Path.Combine(ItemsDir, NewId());
             }
             try
             {
                 Directory.Move(trash, dest);
                 InvalidateCache();
+                // P1-6: 改名恢复后同步 meta.json 内 id 字段，避免目录名与 meta id 不一致
+                if (Path.GetFileName(dest) != id)
+                {
+                    try { RewriteMetaIdText(Path.Combine(dest, "meta.json"), Path.GetFileName(dest)); } catch { }
+                }
                 return true;
             }
             catch { return false; }
@@ -301,6 +318,26 @@ namespace PPTShapeLibrary
                 }
             }
             return list.OrderByDescending(m => m.CreatedAt).ToList();
+        }
+
+        /// <summary>把 meta.json 文本里的首个 id 字段改写为新 id（目录改名/冲突恢复后同步，防 id 不一致）。</summary>
+        private static void RewriteMetaIdText(string metaFile, string newId)
+        {
+            try
+            {
+                if (!System.IO.File.Exists(metaFile)) return;
+                string text = System.IO.File.ReadAllText(metaFile, System.Text.Encoding.UTF8);
+                var rx = new System.Text.RegularExpressions.Regex("\"id\"\\s*:\\s*\"[^\"]*\"");
+                var m = rx.Match(text);
+                if (m.Success)
+                {
+                    text = text.Substring(0, m.Index)
+                        + "\"id\":\"" + newId + "\""
+                        + text.Substring(m.Index + m.Length);
+                    System.IO.File.WriteAllText(metaFile, text, System.Text.Encoding.UTF8);
+                }
+            }
+            catch { }
         }
 
         private static LibraryMeta LoadMetaFromDir(string metaPath)
