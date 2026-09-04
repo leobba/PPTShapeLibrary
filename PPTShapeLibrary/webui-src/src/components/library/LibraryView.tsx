@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { bridge, ListItem } from "@/lib/bridge";
 import { useLibrary } from "@/hooks/useLibrary";
 import { Button } from "@/components/ui/button";
@@ -90,6 +90,20 @@ export default function LibraryView({
   const [showGroups, setShowGroups] = useState(false);
   const [showTags, setShowTags] = useState(false);
   const [trashConfirmIds, setTrashConfirmIds] = useState<string[] | null>(null);
+  // 面板宽度自适应：容器宽度 → 卡片列最小宽（窄面板小卡，宽面板大卡）
+  const [gridMin, setGridMin] = useState(96);
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = gridRef.current;
+    if (!el) return;
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      const w = el.clientWidth;
+      setGridMin(w >= 620 ? 148 : w >= 420 ? 120 : w >= 300 ? 98 : 84);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const groups = useMemo(() => ["全部", ...(init?.groups || [])], [init]);
   const cats = useMemo(() => {
@@ -273,8 +287,9 @@ export default function LibraryView({
             </span>
           </div>
 
-          {/* 卡片网格（原生滚动：移出区清除 hover，滚底加载更多） */}
+          {/* 卡片网格（原生滚动：移出区清除 hover，滚底加载更多，宽度自适应列宽） */}
           <div
+            ref={gridRef}
             className="min-h-0 flex-1 overflow-y-auto"
             onMouseLeave={() => setHoverImg(null)}
             onScroll={(e) => {
@@ -300,7 +315,10 @@ export default function LibraryView({
                   </p>
                 </div>
               ) : (
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2 p-2.5">
+                <div
+                  className="grid gap-2 p-2.5"
+                  style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${gridMin}px, 1fr))` }}
+                >
                   {items.map((item) => (
                     <ItemCard
                       key={item.id}

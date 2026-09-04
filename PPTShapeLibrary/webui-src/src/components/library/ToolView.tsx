@@ -40,31 +40,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-/** 拉取当前演示文稿用到的字体列表（无文稿/失败时为空数组并给出提示文案） */
-function useDocFonts() {
-  const [fonts, setFonts] = useState<string[]>([]);
-  const [noDoc, setNoDoc] = useState(false);
-  const refresh = () => {
-    bridge
-      .toolGetFonts()
-      .then((d) => {
-        setFonts((d.fonts as string[]) || []);
-        setNoDoc(!d.hasPresentation);
-      })
-      .catch(() => {
-        setFonts([]);
-        setNoDoc(true);
-      });
-  };
-  useEffect(() => {
-    refresh();
-  }, []);
-  return { fonts, noDoc, refresh };
-}
-
-/** 字体下拉选择器：文档字体 + 可输入自定义(combobox 简化: 下拉含文档字体与常用字体) */
-const COMMON_FONTS = ["微软雅黑", "微软雅黑 Light", "宋体", "黑体", "楷体", "仿宋", "Arial", "Arial Black", "Calibri", "Times New Roman", "Consolas", "Segoe UI"];
-
 /** HTML 颜色 #RRGGBB → PowerPoint RGB int(BGR 字节序) */
 function toBgr(hex: string): number {
   const n = parseInt(hex.replace("#", ""), 16) || 0;
@@ -74,49 +49,100 @@ function toBgr(hex: string): number {
   return (b << 16) | (g << 8) | r;
 }
 
+/** 拉取字体数据：docFonts=文稿字体, systemFonts=系统全部字体 */
+function useFontData() {
+  const [docFonts, setDocFonts] = useState<string[]>([]);
+  const [systemFonts, setSystemFonts] = useState<string[]>([]);
+  const [noDoc, setNoDoc] = useState(false);
+  const refresh = () => {
+    bridge
+      .toolGetFonts()
+      .then((d) => {
+        setDocFonts((d.fonts as string[]) || []);
+        setSystemFonts((d.systemFonts as string[]) || []);
+        setNoDoc(!d.hasPresentation);
+      })
+      .catch(() => {
+        setDocFonts([]);
+        setSystemFonts([]);
+        setNoDoc(true);
+      });
+  };
+  useEffect(() => {
+    refresh();
+  }, []);
+  return { docFonts, systemFonts, noDoc, refresh };
+}
+
+/** 字体下拉选择器：文档字体优先 + 系统全部字体（可输入过滤），含预览样式 */
 function FontPicker({
   value,
   onChange,
   docFonts,
+  systemFonts,
   placeholder,
-  allowCustom = true,
 }: {
   value: string;
   onChange: (v: string) => void;
   docFonts: string[];
+  systemFonts: string[];
   placeholder?: string;
-  allowCustom?: boolean;
 }) {
-  const all = Array.from(new Set([...docFonts, ...COMMON_FONTS]));
-  // 当前值若在选项中则高亮，否则视为"自定义"
-  const selValue = all.includes(value) ? value : "__none__";
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const allFonts = Array.from(new Set([...(docFonts || []), ...(systemFonts || [])])).sort((a, b) => a.localeCompare(b, "zh"));
+  const kw = q.trim().toLowerCase();
+  const filtered = allFonts.filter((f) => f.toLowerCase().includes(kw)).slice(0, 80);
   return (
-    <div className="flex gap-1.5">
-      <Select value={selValue} onValueChange={onChange}>
-        <SelectTrigger className="min-w-0 flex-1">
-          <SelectValue placeholder={placeholder || "选择字体…"} />
-        </SelectTrigger>
-        <SelectContent className="max-h-56">
-          {docFonts.length > 0 &&
-            docFonts.map((f) => (
-              <SelectItem key={"d" + f} value={f}>{f}</SelectItem>
-            ))}
-          {docFonts.length > 0 && <div className="px-2 py-1 text-[10px] text-muted-foreground">—— 常用 ——</div>}
-          {COMMON_FONTS.filter((f) => !docFonts.includes(f)).map((f) => (
-            <SelectItem key={"c" + f} value={f}>{f}</SelectItem>
-          ))}
-          <SelectItem value="__none__" className="hidden" aria-hidden>
-            {value || "（自定义）"}
-          </SelectItem>
-        </SelectContent>
-      </Select>
-      {allowCustom && (
-        <Input
-          className="h-8 w-32"
-          placeholder="自定义…"
-          value={all.includes(value) ? "" : value}
-          onChange={(e) => onChange(e.target.value)}
-        />
+    <div className="relative">
+      {/* 触发区：显示当前值 */}
+      <button
+        type="button"
+        className="flex h-8 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 text-sm shadow-sm transition-colors hover:bg-accent"
+        onClick={() => { setQ(""); setOpen((o) => !o); }}
+      >
+        <span className="truncate" style={value ? { fontFamily: value } : undefined}>
+          {value || placeholder || "选择字体…"}
+        </span>
+        <span className="ml-2 shrink-0 text-muted-foreground">▾</span>
+      </button>
+      {open && (
+        <>
+          {/* 点击外部关闭 */}
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover text-popover-foreground shadow-md">
+            <input
+              autoFocus
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="搜索字体…"
+              className="w-full border-b bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground"
+            />
+            <div className="max-h-56 overflow-y-auto p-1">
+              {filtered.length === 0 && (
+                <div className="px-2 py-3 text-center text-xs text-muted-foreground">
+                  {q ? "无匹配字体" : "加载字体中或系统字体为空"}
+                </div>
+              )}
+              {filtered.map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  className={
+                    "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent " +
+                    (f === value ? "bg-accent text-accent-foreground" : "")
+                  }
+                  onClick={() => { onChange(f); setOpen(false); }}
+                >
+                  <span className="truncate" style={{ fontFamily: f }}>{f}</span>
+                  {docFonts.includes(f) && (
+                    <span className="ml-auto shrink-0 rounded bg-muted px-1 text-[9px] text-muted-foreground">文稿</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
@@ -268,7 +294,7 @@ function useRun() {
 /** tool1 文字样式 */
 function Tool1() {
   const { out, run } = useRun();
-  const { fonts, noDoc, refresh } = useDocFonts();
+  const { docFonts, systemFonts, noDoc, refresh } = useFontData();
   const [scope, setScope] = useState("all");
   const [font, setFont] = useState("");
   const [size, setSize] = useState("");
@@ -304,7 +330,7 @@ function Tool1() {
         </Select>
       </Field>
       <Field label="字体（留空不改）">
-        <FontPicker value={font} onChange={setFont} docFonts={fonts} allowCustom placeholder="选择字体…" />
+        <FontPicker value={font} onChange={setFont} docFonts={docFonts} systemFonts={systemFonts} placeholder="选择字体…" />
       </Field>
       <div className="grid grid-cols-2 gap-2">
         <Field label="字号">
@@ -352,18 +378,18 @@ function Tool1() {
 /** tool2 一键换字体 */
 function Tool2() {
   const { out, run } = useRun();
-  const { fonts, noDoc, refresh } = useDocFonts();
+  const { docFonts, systemFonts, noDoc, refresh } = useFontData();
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("微软雅黑");
   const [all, setAll] = useState(true);
   return (
-    <Shell title="一键换字体" desc="把文档中的原字体替换为新字体（原字体从下方文档字体中选择）">
-      {noDoc && <p className="rounded-md bg-muted px-2 py-1.5 text-xs text-muted-foreground">请先打开演示文稿，以便列出其中用到的字体。</p>}
+    <Shell title="一键换字体" desc="把文档中某种字体统一替换为另一字体">
+      {noDoc && <p className="rounded-md bg-muted px-2 py-1.5 text-xs text-muted-foreground">未检测到打开的演示文稿——字体列表已含系统全部字体，可直接选用。</p>}
       <Field label="原字体（要替换掉的）">
-        <FontPicker value={from} onChange={setFrom} docFonts={fonts} allowCustom placeholder="从文档字体中选择…" />
+        <FontPicker value={from} onChange={setFrom} docFonts={docFonts} systemFonts={systemFonts} placeholder="选择/搜索原字体…" />
       </Field>
       <Field label="新字体（替换为）">
-        <FontPicker value={to} onChange={setTo} docFonts={fonts} allowCustom placeholder="选择新字体…" />
+        <FontPicker value={to} onChange={setTo} docFonts={docFonts} systemFonts={systemFonts} placeholder="选择/搜索新字体…" />
       </Field>
       <div className="flex items-center gap-2">
         <Checkbox id="t2all" checked={all} onCheckedChange={(v) => setAll(!!v)} />

@@ -282,9 +282,26 @@ namespace PPTShapeLibrary
                     // ---------------- PPT 工具（Web 工具页） ----------------
                     case "toolGetFonts":
                         {
+                            var sysFonts = new List<string>();
+                            try
+                            {
+                                using (var fc = new System.Drawing.Text.InstalledFontCollection())
+                                {
+                                    foreach (var fam in fc.Families)
+                                    {
+                                        string n = fam.Name;
+                                        // 排除图标字体与样式后缀（如 "Segoe UI Semibold"），保留主族名
+                                        if (n.Contains("Material") || n.Contains("Symbols")) continue;
+                                        if (!sysFonts.Contains(n)) sysFonts.Add(n);
+                                    }
+                                }
+                            }
+                            catch { }
+                            sysFonts.Sort(StringComparer.OrdinalIgnoreCase);
                             Ok(reqId, new Dictionary<string, object>
                             {
                                 { "fonts", TextToolService.GetDocumentFonts() },
+                                { "systemFonts", sysFonts },
                                 { "hasPresentation", TextToolService.HasPresentation() }
                             });
                             break;
