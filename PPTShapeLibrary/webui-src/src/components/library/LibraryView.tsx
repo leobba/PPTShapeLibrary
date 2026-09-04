@@ -160,6 +160,20 @@ export default function LibraryView({
             onChange={(e) => lib.setFilter(e.target.value)}
           />
         </div>
+        <Select
+          value={lib.tag || "__all__"}
+          onValueChange={(v) => lib.setTag(v === "__all__" ? "" : v)}
+        >
+          <SelectTrigger className="h-7 w-24 text-xs">
+            <SelectValue placeholder="标签" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">全部标签</SelectItem>
+            {(init?.tags as string[])?.map((t) => (
+              <SelectItem key={t} value={t}>{t}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Select value={lib.sort} onValueChange={(v) => lib.setSort(v as any)}>
           <SelectTrigger className="h-7 w-28 text-xs">
             <SelectValue />
@@ -312,6 +326,43 @@ export default function LibraryView({
             </span>
           </div>
 
+          {/* 最近使用横条（仅"全部"且无任何筛选时显示全局最近使用 Top6） */}
+          {init?.recentTop &&
+            (init.recentTop as any[]).length > 0 &&
+            lib.group === "全部" &&
+            lib.category === "全部" &&
+            lib.kind === "全部" &&
+            !lib.filter &&
+            !lib.tag && (
+              <div className="flex items-center gap-2 overflow-x-auto border-b bg-card/30 px-3 py-2">
+                <span className="shrink-0 text-[11px] font-medium text-muted-foreground">最近使用</span>
+                <div className="flex shrink-0 gap-2">
+                  {(init.recentTop as any[]).map((r: any) => (
+                    <button
+                      key={r.id}
+                      className="group w-16 shrink-0 text-left"
+                      title={r.name}
+                      onClick={() =>
+                        (r.kind === "Style" ? bridge.applyStyle(r.id) : bridge.insert(r.id))
+                          .then(() => lib.reload(true))
+                          .catch((e: Error) => showToast(e.message || "操作失败"))
+                      }
+                    >
+                      <div className="aspect-square w-full overflow-hidden rounded-md border bg-muted/40">
+                        <img
+                          src={r.previewUrl}
+                          alt={r.name}
+                          loading="lazy"
+                          className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                        />
+                      </div>
+                      <p className="truncate text-[9px] text-muted-foreground">{r.name}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
           {/* 卡片网格（原生滚动：移出区清除 hover，滚底加载更多，宽度自适应列宽） */}
           <div
             ref={gridRef}
@@ -354,7 +405,17 @@ export default function LibraryView({
                   className="grid gap-2 p-2.5"
                   style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${gridMin}px, 1fr))` }}
                 >
-                  {items.map((item) => (
+                  {items.map((item) => {
+                    // 最近使用横条显示时，网格内不重复展示同 id 卡片
+                    const inRecent =
+                      lib.group === "全部" &&
+                      lib.category === "全部" &&
+                      lib.kind === "全部" &&
+                      !lib.filter &&
+                      !lib.tag &&
+                      (init?.recentTop as any[])?.some((r: any) => r.id === item.id);
+                    if (inRecent) return null;
+                    return (
                     <ItemCard
                       key={item.id}
                       item={item}
@@ -365,13 +426,17 @@ export default function LibraryView({
                       onInsert={() =>
                         bridge
                           .insert(item.id)
-                          .then(() => lib.reload(true))
+                          .then(() => {
+                            showToast("✓ 已插入到当前页");
+                            lib.reload(true);
+                          })
                           .catch((e: Error) => showToast(e.message || "插入失败"))
                       }
                       onApplyStyle={() => applyStyleWithFeedback(item.id)}
                       onChanged={() => lib.refreshMeta()}
                     />
-                  ))}
+                    );
+                  })}
                   {lib.loading &&
                     items.length === 0 &&
                     Array.from({ length: 8 }).map((_, i) => (
@@ -400,6 +465,50 @@ export default function LibraryView({
             onClick={() => lib.clearSelection()}
           >
             取消
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => {
+              const c = prompt("输入二级分类（已有或新分类）：", lib.category !== "全部" ? lib.category : "");
+              if (c?.trim()) {
+                const ids = Array.from(selected);
+                bridge
+                  .batchMove(ids, c.trim())
+                  .then(() => {
+                    lib.clearSelection();
+                    lib.reload(true);
+                    showToast("已移动 " + ids.length + " 项到「" + c.trim() + "」");
+                  })
+                  .catch((e: Error) => showToast(e.message || "移动失败"));
+              }
+            }}
+          >
+            移动分类…
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => {
+              const g = prompt("输入一级分组（已有或新分组）：", lib.group !== "全部" ? lib.group : "");
+              if (g?.trim()) {
+                const ids = Array.from(selected);
+                bridge
+                  .createGroup(g.trim())
+                  .then(() => bridge.batchMoveGroup(ids, g.trim()))
+                  .then(() => {
+                    lib.clearSelection();
+                    lib.reload(true);
+                    lib.refreshMeta();
+                    showToast("已移动 " + ids.length + " 项到「" + g.trim() + "」");
+                  })
+                  .catch((e: Error) => showToast(e.message || "移动失败"));
+              }
+            }}
+          >
+            移动分组…
           </Button>
           <Button
             variant="destructive"
