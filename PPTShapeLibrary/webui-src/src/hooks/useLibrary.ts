@@ -120,6 +120,9 @@ export function useLibrary() {
     toggleSelect,
     clearSelection,
     reload,
+    loadMore: () => {
+      if (!loading && page.current < filteredTotal) reload(false);
+    },
     refreshMeta: () => bridge.init().then(setInit).catch(() => {}),
   };
 }

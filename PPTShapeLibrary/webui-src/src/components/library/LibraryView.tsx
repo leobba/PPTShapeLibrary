@@ -72,7 +72,8 @@ export default function LibraryView({
   setTheme: (t: string) => void;
 }) {
   const lib = useLibrary();
-  const { init, items, selected } = lib;
+  const { init, items, selected, loadMore } = lib;
+  const selCount = selected.size;
   const [preview, setPreview] = useState<ListItem | null>(null);
   const [hoverImg, setHoverImg] = useState<string | null>(null);
   const [showTrash, setShowTrash] = useState(false);
@@ -230,41 +231,68 @@ export default function LibraryView({
             </span>
           </div>
 
-          {/* 卡片网格 */}
-          <ScrollArea className="min-h-0 flex-1">
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2 p-2.5">
-              {items.map((item) => (
-                <ItemCard
-                  key={item.id}
-                  item={item}
-                  selected={selected.has(item.id)}
-                  onToggle={() => lib.toggleSelect(item.id)}
-                  onPreview={() => setPreview(item)}
-                  onHover={setHoverImg}
-                  onInsert={() => bridge.insert(item.id).then(() => lib.reload(true))}
-                  onChanged={() => lib.refreshMeta()}
-                />
-              ))}
-              {lib.loading &&
-                items.length === 0 &&
-                Array.from({ length: 8 }).map((_, i) => (
-                  <div key={i} className="flex flex-col gap-1.5">
-                    <Skeleton className="aspect-[1/.92] w-full rounded-lg" />
-                    <Skeleton className="h-3 w-3/4" />
-                  </div>
+          {/* 卡片网格（移出网格区清除 hover 预览） */}
+          <div className="min-h-0 flex-1" onMouseLeave={() => setHoverImg(null)}>
+            <ScrollArea className="h-full">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2 p-2.5">
+                {items.map((item) => (
+                  <ItemCard
+                    key={item.id}
+                    item={item}
+                    selected={selected.has(item.id)}
+                    onToggle={() => lib.toggleSelect(item.id)}
+                    onPreview={() => setPreview(item)}
+                    onHover={setHoverImg}
+                    onInsert={() => bridge.insert(item.id).then(() => lib.reload(true))}
+                    onChanged={() => lib.refreshMeta()}
+                  />
                 ))}
-            </div>
-          </ScrollArea>
+                {lib.loading &&
+                  items.length === 0 &&
+                  Array.from({ length: 8 }).map((_, i) => (
+                    <div key={i} className="flex flex-col gap-1.5">
+                      <Skeleton className="aspect-[1/.92] w-full rounded-lg" />
+                      <Skeleton className="h-3 w-3/4" />
+                    </div>
+                  ))}
+              </div>
+            </ScrollArea>
+          </div>
 
-          {/* hover 大图预览（图片查看器式） */}
-          {hoverImg && (
-            <HoverLens
-              src={hoverImg}
-              onLeave={() => setHoverImg(null)}
-            />
-          )}
+          {/* hover 大图预览（图片查看器式，纯展示不拦截事件） */}
+          {hoverImg && <HoverLens src={hoverImg} />}
         </div>
       </div>
+
+      {/* 批量操作浮条 */}
+      {selCount > 0 && (
+        <div className="fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-xl border bg-popover px-3 py-2 shadow-xl">
+          <span className="text-xs font-medium">已选 {selCount} 项</span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => lib.clearSelection()}
+          >
+            取消
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => {
+              const ids = Array.from(selected);
+              if (confirm("将选中的 " + ids.length + " 项移入回收站？"))
+                bridge.del(ids).then(() => {
+                  lib.clearSelection();
+                  lib.reload(true);
+                });
+            }}
+          >
+            移入回收站
+          </Button>
+        </div>
+      )}
 
       {/* 大图 Dialog（lightbox） */}
       <Dialog open={!!preview} onOpenChange={(o) => !o && setPreview(null)}>
@@ -425,12 +453,9 @@ function ItemCard({
 }
 
 /** hover 放大预览 */
-function HoverLens({ src, onLeave }: { src: string; onLeave: () => void }) {
+function HoverLens({ src }: { src: string }) {
   return (
-    <div
-      className="pointer-events-none fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/45 p-6 backdrop-blur-[2px]"
-      onMouseLeave={onLeave}
-    >
+    <div className="pointer-events-none fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/45 p-6 backdrop-blur-[2px]">
       <div className="flex max-h-[74%] max-w-[min(560px,92%)] items-center justify-center overflow-hidden rounded-xl bg-muted/80 p-2 shadow-2xl">
         <img src={src} alt="" className="max-h-[70vh] w-auto rounded object-contain" />
       </div>
