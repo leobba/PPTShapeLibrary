@@ -58,31 +58,36 @@ namespace PPTShapeLibrary
 
             // ---- 收藏组（彩色自绘图标）----
             this.btnCollectShapes.Label = "收藏形状";
-            this.btnCollectShapes.ShowImage = false;
+            this.btnCollectShapes.ShowImage = true;
+            this.btnCollectShapes.Image = RibbonIconFactory.GetActionGlyph(RibbonIconFactory.CollectShapesIcon, "CollectShapes");
             this.btnCollectShapes.ScreenTip = "收藏选中形状";
             this.btnCollectShapes.SuperTip = "把当前选中的形状（含组合）整组存入本地收藏库，稍后可一键插入当前页。";
             this.btnCollectShapes.Click += OnCollectShapes;
 
             this.btnCollectPage.Label = "收藏整页";
-            this.btnCollectPage.ShowImage = false;
+            this.btnCollectPage.ShowImage = true;
+            this.btnCollectPage.Image = RibbonIconFactory.GetActionGlyph(RibbonIconFactory.CollectPageIcon, "CollectPage");
             this.btnCollectPage.ScreenTip = "收藏整页形状";
             this.btnCollectPage.SuperTip = "把当前页面的全部形状打包为一个收藏。";
             this.btnCollectPage.Click += OnCollectPage;
 
             this.btnCollectStyle.Label = "收藏样式";
-            this.btnCollectStyle.ShowImage = false;
+            this.btnCollectStyle.ShowImage = true;
+            this.btnCollectStyle.Image = RibbonIconFactory.GetActionGlyph(RibbonIconFactory.CollectStyleIcon, "CollectStyle");
             this.btnCollectStyle.ScreenTip = "收藏选中形状的样式";
             this.btnCollectStyle.SuperTip = "保存填充、线条、阴影、三维、文字等样式属性，之后可应用到任意形状。";
             this.btnCollectStyle.Click += OnCollectStyle;
 
             this.btnCollectClipboard.Label = "收藏剪贴板";
-            this.btnCollectClipboard.ShowImage = false;
+            this.btnCollectClipboard.ShowImage = true;
+            this.btnCollectClipboard.Image = RibbonIconFactory.GetActionGlyph(RibbonIconFactory.CollectClipboardIcon, "CollectClipboard");
             this.btnCollectClipboard.ScreenTip = "收藏剪贴板内容";
             this.btnCollectClipboard.SuperTip = "不要求预选形状：把当前剪贴板中的形状/图片整组收藏入库（先复制再点此按钮）。";
             this.btnCollectClipboard.Click += OnCollectClipboard;
 
             this.btnCollectAllSlides.Label = "收藏整稿";
-            this.btnCollectAllSlides.ShowImage = false;
+            this.btnCollectAllSlides.ShowImage = true;
+            this.btnCollectAllSlides.Image = RibbonIconFactory.GetActionGlyph(RibbonIconFactory.CollectAllSlidesIcon, "CollectAllSlides");
             this.btnCollectAllSlides.ScreenTip = "批量收藏整份演示文稿";
             this.btnCollectAllSlides.SuperTip = "把每页的所有形状打包收藏（自动命名第 N 页，跳过占位符）。";
             this.btnCollectAllSlides.Click += OnCollectAllSlides;
@@ -96,25 +101,29 @@ namespace PPTShapeLibrary
 
             // ---- 素材库组 ----
             this.btnOpenPane.Label = "打开素材库";
-            this.btnOpenPane.ShowImage = false;
+            this.btnOpenPane.ShowImage = true;
+            this.btnOpenPane.Image = RibbonIconFactory.GetActionGlyph(RibbonIconFactory.OpenPaneIcon, "OpenPane");
             this.btnOpenPane.ScreenTip = "显示/隐藏素材库面板";
             this.btnOpenPane.SuperTip = "在右侧打开素材库：单击卡片插入/应用，右键管理。";
             this.btnOpenPane.Click += OnOpenPane;
 
             this.btnBackup.Label = "导出备份";
-            this.btnBackup.ShowImage = false;
+            this.btnBackup.ShowImage = true;
+            this.btnBackup.Image = RibbonIconFactory.GetActionGlyph(RibbonIconFactory.BackupIcon, "Backup");
             this.btnBackup.ScreenTip = "导出收藏备份";
             this.btnBackup.SuperTip = "把全部收藏打包为 zip 备份文件（可跨电脑恢复）。";
             this.btnBackup.Click += OnBackup;
 
             this.btnRestore.Label = "导入备份";
-            this.btnRestore.ShowImage = false;
+            this.btnRestore.ShowImage = true;
+            this.btnRestore.Image = RibbonIconFactory.GetActionGlyph(RibbonIconFactory.RestoreIcon, "Restore");
             this.btnRestore.ScreenTip = "导入收藏备份";
             this.btnRestore.SuperTip = "从 zip 备份文件恢复收藏库。";
             this.btnRestore.Click += OnRestore;
 
             this.btnExportPptx.Label = "导出PPTX";
-            this.btnExportPptx.ShowImage = false;
+            this.btnExportPptx.ShowImage = true;
+            this.btnExportPptx.Image = RibbonIconFactory.GetActionGlyph(RibbonIconFactory.ExportPptxIcon, "ExportPptx");
             this.btnExportPptx.ScreenTip = "导出为 PPTX";
             this.btnExportPptx.SuperTip = "把收藏库导出为 PowerPoint 文件（每页一个收藏），方便分享。";
             this.btnExportPptx.Click += OnExportPptx;
@@ -151,7 +160,7 @@ namespace PPTShapeLibrary
                 b.Label = label;
                 b.ScreenTip = label;
                 b.SuperTip = "打开「" + label + "」工具窗口。";
-                b.ShowImage = false;
+                b.ShowImage = true;
                 try
                 {
                     Image icon = RibbonIconFactory.GetActionGlyph(iconName, "Tool" + (ti + 1), 32);
@@ -167,7 +176,7 @@ namespace PPTShapeLibrary
             }
 
             this.btnSettings.Label = "设置";
-            this.btnSettings.ShowImage = false;
+            this.btnSettings.ShowImage = true;
             try
             {
                 Image setIcon = RibbonIconFactory.GetActionGlyph(RibbonIconFactory.SettingsIcon, "Settings", 32);
@@ -179,7 +188,8 @@ namespace PPTShapeLibrary
             this.btnSettings.Click += OnSettings;
 
             this.btnAdvancedTools.Label = "高级批处理";
-            this.btnAdvancedTools.ShowImage = false;
+            this.btnAdvancedTools.ShowImage = true;
+            this.btnAdvancedTools.Image = RibbonIconFactory.GetActionGlyph(RibbonIconFactory.AdvancedIcon, "Advanced");
             this.btnAdvancedTools.ScreenTip = "高级批处理（工具集）";
             this.btnAdvancedTools.SuperTip = "整稿导出/瘦身/统一尺寸/图片网格等批处理工具集。";
             this.btnAdvancedTools.Click += OnAdvancedTools;

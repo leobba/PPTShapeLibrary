@@ -166,6 +166,15 @@
     </Content>
   </ItemGroup>
   <ItemGroup>
+    <!-- Ribbon 图标字体：只打包主字体 MaterialIcons-Regular(约 350KB)，不打包 10.6MB 的 MaterialSymbols 备用字体（减小安装体积） -->
+    <Content Include="RibbonFonts\MaterialIcons-Regular.ttf">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="RibbonFonts\MaterialIcons-Regular.codepoints">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
     <None Include="PPTShapeLibrary_TemporaryKey.pfx" />
   </ItemGroup>
   <PropertyGroup>
