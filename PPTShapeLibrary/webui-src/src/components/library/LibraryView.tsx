@@ -38,6 +38,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Folder,
   Search,
   Moon,
@@ -79,6 +89,7 @@ export default function LibraryView({
   const [showTrash, setShowTrash] = useState(false);
   const [showGroups, setShowGroups] = useState(false);
   const [showTags, setShowTags] = useState(false);
+  const [trashConfirmIds, setTrashConfirmIds] = useState<string[] | null>(null);
 
   const groups = useMemo(() => ["全部", ...(init?.groups || [])], [init]);
   const cats = useMemo(() => {
@@ -335,14 +346,7 @@ export default function LibraryView({
             variant="destructive"
             size="sm"
             className="h-7 text-xs"
-            onClick={() => {
-              const ids = Array.from(selected);
-              if (confirm("将选中的 " + ids.length + " 项移入回收站？"))
-                bridge.del(ids).then(() => {
-                  lib.clearSelection();
-                  lib.reload(true);
-                });
-            }}
+            onClick={() => setTrashConfirmIds(Array.from(selected))}
           >
             移入回收站
           </Button>
@@ -413,6 +417,33 @@ export default function LibraryView({
           }}
         />
       )}
+      <AlertDialog
+        open={trashConfirmIds !== null}
+        onOpenChange={(o) => !o && setTrashConfirmIds(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>移入回收站？</AlertDialogTitle>
+            <AlertDialogDescription>
+              将选中的 {trashConfirmIds?.length || 0} 项移入回收站。可稍后在「回收站」恢复。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (trashConfirmIds)
+                  bridge.del(trashConfirmIds).then(() => {
+                    lib.clearSelection();
+                    lib.reload(true);
+                  });
+              }}
+            >
+              移入回收站
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
