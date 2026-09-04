@@ -12,6 +12,9 @@ namespace PPTShapeLibrary
     /// </summary>
     public class BridgeController
     {
+        /// <summary>设置被保存时触发（任意宿主）；ThisAddIn 订阅后即时应用 paneWidth 等需要宿主动作的项。</summary>
+        public static event Action<Settings> SettingsSaved;
+
         private readonly CoreWebView2 _core;
         private readonly JavaScriptSerializer _json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
 
@@ -770,7 +773,9 @@ namespace PPTShapeLibrary
                 ShapeLibraryService.SaveSettings(s);
             }
             var result = SettingsDict(ShapeLibraryService.LoadSettings());
-            PushSettingsChanged(ShapeLibraryService.LoadSettings());
+            var saved = ShapeLibraryService.LoadSettings();
+            PushSettingsChanged(saved);
+            try { SettingsSaved?.Invoke(saved); } catch { }
             return result;
         }
 

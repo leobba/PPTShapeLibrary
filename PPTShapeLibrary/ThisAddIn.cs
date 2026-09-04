@@ -19,6 +19,7 @@ namespace PPTShapeLibrary
             {
                 Log.Write("Startup begin");
                 HookAppEvents();
+                BridgeController.SettingsSaved += OnSettingsSaved;
                 CreatePane();
                 Log.Write("TaskPane created");
                 _taskPane = this.CustomTaskPanes.Add(_paneHost, "素材库");
@@ -57,9 +58,26 @@ namespace PPTShapeLibrary
         {
             try
             {
+                BridgeController.SettingsSaved -= OnSettingsSaved;
                 if (_refreshDebounce != null) { _refreshDebounce.Stop(); _refreshDebounce.Dispose(); _refreshDebounce = null; }
             }
             catch { }
+        }
+
+        /// <summary>设置保存后即时应用需要宿主配合的项（如任务窗格宽度）。</summary>
+        private void OnSettingsSaved(Settings s)
+        {
+            try
+            {
+                if (_taskPane != null && s.PaneWidth >= 200)
+                {
+                    _taskPane.Width = s.PaneWidth;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "OnSettingsSaved");
+            }
         }
 
         /// <summary>订阅演示文稿生命周期事件：打开/关闭/新建/激活/停用任一演示文稿时防抖刷新素材库。</summary>
