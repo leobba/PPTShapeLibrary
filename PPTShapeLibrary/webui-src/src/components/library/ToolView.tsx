@@ -287,15 +287,21 @@ function ToolBody({
 
 function useRun() {
   const [out, setOut] = useState("");
+  const [running, setRunning] = useState(false);
   async function run(action: () => Promise<any>) {
+    if (running) return; // 防重复点击
+    setRunning(true);
+    setOut("处理中…请稍候");
     try {
       const d = await action();
       setOut(d?.message || "完成");
     } catch (e: any) {
       setOut("失败：" + (e?.message || e));
+    } finally {
+      setRunning(false);
     }
   }
-  return { out, run };
+  return { out, run, running };
 }
 
 /** tool1 文字样式 */
