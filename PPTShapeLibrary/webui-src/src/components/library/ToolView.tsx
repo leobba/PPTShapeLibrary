@@ -40,6 +40,88 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+/** 拉取当前演示文稿用到的字体列表（无文稿/失败时为空数组并给出提示文案） */
+function useDocFonts() {
+  const [fonts, setFonts] = useState<string[]>([]);
+  const [noDoc, setNoDoc] = useState(false);
+  const refresh = () => {
+    bridge
+      .toolGetFonts()
+      .then((d) => {
+        setFonts((d.fonts as string[]) || []);
+        setNoDoc(!d.hasPresentation);
+      })
+      .catch(() => {
+        setFonts([]);
+        setNoDoc(true);
+      });
+  };
+  useEffect(() => {
+    refresh();
+  }, []);
+  return { fonts, noDoc, refresh };
+}
+
+/** 字体下拉选择器：文档字体 + 可输入自定义(combobox 简化: 下拉含文档字体与常用字体) */
+const COMMON_FONTS = ["微软雅黑", "微软雅黑 Light", "宋体", "黑体", "楷体", "仿宋", "Arial", "Arial Black", "Calibri", "Times New Roman", "Consolas", "Segoe UI"];
+
+/** HTML 颜色 #RRGGBB → PowerPoint RGB int(BGR 字节序) */
+function toBgr(hex: string): number {
+  const n = parseInt(hex.replace("#", ""), 16) || 0;
+  const r = n & 0xff;
+  const g = (n >> 8) & 0xff;
+  const b = (n >> 16) & 0xff;
+  return (b << 16) | (g << 8) | r;
+}
+
+function FontPicker({
+  value,
+  onChange,
+  docFonts,
+  placeholder,
+  allowCustom = true,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  docFonts: string[];
+  placeholder?: string;
+  allowCustom?: boolean;
+}) {
+  const all = Array.from(new Set([...docFonts, ...COMMON_FONTS]));
+  // 当前值若在选项中则高亮，否则视为"自定义"
+  const selValue = all.includes(value) ? value : "__none__";
+  return (
+    <div className="flex gap-1.5">
+      <Select value={selValue} onValueChange={onChange}>
+        <SelectTrigger className="min-w-0 flex-1">
+          <SelectValue placeholder={placeholder || "选择字体…"} />
+        </SelectTrigger>
+        <SelectContent className="max-h-56">
+          {docFonts.length > 0 &&
+            docFonts.map((f) => (
+              <SelectItem key={"d" + f} value={f}>{f}</SelectItem>
+            ))}
+          {docFonts.length > 0 && <div className="px-2 py-1 text-[10px] text-muted-foreground">—— 常用 ——</div>}
+          {COMMON_FONTS.filter((f) => !docFonts.includes(f)).map((f) => (
+            <SelectItem key={"c" + f} value={f}>{f}</SelectItem>
+          ))}
+          <SelectItem value="__none__" className="hidden" aria-hidden>
+            {value || "（自定义）"}
+          </SelectItem>
+        </SelectContent>
+      </Select>
+      {allowCustom && (
+        <Input
+          className="h-8 w-32"
+          placeholder="自定义…"
+          value={all.includes(value) ? "" : value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      )}
+    </div>
+  );
+}
+
 /** 小工具壳：统一 Card + 结果行 */
 function Shell({ title, desc, children }: { title: string; desc: string; children: React.ReactNode }) {
   return (
@@ -183,13 +265,34 @@ function useRun() {
 }
 
 /** tool1 文字样式 */
+/** tool1 文字样式 */
 function Tool1() {
   const { out, run } = useRun();
+  const { fonts, noDoc, refresh } = useDocFonts();
   const [scope, setScope] = useState("all");
   const [font, setFont] = useState("");
   const [size, setSize] = useState("");
+  const [bold, setBold] = useState(false);
+  const [italic, setItalic] = useState(false);
+  const [align, setAlign] = useState("keep");
+  const [color, setColor] = useState("");
+  const selColor = color ? color : "";
+  const apply = () =>
+    run(() =>
+      bridge.applyTextStyle({
+        scope,
+        fontName: font.trim(),
+        fontSize: parseFloat(size) || undefined,
+        bold: bold || undefined,
+        italic: italic || undefined,
+        align: align === "keep" ? undefined : align,
+        // HTML #RRGGBB → PowerPoint .Color.RGB 为 BGR 序
+        color: selColor ? toBgr(selColor) : undefined,
+      })
+    );
   return (
-    <Shell title="文字样式" desc="批量修改字体 / 字号（可只填一项）">
+    <Shell title="文字样式" desc="批量改字体/字号/粗细/对齐/颜色（留空不改）">
+      {noDoc && <p className="rounded-md bg-muted px-2 py-1.5 text-xs text-muted-foreground">请先打开演示文稿。</p>}
       <Field label="作用范围">
         <Select value={scope} onValueChange={setScope}>
           <SelectTrigger><SelectValue /></SelectTrigger>
@@ -200,9 +303,47 @@ function Tool1() {
           </SelectContent>
         </Select>
       </Field>
-      <Field label="字体名（留空不改）"><Input value={font} onChange={(e) => setFont(e.target.value)} /></Field>
-      <Field label="字号（留空不改）"><Input value={size} onChange={(e) => setSize(e.target.value)} /></Field>
-      <Button onClick={() => run(() => bridge.applyTextStyle({ scope, fontName: font.trim(), fontSize: parseFloat(size) || 0, color: 0 }))}>应用</Button>
+      <Field label="字体（留空不改）">
+        <FontPicker value={font} onChange={setFont} docFonts={fonts} allowCustom placeholder="选择字体…" />
+      </Field>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="字号">
+          <Input value={size} onChange={(e) => setSize(e.target.value)} placeholder="如 28" inputMode="decimal" />
+        </Field>
+        <Field label="对齐">
+          <Select value={align} onValueChange={setAlign}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="keep">保持原样</SelectItem>
+              <SelectItem value="left">左对齐</SelectItem>
+              <SelectItem value="center">居中</SelectItem>
+              <SelectItem value="right">右对齐</SelectItem>
+            </SelectContent>
+          </Select>
+        </Field>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="flex items-center gap-2">
+          <Checkbox id="t1b" checked={bold} onCheckedChange={(v) => setBold(!!v)} />
+          <Label htmlFor="t1b" className="text-sm">加粗</Label>
+        </div>
+        <div className="flex items-center gap-2">
+          <Checkbox id="t1i" checked={italic} onCheckedChange={(v) => setItalic(!!v)} />
+          <Label htmlFor="t1i" className="text-sm">斜体</Label>
+        </div>
+      </div>
+      <Field label="字体颜色（留空不改）">
+        <div className="flex items-center gap-2">
+          <input
+            type="color"
+            className="h-8 w-10 cursor-pointer rounded border bg-transparent p-0.5"
+            value={selColor || "#000000"}
+            onChange={(e) => setColor(e.target.value)}
+          />
+          <span className="text-xs text-muted-foreground">{selColor || "未设置（保持原色）"}</span>
+        </div>
+      </Field>
+      <Button onClick={apply}>应用</Button>
       <Result out={out} />
     </Shell>
   );
@@ -211,18 +352,30 @@ function Tool1() {
 /** tool2 一键换字体 */
 function Tool2() {
   const { out, run } = useRun();
+  const { fonts, noDoc, refresh } = useDocFonts();
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("微软雅黑");
   const [all, setAll] = useState(true);
   return (
-    <Shell title="一键换字体" desc="把文档中的原字体替换为新字体">
-      <Field label="原字体"><Input value={from} onChange={(e) => setFrom(e.target.value)} placeholder="如：宋体" /></Field>
-      <Field label="新字体"><Input value={to} onChange={(e) => setTo(e.target.value)} /></Field>
+    <Shell title="一键换字体" desc="把文档中的原字体替换为新字体（原字体从下方文档字体中选择）">
+      {noDoc && <p className="rounded-md bg-muted px-2 py-1.5 text-xs text-muted-foreground">请先打开演示文稿，以便列出其中用到的字体。</p>}
+      <Field label="原字体（要替换掉的）">
+        <FontPicker value={from} onChange={setFrom} docFonts={fonts} allowCustom placeholder="从文档字体中选择…" />
+      </Field>
+      <Field label="新字体（替换为）">
+        <FontPicker value={to} onChange={setTo} docFonts={fonts} allowCustom placeholder="选择新字体…" />
+      </Field>
       <div className="flex items-center gap-2">
         <Checkbox id="t2all" checked={all} onCheckedChange={(v) => setAll(!!v)} />
         <Label htmlFor="t2all" className="text-sm">整份演示文稿（取消则当前页）</Label>
       </div>
-      <Button onClick={() => run(() => bridge.replaceFont({ fromFont: from.trim(), toFont: to.trim(), allSlides: all }))}>开始替换</Button>
+      <Button
+        disabled={!from.trim()}
+        onClick={() => run(() => bridge.replaceFont({ fromFont: from.trim(), toFont: to.trim() || from.trim(), allSlides: all }))}
+      >
+        开始替换
+      </Button>
+      {!from.trim() && <p className="text-xs text-muted-foreground">请先选择要替换的原字体。</p>}
       <Result out={out} />
     </Shell>
   );
