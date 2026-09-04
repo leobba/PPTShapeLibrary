@@ -99,6 +99,20 @@ export default function LibraryView({
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToastMsg(null), 3000);
   };
+  // 插入后调整条（旋转/透明度/微调；作用于刚插入并已选中的形状）
+  const [showAdjust, setShowAdjust] = useState(false);
+  const adjustTimer = useRef<number | undefined>(undefined);
+  const showAdjustBar = () => {
+    setShowAdjust(true);
+    if (adjustTimer.current) window.clearTimeout(adjustTimer.current);
+    adjustTimer.current = window.setTimeout(() => setShowAdjust(false), 10000);
+  };
+  const adjust = (action: string) => {
+    bridge
+      .adjust(action)
+      .then(() => {})
+      .catch((e: Error) => showToast(e.message || "调整失败（请先选中形状）"));
+  };
   const applyStyleWithFeedback = (id: string, all?: boolean) => {
     const p = all ? bridge.applyStyleSameTypeAllSlides(id) : bridge.applyStyle(id);
     p.then(() => {
@@ -428,6 +442,7 @@ export default function LibraryView({
                           .insert(item.id)
                           .then(() => {
                             showToast("✓ 已插入到当前页");
+                            showAdjustBar(); // 显示旋转/微调浮条（刚插入已选中）
                             lib.reload(true);
                           })
                           .catch((e: Error) => showToast(e.message || "插入失败"))
@@ -453,6 +468,52 @@ export default function LibraryView({
           {hoverImg && <HoverLens src={hoverImg} />}
         </div>
       </div>
+
+      {/* 插入后调整条（作用于当前选中形状：旋转/透明度/微调；10 秒自动隐藏） */}
+      {showAdjust && selCount === 0 && (
+        <div className="fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-1 rounded-xl border bg-popover px-2 py-1.5 shadow-xl">
+          <span className="mr-1 px-1 text-[10px] text-muted-foreground">微调</span>
+          {[
+            ["↺", "rotateL", "左转 15°"],
+            ["↻", "rotateR", "右转 15°"],
+            ["◐", "opacityDown", "透明度 -"],
+            ["◑", "opacityUp", "透明度 +"],
+            ["←", "nudgeL", "左移"],
+            ["→", "nudgeR", "右移"],
+            ["↑", "nudgeU", "上移"],
+            ["↓", "nudgeD", "下移"],
+          ].map(([t, a, tip]) => (
+            <Button
+              key={a as string}
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-sm"
+              title={tip as string}
+              onClick={() => adjust(a as string)}
+            >
+              {t}
+            </Button>
+          ))}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs text-muted-foreground"
+            title="撤销上一步"
+            onClick={() => bridge.undo().catch(() => {})}
+          >
+            ↶撤销
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs text-muted-foreground"
+            title="重做"
+            onClick={() => bridge.redo().catch(() => {})}
+          >
+            ↷重做
+          </Button>
+        </div>
+      )}
 
       {/* 批量操作浮条 */}
       {selCount > 0 && (
