@@ -56,16 +56,19 @@ namespace PPTShapeLibrary
                 bool isJpg = "JPG".Equals(format, StringComparison.OrdinalIgnoreCase);
                 int w = width > 0 ? width : 0;
                 int done = 0;
+                int failed = 0;
                 for (int i = 1; i <= pres.Slides.Count; i++)
                 {
                     string file = Path.Combine(dir, "slide" + i.ToString("D2") + "." + (isJpg ? "jpg" : "png"));
                     try { pres.Slides[i].Export(file, isJpg ? "JPG" : "PNG", w, 0); done++; }
-                    catch { }
+                    catch { failed++; }
                 }
+                if (failed > 0 && done == 0)
+                    return new TextToolService.ToolResult { Ok = false, Message = "导出失败：" + failed + " 页均无法导出（请检查目录权限/格式支持）。", Changed = 0 };
                 return new TextToolService.ToolResult
                 {
                     Ok = done > 0,
-                    Message = "已导出 " + done + " 页到：" + dir,
+                    Message = "已导出 " + done + " 页到：" + dir + (failed > 0 ? "（" + failed + " 页失败）" : ""),
                     Changed = done
                 };
             }
