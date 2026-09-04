@@ -475,7 +475,7 @@ namespace PPTShapeLibrary
                         {
                             var r = FormatToolService.ImageGrid(
                                 GetStringArray(payload, "files"),
-                                Math.Max(1, ToInt(payload, "cols")),
+                                Math.Max(1, Math.Min(8, ToInt(payload, "cols"))),
                                 true == ToBoolNullable(payload, "toNewPage"));
                             Result(reqId, r.Ok, r.Ok ? new Dictionary<string, object> { { "changed", r.Changed } } : null,
                                    r.Ok ? null : r.Message);
