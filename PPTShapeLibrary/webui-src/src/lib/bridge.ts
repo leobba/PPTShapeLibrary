@@ -2,7 +2,7 @@
 let reqSeq = 0;
 const pending = new Map<string, { resolve: (d: any) => void; reject: (e: Error) => void; timer: number }>();
 const listeners: Record<string, Array<(payload: any) => void>> = {};
-const TIMEOUT = 8000;
+const TIMEOUT = 30000; // 默认请求超时 30s：首次插入/导出等 COM 冷启动可能超过 8s，过短会误报 timeout
 
 function post(msg: object): boolean {
   const wv = (window as any).chrome?.webview;

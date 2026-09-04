@@ -114,6 +114,30 @@ export default function LibraryView({
       .then(() => {})
       .catch((e: Error) => showToast(e.message || "调整失败（请先选中形状）"));
   };
+  // 插入（防连点：一次只允许一个插入在途；超时给出友好提示而非裸 timeout）
+  const insertingRef = useRef(false);
+  const insertItem = (id: string) => {
+    if (insertingRef.current) {
+      showToast("正在插入，请稍候…");
+      return;
+    }
+    insertingRef.current = true;
+    bridge
+      .insert(id)
+      .then(() => {
+        insertingRef.current = false;
+        showToast("✓ 已插入到当前页");
+        showAdjustBar();
+        lib.reload(true);
+      })
+      .catch((e: Error) => {
+        insertingRef.current = false;
+        const msg = /timeout/i.test(e.message)
+          ? "插入处理超时：若已出现在页面请勿重复点击；稍后可重试"
+          : e.message || "插入失败";
+        showToast(msg);
+      });
+  };
   const applyStyleWithFeedback = (id: string, all?: boolean) => {
     const p = all ? bridge.applyStyleSameTypeAllSlides(id) : bridge.applyStyle(id);
     p.then(() => {
@@ -376,11 +400,10 @@ export default function LibraryView({
                       key={r.id}
                       className="group w-16 shrink-0 text-left"
                       title={r.name}
-                      onClick={() =>
-                        (r.kind === "Style" ? bridge.applyStyle(r.id) : bridge.insert(r.id))
-                          .then(() => lib.reload(true))
-                          .catch((e: Error) => showToast(e.message || "操作失败"))
-                      }
+                      onClick={() => {
+                        if (r.kind === "Style") applyStyleWithFeedback(r.id);
+                        else insertItem(r.id);
+                      }}
                     >
                       <div className="aspect-square w-full overflow-hidden rounded-md border bg-muted/40">
                         <img
@@ -474,16 +497,7 @@ export default function LibraryView({
                       onToggle={() => lib.toggleSelect(item.id)}
                       onPreview={() => setPreview(item)}
                       onHover={setHoverImg}
-                      onInsert={() =>
-                        bridge
-                          .insert(item.id)
-                          .then(() => {
-                            showToast("✓ 已插入到当前页");
-                            showAdjustBar(); // 显示旋转/微调浮条（刚插入已选中）
-                            lib.reload(true);
-                          })
-                          .catch((e: Error) => showToast(e.message || "插入失败"))
-                      }
+                      onInsert={() => insertItem(item.id)}
                       onApplyStyle={() => applyStyleWithFeedback(item.id)}
                       onChanged={() => {
                         lib.refreshMeta(); // 刷新侧栏组计数/元数据

@@ -91,7 +91,11 @@ namespace PPTShapeLibrary
                     case "insert":
                         {
                             string id = ToStr(payload, "id");
+                            var sw = System.Diagnostics.Stopwatch.StartNew();
                             bool ok = ShapeExporter.InsertShape(id, false, out string insErr);   // 静默，前端 Toast；InsertShape 内部已 TouchUsed，此处不再重复计
+                            sw.Stop();
+                            if (sw.ElapsedMilliseconds > 1000)
+                                Log.Write("insert slow: " + sw.ElapsedMilliseconds + "ms id=" + id + " ok=" + ok);
                             Result(reqId, ok, ok ? new Dictionary<string, object> { { "kind", KindOf(id) } } : null,
                                    ok ? null : insErr);
                             break;
