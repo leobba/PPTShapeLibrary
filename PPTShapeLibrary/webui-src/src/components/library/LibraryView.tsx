@@ -485,7 +485,10 @@ export default function LibraryView({
                           .catch((e: Error) => showToast(e.message || "插入失败"))
                       }
                       onApplyStyle={() => applyStyleWithFeedback(item.id)}
-                      onChanged={() => lib.refreshMeta()}
+                      onChanged={() => {
+                        lib.refreshMeta(); // 刷新侧栏组计数/元数据
+                        lib.reload(true); // 重载当前列表（删除/重命名/移动后即时生效）
+                      }}
                     />
                     );
                   })}
@@ -688,6 +691,7 @@ export default function LibraryView({
           onClose={() => {
             setShowTrash(false);
             lib.refreshMeta();
+            lib.reload(true); // 回收站恢复/删除后刷新列表
           }}
         />
       )}
@@ -697,6 +701,7 @@ export default function LibraryView({
           onClose={() => {
             setShowGroups(false);
             lib.refreshMeta();
+            lib.reload(true); // 分组改名/删除后刷新
           }}
         />
       )}
@@ -705,6 +710,7 @@ export default function LibraryView({
           onClose={() => {
             setShowTags(false);
             lib.refreshMeta();
+            lib.reload(true); // 标签重命名/删除后刷新
           }}
         />
       )}
