@@ -450,6 +450,23 @@ export default function LibraryView({
                       key={item.id}
                       item={item}
                       selected={selected.has(item.id)}
+                      dragEnabled={lib.sort === "自定义"}
+                      onDropCard={(fromId, toId) => {
+                        // 自定义排序：把 from 移到 to 的位置并持久化全量顺序
+                        const ids = items.map((x) => x.id);
+                        const fi = ids.indexOf(fromId);
+                        const ti = ids.indexOf(toId);
+                        if (fi < 0 || ti < 0) return;
+                        ids.splice(fi, 1);
+                        ids.splice(ti, 0, fromId);
+                        bridge
+                          .reorder(ids)
+                          .then(() => {
+                            showToast("已保存排序");
+                            lib.reload(true);
+                          })
+                          .catch((e: Error) => showToast(e.message || "排序保存失败"));
+                      }}
                       onToggle={() => lib.toggleSelect(item.id)}
                       onPreview={() => setPreview(item)}
                       onHover={setHoverImg}
@@ -717,6 +734,8 @@ function ItemCard({
   onInsert,
   onApplyStyle,
   onChanged,
+  dragEnabled,
+  onDropCard,
 }: {
   item: ListItem;
   selected: boolean;
@@ -726,6 +745,8 @@ function ItemCard({
   onInsert: () => void;
   onApplyStyle: () => void;
   onChanged: () => void;
+  dragEnabled?: boolean;
+  onDropCard?: (fromId: string, toId: string) => void;
 }) {
   const isStyle = item.kind === "Style";
   return (
@@ -736,6 +757,24 @@ function ItemCard({
             "group relative cursor-pointer overflow-hidden rounded-lg border bg-card shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md " +
             (selected ? "border-primary ring-2 ring-primary/60" : "border-border")
           }
+          draggable={!!dragEnabled}
+          onDragStart={(e) => {
+            e.dataTransfer.setData("text/plain", item.id);
+            e.dataTransfer.effectAllowed = "move";
+          }}
+          onDragOver={(e) => {
+            if (dragEnabled) {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+            }
+          }}
+          onDrop={(e) => {
+            if (dragEnabled && onDropCard) {
+              e.preventDefault();
+              const fromId = e.dataTransfer.getData("text/plain");
+              if (fromId && fromId !== item.id) onDropCard(fromId, item.id);
+            }
+          }}
           onClick={(e) => {
             if (e.ctrlKey) {
               onToggle();
