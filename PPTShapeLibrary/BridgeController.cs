@@ -39,6 +39,13 @@ namespace PPTShapeLibrary
             Post(new Dictionary<string, object> { { "type", "refresh" }, { "payload", new object[0] } });
         }
 
+        /// <summary>写操作后广播刷新：刷新自身宿主并通知其他宿主（跨弹窗/窗格数据同步）。</summary>
+        public void BroadcastRefresh()
+        {
+            PushRefresh();
+            try { RefreshRequested?.Invoke(); } catch { }
+        }
+
         public void PushSettingsChanged(Settings s)
         {
             Post(new Dictionary<string, object> { { "type", "settingsChanged" }, { "payload", SettingsDict(s) } });
@@ -118,7 +125,7 @@ namespace PPTShapeLibrary
                         {
                             // Ribbon 直达能力；Web 侧仅转发（供“更多工具”入口复用）
                             string nid = ShapeExporter.CollectClipboard();
-                            if (nid != null) PushRefresh();
+                            if (nid != null) BroadcastRefresh();
                             Ok(reqId, nid != null
                                 ? new Dictionary<string, object> { { "id", nid } }
                                 : new Dictionary<string, object>());
@@ -127,7 +134,7 @@ namespace PPTShapeLibrary
                     case "collectAllSlides":
                         {
                             int n = ShapeExporter.CollectAllSlides();
-                            if (n > 0) PushRefresh();
+                            if (n > 0) BroadcastRefresh();
                             Result(reqId, n > 0,
                                    n > 0 ? new Dictionary<string, object> { { "collected", n } } : null,
                                    n > 0 ? null : "没有可收藏的页面（跳过空白/占位页）");
@@ -276,7 +283,7 @@ namespace PPTShapeLibrary
                             bool ok = ShapeLibraryService.RestoreTrashItem(ToStr(payload, "id"));
                             Result(reqId, ok, ok ? new Dictionary<string, object>() : null,
                                    ok ? null : "恢复失败（条目不存在或已被清除）");
-                            PushRefresh();
+                            BroadcastRefresh();
                             break;
                         }
                     case "trashPurge":
@@ -424,7 +431,7 @@ namespace PPTShapeLibrary
                                 }
                                 Ok(reqId, new Dictionary<string, object> { { "imported", n } });
                             }
-                            PushRefresh();
+                            BroadcastRefresh();
                             break;
                         }
                     case "formatExportImages":
@@ -580,7 +587,7 @@ namespace PPTShapeLibrary
                             bool ok = impErr == null;
                             Result(reqId, ok, ok ? new Dictionary<string, object> { { "imported", n }, { "conflicts", conflicts } } : null,
                                    ok ? null : impErr);
-                            PushRefresh();
+                            BroadcastRefresh();
                             break;
                         }
                     case "log":

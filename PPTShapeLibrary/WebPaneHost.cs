@@ -88,6 +88,9 @@ namespace PPTShapeLibrary
                 _bridge = new BridgeController(core);
                 _bridge.Attach();
 
+                // 跨宿主刷新：其他宿主(工具弹窗等)改了库数据时刷新本窗格列表
+                BridgeController.RefreshRequested += OnCrossRefresh;
+
                 core.NavigationCompleted += (s, e) =>
                 {
                     if (!e.IsSuccess)
@@ -136,11 +139,22 @@ namespace PPTShapeLibrary
             get { return _failed; }
         }
 
+        /// <summary>跨宿主刷新回调（其他宿主改数据后触发本窗格刷新）。</summary>
+        private void OnCrossRefresh()
+        {
+            try
+            {
+                if (_initialized && _bridge != null) _bridge.PushRefresh();
+            }
+            catch (Exception ex) { Log.Error(ex, "WebPaneHost.OnCrossRefresh"); }
+        }
+
         /// <summary>关闭前释放 WebView2 宿主（停止导航、释放底层进程与 userData 文件锁）。</summary>
         public void PrepareShutdown()
         {
             try
             {
+                BridgeController.RefreshRequested -= OnCrossRefresh;
                 if (_webView != null)
                 {
                     try { _webView.Dispose(); } catch { }
