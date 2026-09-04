@@ -533,6 +533,45 @@ export default function LibraryView({
                       ? "试试清空搜索词、切换一级分组 / 二级分类 / 类型 / 标签"
                       : "在演示文稿中选中形状，点击「素材库」选项卡里的「收藏形状」/「收藏整页」/「收藏样式」等收录素材"}
                   </p>
+                  {lib.group === "全部" &&
+                    lib.category === "全部" &&
+                    lib.kind === "全部" &&
+                    !lib.filter &&
+                    !lib.tag && (
+                      <div className="mt-2 flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={async () => {
+                            try {
+                              const d = await bridge.importPackFile();
+                              if (d.imported > 0) {
+                                lib.refreshMeta();
+                                lib.reload(true);
+                                dialogs.alert("已导入 " + (d.imported || 0) + " 个素材。");
+                              }
+                            } catch (e: any) {
+                              dialogs.alert("导入失败：" + (e?.message || e));
+                            }
+                          }}
+                        >
+                          <Download className="mr-1 size-3.5" /> 导入素材包
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            bridge.importPictures().then((d) => {
+                              lib.refreshMeta();
+                              lib.reload(true);
+                              if (d.imported > 0) dialogs.alert("已导入 " + d.imported + " 张图片到 素材 › 图片");
+                            });
+                          }}
+                        >
+                          <Upload className="mr-1 size-3.5" /> 导入图片
+                        </Button>
+                      </div>
+                    )}
                 </div>
               ) : (
                 <div
@@ -752,7 +791,9 @@ export default function LibraryView({
         {preview && (
           <DialogContent className="max-w-lg">
             <DialogHeader>
-              <DialogTitle>{preview.name}</DialogTitle>
+              <DialogTitle className="pr-8">
+                <span className="block truncate" title={preview.name}>{preview.name}</span>
+              </DialogTitle>
               <DialogDescription>
                 {preview.group || "我的"} › {preview.category} ·{" "}
                 {preview.kind === "Style" ? "样式" : "形状"}
