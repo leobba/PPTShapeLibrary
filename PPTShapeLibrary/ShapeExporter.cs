@@ -523,6 +523,18 @@ namespace PPTShapeLibrary
             catch (Exception ex)
             {
                 error = "插入失败：" + ex.Message;
+                try
+                {
+                    string viewInfo = "";
+                    try
+                    {
+                        var v = App.ActiveWindow != null ? App.ActiveWindow.View : null;
+                        viewInfo = v != null ? ("view=" + v.Type) : "no-active-window";
+                    }
+                    catch { viewInfo = "view-unknown"; }
+                    Log.Write("InsertShape failed id=" + id + " " + viewInfo + " :: " + ex.Message);
+                }
+                catch { }
                 if (showError) System.Windows.Forms.MessageBox.Show(error, "素材库");
                 return false;
             }
@@ -1391,6 +1403,20 @@ namespace PPTShapeLibrary
                 {
                     copy();
                     System.Threading.Thread.Sleep(90 * attempt);
+                    // Copy 后校验剪贴板确已写入 PowerPoint 形状数据；
+                    // 若为空（Copy 静默失败/被其他程序抢占）继续重试，避免 Paste 报 "Clipboard is empty"
+                    bool hasData = false;
+                    try
+                    {
+                        hasData = System.Windows.Forms.Clipboard.ContainsData("PowerPoint Shapedata")
+                            || System.Windows.Forms.Clipboard.ContainsData("PNG");
+                    }
+                    catch { }
+                    if (!hasData && attempt < 5)
+                    {
+                        Log.Write("copy check: clipboard lacks PPT data (attempt " + attempt + "), retry");
+                        continue;
+                    }
                     return target.Paste();
                 }
                 catch (Exception ex)
