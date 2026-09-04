@@ -1175,6 +1175,7 @@
 
         function item(name, icon, active) {
             var b = el("button", "g-item" + (active ? " active" : ""));
+            b.title = name;   // 长名 tooltip
             var ic = el("span", "msym", icon || "folder");
             ic.setAttribute("aria-hidden", "true");
             b.appendChild(ic);
@@ -1451,14 +1452,20 @@
         });
         card.appendChild(del);
 
-        // tooltip
-        var tip = meta.name + "  [分组: " + (meta.group || "我的") + " › " + meta.category + "]";
-        if (meta.tags && meta.tags.length) tip += "\n标签: " + meta.tags.join("、");
-        if (meta.useCount > 0) tip += "\n使用 " + meta.useCount + " 次";
-        card.title = tip;
-
         // 选中态
         if (state.selected[meta.id]) card.classList.add("selected");
+
+        // hover 放大预览（替代原生 title；信息随浮层显示）
+        card.addEventListener("mouseenter", function () {
+            if (card._hvTimer) clearTimeout(card._hvTimer);
+            card._hvTimer = setTimeout(function () {
+                showHoverPreview(meta, card);
+            }, 120);
+        });
+        card.addEventListener("mouseleave", function () {
+            if (card._hvTimer) clearTimeout(card._hvTimer);
+            hideHoverPreview(card);
+        });
 
         // 点击 / 多选 / 双击
         card.addEventListener("click", function (e) {
@@ -1724,6 +1731,48 @@
 
     function findCard(id) {
         return document.querySelector('.card[data-id="' + id + '"]');
+    }
+
+    // ---------------- hover 放大预览 ----------------
+    var _hoverEl = null;
+    var _hoverCard = null;
+
+    function showHoverPreview(meta, card) {
+        if (!card || _hoverCard === card) return;
+        hideHoverPreview();
+        // 无缩略图的卡片不放大
+        var img = card.querySelector("img.thumb");
+        if (!img || !img.src) return;
+        var el = el("div", "hover-pop");
+        var big = el("img");
+        big.src = meta.previewUrl || img.src;
+        big.draggable = false;
+        el.appendChild(big);
+        var cap = el("div", "hover-pop-cap");
+        cap.appendChild(el("div", "hover-pop-name", meta.name || ""));
+        var sub = el("span", "", (meta.group || "我的") + " › " + (meta.category || "未分类") +
+            " · " + (meta.kind === "Style" ? "样式" : "形状"));
+        cap.appendChild(sub);
+        el.appendChild(cap);
+        document.body.appendChild(el);
+        _hoverEl = el;
+        _hoverCard = card;
+
+        // 定位：优先卡片右侧，空间不足则左侧；垂直随卡片
+        var r = card.getBoundingClientRect();
+        var vw = window.innerWidth;
+        var pw = Math.min(240, vw * 0.62);
+        var left = r.right + 10;
+        if (left + pw > vw - 6) left = Math.max(6, r.left - pw - 10);
+        var top = Math.max(6, Math.min(r.top, window.innerHeight - 200));
+        el.style.left = left + "px";
+        el.style.top = top + "px";
+        el.style.width = pw + "px";
+    }
+
+    function hideHoverPreview() {
+        if (_hoverEl) { _hoverEl.remove(); _hoverEl = null; }
+        _hoverCard = null;
     }
 
     // ---------------- 大图预览 ----------------

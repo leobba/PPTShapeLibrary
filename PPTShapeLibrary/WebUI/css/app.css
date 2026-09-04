@@ -149,13 +149,13 @@
 .side-groups {
     flex: none;
     order: 0;
-    width: 92px;
+    width: 78px;
     border-right: 1px solid var(--border);
     background: var(--surface);
     display: flex;
     flex-direction: column;
     gap: 2px;
-    padding: 8px 6px;
+    padding: 8px 5px;
     overflow-y: auto;
 }
 .g-item {
@@ -165,14 +165,21 @@
     color: var(--text-sub); font-size: 10.5px; font-family: inherit;
     position: relative;
 }
-.g-item .msym { font-size: 21px; color: var(--text-sub); }
+.g-item .msym { font-size: 20px; color: var(--text-sub); }
 .g-item:hover { background: var(--surface-hover); color: var(--text); }
 .g-item:hover .msym { color: var(--text); }
 .g-item.active { background: var(--accent-soft); color: var(--accent); }
 .g-item.active .msym { color: var(--accent); }
-.g-name { line-height: 1.2; text-align: center; word-break: break-all; max-width: 86px; }
+.g-name {
+    line-height: 1.25; text-align: center;
+    max-width: 66px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: block;
+}
 .g-cnt {
-    position: absolute; top: 2px; right: 5px;
+    position: absolute; top: 2px; right: 4px;
     background: var(--chip-bg); border-radius: 8px;
     font-size: 9px; padding: 0 4px; color: var(--text-sub);
 }
@@ -912,6 +919,46 @@ html, body {
     white-space: nowrap;
 }
 .ctx-menu .mi-info .msym { font-size: 14px; color: var(--accent); }
+
+/* ============ hover 放大预览浮层 ============ */
+.hover-pop {
+    position: fixed;
+    z-index: 140;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow-3);
+    overflow: hidden;
+    pointer-events: none;
+    animation: hoverPopIn .14s var(--ease-out);
+}
+.hover-pop img {
+    display: block;
+    width: 100%;
+    max-height: 180px;
+    object-fit: contain;
+    background:
+        linear-gradient(45deg, #eceff3 25%, transparent 25%, transparent 75%, #eceff3 75%),
+        linear-gradient(45deg, #eceff3 25%, transparent 25%, transparent 75%, #eceff3 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 8px 8px;
+    background-color: #f7f9fb;
+}
+:root[data-theme="dark"] .hover-pop img {
+    background: #1A1E24;
+}
+.hover-pop-cap {
+    padding: 7px 10px 9px;
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text);
+}
+.hover-pop-name { font-weight: 600; margin-bottom: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hover-pop-cap span { color: var(--text-sub); font-size: 10px; }
+@keyframes hoverPopIn {
+    from { opacity: 0; transform: translateY(4px) scale(.97); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
 
 /* ============ 覆盖层：Lightbox 大图预览 ============ */
 .lightbox-mask {
