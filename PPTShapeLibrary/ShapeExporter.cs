@@ -1332,6 +1332,16 @@ namespace PPTShapeLibrary
             catch { /* 无可撤销操作或处于不可撤销上下文时静默 */ }
         }
 
+        /// <summary>重做（撤销的反向）。ExecuteMso("Redo")。</summary>
+        public static void RedoLastAction()
+        {
+            try
+            {
+                App.CommandBars.ExecuteMso("Redo");
+            }
+            catch { }
+        }
+
         /// <summary>
         /// 复制→粘贴（带重试）：PowerPoint 的 Copy 是异步的，立即 Paste 可能报
         /// "Clipboard is empty"；逐次延迟并重新 Copy，最多 5 次。

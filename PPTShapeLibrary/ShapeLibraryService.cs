@@ -98,6 +98,17 @@ namespace PPTShapeLibrary
             }
         }
 
+        /// <summary>回收站目录（软删条目移动至此，可恢复/彻底清除）。</summary>
+        public static string TrashDir
+        {
+            get
+            {
+                string dir = Path.Combine(RootDir, "trash");
+                Directory.CreateDirectory(dir);
+                return dir;
+            }
+        }
+
         public static string CreateItemDir(string id)
         {
             string dir = Path.Combine(ItemsDir, id);
@@ -217,14 +228,105 @@ namespace PPTShapeLibrary
             }
         }
 
+        /// <summary>软删除：把条目移入回收站（可恢复）。</summary>
         public static void DeleteItem(string id)
         {
             string dir = Path.Combine(ItemsDir, id);
-            if (Directory.Exists(dir))
+            if (!Directory.Exists(dir)) return;
+            string trash = Path.Combine(TrashDir, id);
+            try
             {
-                Directory.Delete(dir, true);
+                if (Directory.Exists(trash)) Directory.Delete(trash, true);
+                Directory.Move(dir, trash);
+            }
+            catch
+            {
+                // 移动失败（占用等）则直接删除，避免残留
+                try { Directory.Delete(dir, true); } catch { }
             }
             InvalidateCache();
+        }
+
+        /// <summary>彻底删除（回收站内清除）。</summary>
+        public static void HardDelete(string id)
+        {
+            string dir = Path.Combine(TrashDir, id);
+            if (Directory.Exists(dir))
+            {
+                try { Directory.Delete(dir, true); } catch { }
+            }
+            // 也兜底 items 下残留
+            string item = Path.Combine(ItemsDir, id);
+            if (Directory.Exists(item))
+            {
+                try { Directory.Delete(item, true); } catch { }
+            }
+            InvalidateCache();
+        }
+
+        /// <summary>从回收站恢复条目到素材库。</summary>
+        public static bool RestoreTrashItem(string id)
+        {
+            string trash = Path.Combine(TrashDir, id);
+            if (!Directory.Exists(trash)) return false;
+            string dest = Path.Combine(ItemsDir, id);
+            if (Directory.Exists(dest))
+            {
+                // 目标冲突：改名恢复
+                dest = Path.Combine(ItemsDir, NewId());
+            }
+            try
+            {
+                Directory.Move(trash, dest);
+                InvalidateCache();
+                return true;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>回收站列表（meta 可读的条目）。</summary>
+        public static List<LibraryMeta> ListTrash()
+        {
+            var list = new List<LibraryMeta>();
+            if (!Directory.Exists(TrashDir)) return list;
+            foreach (var dir in Directory.GetDirectories(TrashDir))
+            {
+                string id = Path.GetFileName(dir);
+                var meta = LoadMetaFromDir(Path.Combine(dir, "meta.json"));
+                if (meta != null)
+                {
+                    meta.Id = id;
+                    list.Add(meta);
+                }
+            }
+            return list.OrderByDescending(m => m.CreatedAt).ToList();
+        }
+
+        private static LibraryMeta LoadMetaFromDir(string metaPath)
+        {
+            if (!File.Exists(metaPath)) return null;
+            try
+            {
+                var ser = new DataContractJsonSerializer(typeof(LibraryMeta));
+                using (var fs = File.OpenRead(metaPath))
+                {
+                    return (LibraryMeta)ser.ReadObject(fs);
+                }
+            }
+            catch { return null; }
+        }
+
+        /// <summary>清空回收站。返回清除条数。</summary>
+        public static int PurgeTrash()
+        {
+            int n = 0;
+            if (!Directory.Exists(TrashDir)) return 0;
+            foreach (var dir in Directory.GetDirectories(TrashDir))
+            {
+                try { Directory.Delete(dir, true); n++; } catch { }
+            }
+            InvalidateCache();
+            return n;
         }
 
         public static void RenameItem(string id, string newName)

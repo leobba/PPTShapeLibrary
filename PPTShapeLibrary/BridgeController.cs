@@ -130,6 +130,10 @@ namespace PPTShapeLibrary
                         ShapeExporter.UndoLastAction();
                         Ok(reqId, new Dictionary<string, object>());
                         break;
+                    case "redo":
+                        ShapeExporter.RedoLastAction();
+                        Ok(reqId, new Dictionary<string, object>());
+                        break;
                     case "adjust":
                         ShapeExporter.AdjustSelected(ToStr(payload, "action"));
                         Ok(reqId, new Dictionary<string, object>());
@@ -233,6 +237,45 @@ namespace PPTShapeLibrary
                         {
                             string dir = Path.Combine(ShapeLibraryService.ItemsDir, ToStr(payload, "id"));
                             System.Diagnostics.Process.Start("explorer.exe", dir);
+                            Ok(reqId, new Dictionary<string, object>());
+                            break;
+                        }
+                    // ---------------- 回收站 ----------------
+                    case "trashList":
+                        {
+                            var items = ShapeLibraryService.ListTrash();
+                            var arr = new List<Dictionary<string, object>>();
+                            foreach (var m in items)
+                            {
+                                arr.Add(new Dictionary<string, object>
+                                {
+                                    { "id", m.Id },
+                                    { "name", m.Name },
+                                    { "kind", m.Kind },
+                                    { "category", m.GetCategory() },
+                                    { "createdAt", m.CreatedAt }
+                                });
+                            }
+                            Ok(reqId, new Dictionary<string, object> { { "items", arr } });
+                            break;
+                        }
+                    case "trashRestore":
+                        {
+                            bool ok = ShapeLibraryService.RestoreTrashItem(ToStr(payload, "id"));
+                            Result(reqId, ok, ok ? new Dictionary<string, object>() : null,
+                                   ok ? null : "恢复失败（条目不存在或已被清除）");
+                            PushRefresh();
+                            break;
+                        }
+                    case "trashPurge":
+                        {
+                            int n = ShapeLibraryService.PurgeTrash();
+                            Ok(reqId, new Dictionary<string, object> { { "purged", n } });
+                            break;
+                        }
+                    case "trashPurgeOne":
+                        {
+                            ShapeLibraryService.HardDelete(ToStr(payload, "id"));
                             Ok(reqId, new Dictionary<string, object>());
                             break;
                         }
