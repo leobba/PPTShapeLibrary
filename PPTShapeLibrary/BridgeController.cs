@@ -594,10 +594,25 @@ namespace PPTShapeLibrary
                             string full = name.EndsWith(".ppack.zip", StringComparison.OrdinalIgnoreCase)
                                 ? System.IO.Path.Combine(dir, name)
                                 : System.IO.Path.Combine(dir, name + ".ppack.zip");
-                            int n = PackService.ImportPack(full, out int conflicts, out string impErr);
+                            int n = PackService.ImportPack(full, out int conflicts, out string impErr, out var packMeta);
                             bool ok = impErr == null;
-                            Result(reqId, ok, ok ? new Dictionary<string, object> { { "imported", n }, { "conflicts", conflicts } } : null,
-                                   ok ? null : impErr);
+                            if (ok)
+                            {
+                                var data = new Dictionary<string, object> { { "imported", n }, { "conflicts", conflicts } };
+                                if (packMeta != null)
+                                {
+                                    if (!string.IsNullOrEmpty(packMeta.Name)) data["packName"] = packMeta.Name;
+                                    if (!string.IsNullOrEmpty(packMeta.Author)) data["author"] = packMeta.Author;
+                                    if (!string.IsNullOrEmpty(packMeta.License)) data["license"] = packMeta.License;
+                                    if (!string.IsNullOrEmpty(packMeta.SourceUrl)) data["sourceUrl"] = packMeta.SourceUrl;
+                                    if (!string.IsNullOrEmpty(packMeta.Description)) data["description"] = packMeta.Description;
+                                }
+                                Result(reqId, true, data, null);
+                            }
+                            else
+                            {
+                                Result(reqId, false, null, impErr);
+                            }
                             BroadcastRefresh();
                             break;
                         }
@@ -792,6 +807,11 @@ namespace PPTShapeLibrary
                 {
                     int n; if (int.TryParse(patch["paneWidth"].ToString(), out n)) s.PaneWidth = n;
                 }
+                if (patch.ContainsKey("authorName"))
+                {
+                    s.AuthorName = (patch["authorName"]?.ToString() ?? "").Trim();
+                    if (s.AuthorName.Length > 60) s.AuthorName = s.AuthorName.Substring(0, 60);
+                }
                 ShapeLibraryService.SaveSettings(s);
             }
             var result = SettingsDict(ShapeLibraryService.LoadSettings());
@@ -944,7 +964,8 @@ namespace PPTShapeLibrary
                 { "pageSize", s.PageSize },
                 { "cardSize", s.CardSize },
                 { "clickToInsert", s.ClickToInsert },
-                { "themeAdaptStyle", s.ThemeAdaptStyle }
+                { "themeAdaptStyle", s.ThemeAdaptStyle },
+                { "authorName", s.AuthorName ?? "" }
             };
         }
 

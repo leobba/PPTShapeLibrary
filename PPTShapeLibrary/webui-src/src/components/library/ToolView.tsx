@@ -841,6 +841,14 @@ function SettingsForm({
         <CheckRow label="按形状类型自动命名" checked={!!s.autoName} onChecked={(v) => set("autoName", !!v)} />
         <CheckRow label="单击卡片直接插入（取消则单击预览、双击插入）" checked={s.clickToInsert !== false} onChecked={(v) => set("clickToInsert", !!v)} />
         <CheckRow label="应用样式时把主色映射到当前文档主题色" checked={!!s.themeAdaptStyle} onChecked={(v) => set("themeAdaptStyle", !!v)} />
+        <Row label="素材作者署名（导出素材包时写入）">
+          <Input
+            className="h-8 w-56"
+            placeholder="你的昵称 / 团队名"
+            value={s.authorName || ""}
+            onChange={(e) => set("authorName", e.target.value)}
+          />
+        </Row>
         <Button className="self-end" onClick={save}>{saved ? "已保存 ✓" : "保存设置"}</Button>
       </CardContent>
     </Card>

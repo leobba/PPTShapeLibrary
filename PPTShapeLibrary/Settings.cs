@@ -33,6 +33,9 @@ namespace PPTShapeLibrary
         [DataMember(Name = "uiBackend", EmitDefaultValue = false)]
         public string UiBackend { get; set; }          // "webview2"(默认) / "wpf"(手动降级)
 
+        [DataMember(Name = "authorName", EmitDefaultValue = false)]
+        public string AuthorName { get; set; }          // 素材作者署名（导出素材包时写入 manifest）
+
         public Settings()
         {
             Theme = "light";
@@ -44,6 +47,7 @@ namespace PPTShapeLibrary
             ClickToInsert = true;
             ThemeAdaptStyle = false;
             UiBackend = "webview2";
+            AuthorName = "";
         }
     }
 }

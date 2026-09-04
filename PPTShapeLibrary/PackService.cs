@@ -30,12 +30,31 @@ namespace PPTShapeLibrary
         public class PackManifest
         {
             [DataMember(Name = "format")] public string Format { get; set; }
+            /// <summary>规范版本：v1 初始 / v1.1 增加 author/license/sourceUrl/description（向后兼容，旧包缺失不影响导入）。</summary>
+            [DataMember(Name = "specVersion")] public string SpecVersion { get; set; }
             [DataMember(Name = "name")] public string Name { get; set; }
+            [DataMember(Name = "author")] public string Author { get; set; }
+            [DataMember(Name = "license")] public string License { get; set; }
+            [DataMember(Name = "sourceUrl")] public string SourceUrl { get; set; }
+            [DataMember(Name = "description")] public string Description { get; set; }
             [DataMember(Name = "exportedAt")] public string ExportedAt { get; set; }
             [DataMember(Name = "items")] public List<PackEntry> Items { get; set; }
         }
 
         private const string PackFormat = "pptshape-pack-v1";
+        private const string PackSpecVersion = "1.1";
+
+        /// <summary>导入后回传的包摘要（来源展示）。</summary>
+        public class PackMetaOut
+        {
+            public string Name;
+            public string Author;
+            public string License;
+            public string SourceUrl;
+            public string Description;
+            public string SpecVersion;
+            public string ExportedAt;
+        }
         private static readonly DataContractJsonSerializer ManifestSer = new DataContractJsonSerializer(typeof(PackManifest));
 
         /// <summary>把指定 id 集合打包为素材包 zip。返回是否成功，失败原因写 error。</summary>
@@ -57,7 +76,10 @@ namespace PPTShapeLibrary
                     var manifest = new PackManifest
                     {
                         Format = PackFormat,
+                        SpecVersion = PackSpecVersion,
                         Name = Path.GetFileNameWithoutExtension(zipPath),
+                        Author = ShapeLibraryService.LoadSettings().AuthorName,
+                        License = "CC BY 4.0",   // 默认许可：可商用可再分发，署名即可（用户导出即授权）
                         ExportedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                         Items = new List<PackEntry>()
                     };
@@ -110,11 +132,14 @@ namespace PPTShapeLibrary
             }
         }
 
-        /// <summary>导入素材包 zip 到本地库。冲突 id 自动重写为新 id。返回导入条目数，conflicts 返回冲突重写数。</summary>
-        public static int ImportPack(string zipPath, out int conflicts, out string error)
+        /// <summary>导入素材包 zip 到本地库。冲突 id 自动重写为新 id。返回导入条目数，conflicts 返回冲突重写数。
+        /// meta 输出包的 manifest 摘要（作者/许可等，供 UI 展示来源）。</summary>
+        public static int ImportPack(string zipPath, out int conflicts, out string error,
+            out PackMetaOut meta)
         {
             error = null;
             conflicts = 0;
+            meta = new PackMetaOut();
             try
             {
                 if (!File.Exists(zipPath))
@@ -143,6 +168,16 @@ namespace PPTShapeLibrary
                             }
                         }
                         catch { manifest = null; }
+                    }
+                    if (manifest != null)
+                    {
+                        meta.Name = manifest.Name;
+                        meta.Author = manifest.Author;
+                        meta.License = manifest.License;
+                        meta.SourceUrl = manifest.SourceUrl;
+                        meta.Description = manifest.Description;
+                        meta.SpecVersion = manifest.SpecVersion;
+                        meta.ExportedAt = manifest.ExportedAt;
                     }
                     var validIds = manifest != null && manifest.Items != null
                         ? new HashSet<string>(manifest.Items.Select(i => i.Id))
