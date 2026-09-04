@@ -120,11 +120,19 @@ namespace PPTShapeLibrary
                     try
                     {
                         string raw = e.TryGetWebMessageAsString();
-                        // 宿主级消息：关窗 / 拖动标题栏
+                        // 宿主级消息：精确解析 type 后关窗/拖动，避免 Contains 误匹配业务消息
                         if (!string.IsNullOrEmpty(raw))
                         {
-                            if (raw.Contains("\"popupClose\"")) { Close(); return; }
-                            if (raw.Contains("\"popupDrag\"")) { BeginDragMove(); return; }
+                            string type = "";
+                            try
+                            {
+                                var msg = new System.Web.Script.Serialization.JavaScriptSerializer()
+                                    .DeserializeObject(raw) as System.Collections.Generic.Dictionary<string, object>;
+                                if (msg != null && msg.ContainsKey("type")) type = msg["type"]?.ToString() ?? "";
+                            }
+                            catch { /* 非 JSON 按未知处理，交给桥 */ }
+                            if (type == "popupClose") { Close(); return; }
+                            if (type == "popupDrag") { BeginDragMove(); return; }
                         }
                         bridge.HandleWebMessage(raw);
                     }
