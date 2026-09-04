@@ -301,24 +301,6 @@ namespace PPTShapeLibrary
             }
         }
 
-        /// <summary>打开设置对话框并应用。</summary>
-        public void DoSettings()
-        {
-            var current = ShapeLibraryService.LoadSettings();
-            using (var frm = new SettingsForm(current))
-            {
-                if (frm.ShowDialog() == DialogResult.OK && frm.Result != null)
-                {
-                    ShapeLibraryService.SaveSettings(frm.Result);
-                    if (_taskPane != null)
-                    {
-                        _taskPane.Width = frm.Result.PaneWidth;
-                        _paneControl.ApplySettings(frm.Result);
-                    }
-                }
-            }
-        }
-
         /// <summary>显示/隐藏收藏任务窗格。</summary>
         public void ToggleTaskPane()
         {

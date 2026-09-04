@@ -152,13 +152,6 @@
     <Compile Include="Log.cs" />
     <Compile Include="StylePreset.cs" />
     <Compile Include="Settings.cs" />
-    <Compile Include="SettingsForm.cs" />
-    <Compile Include="TagManagerForm.cs" />
-    <Compile Include="PPTToolsForm.cs" />
-    <Compile Include="PPTTextToolsForm.cs" />
-    <Compile Include="PPTFormatToolsForm.cs" />
-    <Compile Include="TextStyleToolForm.cs" />
-    <Compile Include="FontReplaceToolForm.cs" />
     <Compile Include="ToolsHubForm.cs" />
     <Compile Include="RibbonIconFactory.cs" />
     <Compile Include="FallbackPane.cs" />
