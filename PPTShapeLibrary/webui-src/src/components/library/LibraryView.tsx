@@ -262,9 +262,17 @@ export default function LibraryView({
             </span>
           </div>
 
-          {/* 卡片网格（移出网格区清除 hover 预览） */}
-          <div className="min-h-0 flex-1" onMouseLeave={() => setHoverImg(null)}>
-            <ScrollArea className="h-full">
+          {/* 卡片网格（原生滚动：移出区清除 hover，滚底加载更多） */}
+          <div
+            className="min-h-0 flex-1 overflow-y-auto"
+            onMouseLeave={() => setHoverImg(null)}
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              if (el.scrollTop + el.clientHeight >= el.scrollHeight - 240) {
+                loadMore();
+              }
+            }}
+          >
               {!lib.loading && items.length === 0 ? (
                 <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
                   <Folder className="size-9 text-muted-foreground/40" />
@@ -303,7 +311,6 @@ export default function LibraryView({
                     ))}
                 </div>
               )}
-            </ScrollArea>
           </div>
 
           {/* hover 大图预览（图片查看器式，纯展示不拦截事件） */}
@@ -501,6 +508,15 @@ function ItemCard({
           }}
         >
           重命名
+        </ContextMenuItem>
+        <ContextMenuItem
+          onSelect={() => {
+            const cur = (item.tags || []).join(",");
+            const t = prompt("标签（多个用逗号分隔）：", cur);
+            if (t !== null) bridge.setTags(item.id, t.trim()).then(onChanged);
+          }}
+        >
+          编辑标签…
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem
