@@ -76,6 +76,8 @@ import {
   Type,
   Palette,
   ChartPie,
+  FolderPlus,
+  Package,
 } from "lucide-react";
 
 const GROUP_ICONS: Record<string, React.ReactNode> = {
@@ -635,20 +637,22 @@ export default function LibraryView({
 
       {/* 批量操作浮条 */}
       {selCount > 0 && (
-        <div className="fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-xl border bg-popover px-3 py-2 shadow-xl">
-          <span className="text-xs font-medium">已选 {selCount} 项</span>
+        <div className="fixed bottom-4 left-1/2 z-40 flex max-w-[calc(100vw-16px)] -translate-x-1/2 items-center gap-1 overflow-x-auto rounded-xl border bg-popover px-2.5 py-2 shadow-xl">
+          <span className="shrink-0 px-1 text-xs font-medium">已选 {selCount} 项</span>
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
-            className="h-7 text-xs"
+            className="h-7 shrink-0 px-2 text-xs"
+            title="取消选择"
             onClick={() => lib.clearSelection()}
           >
+            <X className="mr-1 size-3.5" />
             取消
           </Button>
           <Button
             variant="outline"
             size="sm"
-            className="h-7 text-xs"
+            className="h-7 shrink-0 px-2 text-xs"
             onClick={async () => {
               const c = await dialogs.prompt("输入二级分类（已有或新分类）：", {
                 initial: lib.category !== "全部" ? lib.category : "",
@@ -668,12 +672,13 @@ export default function LibraryView({
               }
             }}
           >
-            移动分类…
+            <Folder className="mr-1 size-3.5" />
+            移动分类
           </Button>
           <Button
             variant="outline"
             size="sm"
-            className="h-7 text-xs"
+            className="h-7 shrink-0 px-2 text-xs"
             onClick={async () => {
               const g = await dialogs.prompt("输入一级分组（已有或新分组）：", {
                 initial: lib.group !== "全部" ? lib.group : "",
@@ -695,12 +700,13 @@ export default function LibraryView({
               }
             }}
           >
-            移动分组…
+            <FolderPlus className="mr-1 size-3.5" />
+            移动分组
           </Button>
           <Button
             variant="outline"
             size="sm"
-            className="h-7 text-xs"
+            className="h-7 shrink-0 px-2 text-xs"
             onClick={() => {
               const ids = Array.from(selected);
               bridge
@@ -712,14 +718,16 @@ export default function LibraryView({
                 .catch((e: Error) => showToast(e.message || "导出失败"));
             }}
           >
-            导出素材包…
+            <Package className="mr-1 size-3.5" />
+            导出素材包
           </Button>
           <Button
             variant="destructive"
             size="sm"
-            className="h-7 text-xs"
+            className="h-7 shrink-0 px-2 text-xs"
             onClick={() => setTrashConfirmIds(Array.from(selected))}
           >
+            <Trash2 className="mr-1 size-3.5" />
             移入回收站
           </Button>
         </div>
@@ -736,7 +744,7 @@ export default function LibraryView({
                 {preview.kind === "Style" ? "样式" : "形状"}
               </DialogDescription>
             </DialogHeader>
-            <div className="flex items-center justify-center rounded-lg bg-muted/40 p-2">
+            <div className="checker flex items-center justify-center rounded-lg p-2">
               <img
                 src={preview.previewUrl}
                 alt={preview.name}
@@ -744,16 +752,23 @@ export default function LibraryView({
               />
             </div>
             <div className="flex justify-end gap-2">
-              {preview.kind !== "Style" && (
+              {preview.kind !== "Style" ? (
                 <Button
                   onClick={() => {
-                    bridge.insert(preview.id).then(() => {
-                      setPreview(null);
-                      lib.reload(true);
-                    });
+                    setPreview(null);
+                    insertItem(preview.id);
                   }}
                 >
                   插入到当前页
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => {
+                    setPreview(null);
+                    applyStyleWithFeedback(preview.id);
+                  }}
+                >
+                  应用到选中形状
                 </Button>
               )}
               <Button variant="outline" onClick={() => setPreview(null)}>
