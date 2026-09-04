@@ -164,7 +164,27 @@ function Shell({ title, desc, children }: { title: string; desc: string; childre
         <CardTitle className="text-sm">{title}</CardTitle>
         <p className="text-xs text-muted-foreground">{desc}</p>
       </CardHeader>
-      <CardContent className="flex flex-col gap-3">{children}</CardContent>
+      <CardContent
+        className="flex flex-col gap-3"
+        onKeyDown={(e) => {
+          // 表单内按 Enter 触发主操作（替换/清理/导出等），提升键盘效率
+          if (e.key !== "Enter" || e.shiftKey) return;
+          const t = e.target as HTMLElement;
+          if (t && (t.tagName === "TEXTAREA" || t.closest("[role='dialog']") || t.closest("[role='listbox']") || t.closest("[role='combobox']"))) return;
+          const card = e.currentTarget;
+          // 找第一个可用的主按钮（primary 优先，其次非 outline/ghost）
+          const btns = Array.from(card.querySelectorAll("button:not([disabled])")) as HTMLButtonElement[];
+          const primary =
+            btns.find((b) => b.className.includes("primary")) ||
+            btns.find((b) => !b.className.includes("outline") && !b.className.includes("ghost") && b.textContent);
+          if (primary) {
+            e.preventDefault();
+            primary.click();
+          }
+        }}
+      >
+        {children}
+      </CardContent>
     </Card>
   );
 }

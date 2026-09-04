@@ -895,6 +895,7 @@ function ItemCard({
 }) {
   const isStyle = item.kind === "Style";
   const clickTimerRef = useRef<number | undefined>(undefined);
+  const [dragState, setDragState] = useState<"dragging" | "over" | null>(null);
   const handleClick = (e: React.MouseEvent) => {
     if (e.ctrlKey) {
       onToggle();
@@ -927,20 +928,29 @@ function ItemCard({
         <div
           className={
             "group relative cursor-pointer overflow-hidden rounded-lg border bg-card shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md " +
-            (selected ? "border-primary ring-2 ring-primary/60" : "border-border")
+            (selected ? "border-primary ring-2 ring-primary/60" : "border-border") +
+            (dragState === "dragging" ? " opacity-40" : "") +
+            (dragState === "over" ? " border-primary ring-2 ring-primary/50" : "")
           }
           draggable={!!dragEnabled}
           onDragStart={(e) => {
+            setDragState("dragging");
             e.dataTransfer.setData("text/plain", item.id);
             e.dataTransfer.effectAllowed = "move";
           }}
+          onDragEnd={() => setDragState(null)}
           onDragOver={(e) => {
             if (dragEnabled) {
               e.preventDefault();
               e.dataTransfer.dropEffect = "move";
+              if (dragState !== "over") setDragState("over");
             }
           }}
+          onDragLeave={() => {
+            if (dragState === "over") setDragState(null);
+          }}
           onDrop={(e) => {
+            setDragState(null);
             if (dragEnabled && onDropCard) {
               e.preventDefault();
               const fromId = e.dataTransfer.getData("text/plain");
@@ -968,7 +978,9 @@ function ItemCard({
               {isStyle ? "样式" : "形状"}
             </Badge>
           </div>
-          <p className="truncate px-1.5 pb-1 pt-0.5 text-[11px]">{item.name}</p>
+          <p className="line-clamp-2 min-h-[2.2em] whitespace-normal break-words px-1.5 pb-1 pt-0.5 text-[11px] leading-snug">
+            {item.name}
+          </p>
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
