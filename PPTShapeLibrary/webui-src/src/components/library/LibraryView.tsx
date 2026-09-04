@@ -267,6 +267,7 @@ export default function LibraryView({
             className="min-h-0 flex-1 overflow-y-auto"
             onMouseLeave={() => setHoverImg(null)}
             onScroll={(e) => {
+              setHoverImg(null);
               const el = e.currentTarget;
               if (el.scrollTop + el.clientHeight >= el.scrollHeight - 240) {
                 loadMore();

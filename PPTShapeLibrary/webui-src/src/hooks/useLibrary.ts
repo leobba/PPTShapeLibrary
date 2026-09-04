@@ -78,11 +78,11 @@ export function useLibrary() {
     const fn = () => bridge.init().then(setInit).catch(() => {});
     bridge.on("refresh", fn);
     bridge.on("settingsChanged", (s) => setInit((prev) => (prev ? { ...prev, ...s } : prev)));
+    return () => {
+      // bridge.on 无退订 API：保留监听（面板生命周期=页面生命周期，可接受）
+    };
   }, []);
-
-  useEffect(() => {
-    if (init) reload(true);
-  }, [init]); // eslint-disable-line
+  // 注意：首次 init 到达后由上方"防抖 effect（依赖 init）"触发首次列表加载，无需单独 effect，避免重复请求
 
   const toggleSelect = useCallback((id: string) => {
     setSelected((prev) => {
