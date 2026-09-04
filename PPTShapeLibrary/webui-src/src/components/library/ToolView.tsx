@@ -490,26 +490,88 @@ function SettingsForm({
   theme: string;
   setTheme: (t: string) => void;
 }) {
-  const [dark, setDark] = useState(theme === "dark");
+  const [s, setS] = useState<Record<string, any> | null>(null);
+  useEffect(() => {
+    bridge.getSettings().then((d) => setS({ ...d })).catch(() => setS({ theme }));
+  }, []);
+  const set = (k: string, v: any) => setS((prev) => (prev ? { ...prev, [k]: v } : prev));
+  const [saved, setSaved] = useState(false);
+
+  if (!s) return null;
+
+  const save = () => {
+    bridge.saveSettings(s).then((d) => {
+      setTheme(d.theme || s.theme);
+      document.documentElement.classList.toggle("dark", (d.theme || s.theme) === "dark");
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    });
+  };
+
   return (
     <Card>
-      <CardHeader><CardTitle className="text-sm">偏好设置</CardTitle></CardHeader>
+      <CardHeader>
+        <CardTitle className="text-sm">偏好设置</CardTitle>
+        <p className="text-xs text-muted-foreground">改动后点击保存生效</p>
+      </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <span className="text-sm">深色主题</span>
-          <Checkbox
-            checked={dark}
-            onCheckedChange={(v) => {
-              const val = !!v;
-              setDark(val);
-              const next = val ? "dark" : "light";
-              setTheme(next);
-              document.documentElement.classList.toggle("dark", val);
-              bridge.saveSettings({ theme: next }).catch(() => {});
-            }}
-          />
-        </div>
+        <Row label="主题">
+          <Select value={s.theme === "dark" ? "dark" : "light"} onValueChange={(v) => set("theme", v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="light">浅色</SelectItem>
+              <SelectItem value="dark">深色</SelectItem>
+            </SelectContent>
+          </Select>
+        </Row>
+        <Row label="插入位置">
+          <Select value={s.insertPosition === "original" ? "original" : "center"} onValueChange={(v) => set("insertPosition", v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="center">页面居中</SelectItem>
+              <SelectItem value="original">原始位置</SelectItem>
+            </SelectContent>
+          </Select>
+        </Row>
+        <Row label="卡片大小">
+          <Select value={s.cardSize || "compact"} onValueChange={(v) => set("cardSize", v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="compact">紧凑</SelectItem>
+              <SelectItem value="standard">标准</SelectItem>
+              <SelectItem value="large">大图</SelectItem>
+            </SelectContent>
+          </Select>
+        </Row>
+        <Row label="分页数量">
+          <Input className="h-8 w-24" inputMode="numeric" value={s.pageSize ?? 200} onChange={(e) => set("pageSize", parseInt(e.target.value) || 200)} />
+        </Row>
+        <Row label="面板宽度">
+          <Input className="h-8 w-24" inputMode="numeric" value={s.paneWidth ?? 300} onChange={(e) => set("paneWidth", parseInt(e.target.value) || 300)} />
+        </Row>
+        <CheckRow label="按形状类型自动命名" checked={!!s.autoName} onChecked={(v) => set("autoName", !!v)} />
+        <CheckRow label="单击卡片直接插入（取消则单击预览、双击插入）" checked={s.clickToInsert !== false} onChecked={(v) => set("clickToInsert", !!v)} />
+        <CheckRow label="应用样式时把主色映射到当前文档主题色" checked={!!s.themeAdaptStyle} onChecked={(v) => set("themeAdaptStyle", !!v)} />
+        <Button className="self-end" onClick={save}>{saved ? "已保存 ✓" : "保存设置"}</Button>
       </CardContent>
     </Card>
+  );
+}
+
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <Label className="shrink-0 text-xs text-muted-foreground">{label}</Label>
+      <div className="flex min-w-0 flex-1 justify-end">{children}</div>
+    </div>
+  );
+}
+
+function CheckRow({ label, checked, onChecked }: { label: string; checked: boolean; onChecked: (v: boolean) => void }) {
+  return (
+    <div className="flex items-center gap-2">
+      <Checkbox id={label} checked={checked} onCheckedChange={(v) => onChecked(!!v)} />
+      <Label htmlFor={label} className="text-sm">{label}</Label>
+    </div>
   );
 }

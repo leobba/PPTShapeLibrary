@@ -78,6 +78,7 @@ export default function LibraryView({
   const [hoverImg, setHoverImg] = useState<string | null>(null);
   const [showTrash, setShowTrash] = useState(false);
   const [showGroups, setShowGroups] = useState(false);
+  const [showTags, setShowTags] = useState(false);
 
   const groups = useMemo(() => ["全部", ...(init?.groups || [])], [init]);
   const cats = useMemo(() => {
@@ -133,6 +134,9 @@ export default function LibraryView({
           <DropdownMenuContent align="end">
             <DropdownMenuItem onSelect={() => setShowGroups(true)}>
               <Folder className="size-4" /> 管理分组
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setShowTags(true)}>
+              <span className="flex size-4 items-center justify-center text-xs">#</span> 标签管理
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setShowTrash(true)}>
               <Trash2 className="size-4" /> 回收站
@@ -393,6 +397,14 @@ export default function LibraryView({
           }}
         />
       )}
+      {showTags && (
+        <TagDialog
+          onClose={() => {
+            setShowTags(false);
+            lib.refreshMeta();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -644,6 +656,83 @@ function GroupDialog({ groups, onClose }: { groups: string[]; onClose: () => voi
           >
             新建分组
           </Button>
+          <Button size="sm" onClick={onClose}>
+            完成
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** 标签管理：列出全部标签(计数)，重命名/删除 */
+function TagDialog({ onClose }: { onClose: () => void }) {
+  const [tags, setTags] = useState<{ name: string; count: number }[] | null>(null);
+  useEffect(() => {
+    bridge.init().then((d) => {
+      const counts = (d.tagCounts as Record<string, number>) || {};
+      const arr = (d.tags as string[]) || [];
+      setTags(arr.map((t) => ({ name: t, count: counts[t] || 0 })));
+    });
+  }, []);
+  const refresh = () => {
+    bridge.init().then((d) => {
+      const counts = (d.tagCounts as Record<string, number>) || {};
+      const arr = (d.tags as string[]) || [];
+      setTags(arr.map((t) => ({ name: t, count: counts[t] || 0 })));
+    });
+  };
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>标签管理</DialogTitle>
+          <DialogDescription>重命名会同步所有素材；删除会从全部素材移除该标签。</DialogDescription>
+        </DialogHeader>
+        <div className="flex max-h-[45vh] flex-col gap-1.5 overflow-y-auto">
+          {!tags ? (
+            <Skeleton className="h-8 w-full" />
+          ) : tags.length === 0 ? (
+            <p className="py-4 text-center text-xs text-muted-foreground">
+              暂无标签。可右键素材 → 编辑标签 添加。
+            </p>
+          ) : (
+            tags.map((t) => (
+              <div key={t.name} className="flex items-center justify-between rounded-md border px-2 py-1.5 text-xs">
+                <span className="truncate">
+                  {t.name}
+                  <span className="ml-1 text-muted-foreground">({t.count})</span>
+                </span>
+                <span className="flex shrink-0 gap-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-6 px-2 text-[11px]"
+                    onClick={() => {
+                      const n = prompt("重命名标签为：", t.name);
+                      if (n?.trim() && n.trim() !== t.name)
+                        bridge.renameTag(t.name, n.trim()).then(refresh);
+                    }}
+                  >
+                    重命名
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="h-6 px-2 text-[11px]"
+                    onClick={() => {
+                      if (confirm('从所有素材删除标签「' + t.name + '」？'))
+                        bridge.deleteTag(t.name).then(refresh);
+                    }}
+                  >
+                    删除
+                  </Button>
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+        <div className="flex justify-end">
           <Button size="sm" onClick={onClose}>
             完成
           </Button>
