@@ -461,6 +461,15 @@ namespace PPTShapeLibrary
                                    r.Ok ? null : r.Message);
                             break;
                         }
+                    case "insertTemplatePack":
+                        {
+                            var r = AcademicToolService.InsertTemplatePack(
+                                ToStr(payload, "type"),
+                                ToInt(payload, "contentSlides"));
+                            Result(reqId, r.Ok, r.Ok ? new Dictionary<string, object> { { "changed", r.Changed } } : null,
+                                   r.Ok ? null : r.Message);
+                            break;
+                        }
                     case "scanDuplicates":
                         {
                             // 全库扫描"完全重复"（同类型/同数量/同尺寸；保留最早，返回可删的重复项）

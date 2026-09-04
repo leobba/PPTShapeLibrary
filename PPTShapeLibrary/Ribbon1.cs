@@ -148,6 +148,7 @@ namespace PPTShapeLibrary
                 new[] { "页脚页码", "tool9", RibbonIconFactory.Tool9Icon },
                 new[] { "导出PDF/大纲", "tool10", RibbonIconFactory.Tool10Icon },
                 new[] { "图表美化", "tool11", RibbonIconFactory.Tool11Icon },
+                new[] { "成套模板", "tool12", RibbonIconFactory.Tool12Icon },
             };
             _toolButtons = new Microsoft.Office.Tools.Ribbon.RibbonButton[toolDefs.Length];
             for (int ti = 0; ti < toolDefs.Length; ti++)

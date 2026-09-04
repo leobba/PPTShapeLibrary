@@ -255,6 +255,12 @@
         var adjust = el("div", "float-bar");
         adjust.id = "adjustBar";
         adjust.hidden = true;
+        var redoBtn = el("button", "bar-btn", "\uE7A6");
+        redoBtn.title = "重做（撤销的反向）";
+        redoBtn.addEventListener("click", function () {
+            Bridge.redo().catch(function (e) { toast(e.message, true); });
+        });
+        adjust.appendChild(redoBtn);
         var undoBtn = el("button", "bar-btn", "\uE7A7");
         undoBtn.title = "撤销上一步（插入/微调/应用样式）";
         undoBtn.addEventListener("click", function () {
@@ -293,6 +299,25 @@
         var bMove = el("button", "bar-btn", "移动分类");
         bMove.addEventListener("click", function () { batchMovePrompt(); });
         batch.appendChild(bMove);
+        var bRename = el("button", "bar-btn", "重命名…");
+        bRename.addEventListener("click", function () {
+            var ids = state.selectedOrder.length ? state.selectedOrder.slice() : Object.keys(state.selected);
+            if (ids.length === 0) return;
+            inputModal("批量重命名", "输入前缀（将命名为 前缀 1、前缀 2…）：", "", function (v) {
+                if (!v) return;
+                var prefix = v.trim();
+                var seq = [];
+                Promise.resolve().then(function step(i) {
+                    if (i >= ids.length) return;
+                    return Bridge.rename(ids[i], prefix + " " + (i + 1)).then(function () { return step(i + 1); });
+                }).then(function () {
+                    clearSelection();
+                    refreshAll();
+                    toast("已重命名 " + ids.length + " 项");
+                }).catch(function (e) { toast(e.message, true); });
+            });
+        });
+        batch.appendChild(bRename);
         var bMoveGrp = el("button", "bar-btn", "移动分组");
         bMoveGrp.addEventListener("click", function () {
             var ids = Object.keys(state.selected);
@@ -429,13 +454,13 @@
         var titleMap = {
             tool1: "文字样式", tool2: "一键换字体", tool3: "查找 / 替换", tool4: "文字清理",
             tool5: "导出图片", tool6: "清理瘦身", tool7: "统一尺寸", tool8: "图片网格",
-            tool9: "页脚页码", tool10: "导出 PDF / 大纲", tool11: "图表美化",
+            tool9: "页脚页码", tool10: "导出 PDF / 大纲", tool11: "图表美化", tool12: "成套模板",
             settings: "设置"
         };
         var iconMap = {
             tool1: "text_fields", tool2: "font_download", tool3: "manage_search", tool4: "cleaning_services",
             tool5: "image", tool6: "delete_sweep", tool7: "aspect_ratio", tool8: "grid_view",
-            tool9: "text_snippet", tool10: "picture_as_pdf", tool11: "bar_chart",
+            tool9: "text_snippet", tool10: "picture_as_pdf", tool11: "bar_chart", tool12: "view_day",
             settings: "settings"
         };
         if (iconMap[viewKey]) {
@@ -458,6 +483,7 @@
             case "tool9": content = buildFooterControls(); break;
             case "tool10": content = buildExportDocControls(); break;
             case "tool11": content = buildChartControls(); break;
+            case "tool12": content = buildTemplatePackControls(); break;
             case "settings": content = null; break;   // 设置用专用渲染
             default: content = null;
         }
@@ -933,6 +959,25 @@
         return box;
     }
 
+    // ⑫ 成套模板页插入
+    function buildTemplatePackControls() {
+        var box = el("div", "tool-card-body");
+        var type = makeSelect(["毕业答辩", "开题报告", "课程汇报", "组会汇报"], 0);
+        var contentN = el("input", "ctl"); contentN.type = "number"; contentN.min = "1"; contentN.max = "6"; contentN.value = "3";
+        var note = el("div", "tool-note", "在演示文稿末尾插入成套结构页：封面 + 目录 + 内容×N + 感谢页（占位文字可改，含基础版式与页脚占位）。");
+        var run = runBtn("插入成套模板", function () {
+            return Bridge.insertTemplatePack({
+                type: type.value,
+                contentSlides: parseInt(contentN.value, 10) || 3
+            }).then(function (d) { toast(d && d.message ? d.message : "完成", !d || !d.ok); });
+        });
+        box.appendChild(fld("模板类型", type));
+        box.appendChild(fld("内容页数", contentN));
+        box.appendChild(note);
+        box.appendChild(fld("", run));
+        return box;
+    }
+
     function fillSelect(sel, items, keepEmpty) {
         if (!sel) return;
         sel.innerHTML = "";
@@ -1374,6 +1419,16 @@
         // 类型色点（常显）
         card.appendChild(el("span", "badge " + (meta.kind === "Style" ? "style" : "shape")));
 
+        // 个人收藏星标（一级组=我的）
+        if (meta.group === "我的") {
+            var star = el("span", "mine-star");
+            var stIc = el("span", "msym", "star");
+            stIc.setAttribute("aria-hidden", "true");
+            star.appendChild(stIc);
+            star.title = "我的收藏";
+            card.appendChild(star);
+        }
+
         // hover 底部遮罩：名称 + 类型
         var overlay = el("div", "card-overlay");
         var nameSpan = el("span", "", meta.name);
@@ -1384,20 +1439,20 @@
 
         // 删除按钮
         var del = el("button", "del-btn", "\uE711");
-        del.title = "删除";
+        del.title = "移入回收站";
         del.addEventListener("click", function (e) {
             e.stopPropagation();
-            confirmModal("删除收藏「" + meta.name + "」？", function () {
+            confirmModal("将收藏「" + meta.name + "」移入回收站？", function () {
                 Bridge.del([meta.id]).then(function () {
                     removeItemLocal(meta.id);
-                    toast("已删除");
+                    toast("已移入回收站");
                 }).catch(function (e2) { toast(e2.message, true); });
             });
         });
         card.appendChild(del);
 
         // tooltip
-        var tip = meta.name + "  [分类: " + meta.category + "]";
+        var tip = meta.name + "  [分组: " + (meta.group || "我的") + " › " + meta.category + "]";
         if (meta.tags && meta.tags.length) tip += "\n标签: " + meta.tags.join("、");
         if (meta.useCount > 0) tip += "\n使用 " + meta.useCount + " 次";
         card.title = tip;
@@ -1512,11 +1567,11 @@
     function batchDelete() {
         var ids = Object.keys(state.selected);
         if (ids.length === 0) return;
-        confirmModal("确定删除选中的 " + ids.length + " 项收藏？", function () {
+        confirmModal("确定将选中的 " + ids.length + " 项移入回收站？", function () {
             Bridge.del(ids).then(function () {
                 ids.forEach(removeItemLocal);
                 clearSelection();
-                toast("已删除 " + ids.length + " 项");
+                toast("已移入回收站 " + ids.length + " 项");
             }).catch(function (e) { toast(e.message, true); });
         });
     }
@@ -1556,44 +1611,61 @@
         var menu = el("div", "ctx-menu");
         menu.id = "ctxMenu";
 
-        function mi(text, fn) {
-            var b = el("button", "mi", text);
+        function mi(text, icon, fn) {
+            var b = el("button", "mi");
+            if (icon) {
+                var ic = el("span", "msym", icon);
+                ic.setAttribute("aria-hidden", "true");
+                b.appendChild(ic);
+            }
+            b.appendChild(el("span", "", text));
             b.addEventListener("click", function () { closeContextMenu(); fn(); });
             menu.appendChild(b);
         }
         function sep() { menu.appendChild(el("div", "sep")); }
 
+        // 归属信息行：分组 › 分类 · 类型
+        var info = el("div", "mi-info");
+        var infoIc = el("span", "msym", meta.kind === "Style" ? "format_paint" : "category");
+        infoIc.setAttribute("aria-hidden", "true");
+        info.appendChild(infoIc);
+        info.appendChild(el("span", "",
+            (meta.group || "我的") + " › " + (meta.category || "未分类") +
+            " · " + (meta.kind === "Style" ? "样式" : "形状")));
+        menu.appendChild(info);
+        sep();
+
         var isStyle = meta.kind === "Style";
 
         // 形状卡：插入到当前页；样式卡：应用样式到选中/本页同类
         if (!isStyle) {
-            mi("插入到当前页", function () { doInsert(meta, findCard(meta.id)); });
+            mi("插入到当前页", "playlist_add", function () { doInsert(meta, findCard(meta.id)); });
         } else {
-            mi("应用样式到选中形状", function () {
+            mi("应用样式到选中形状", "format_paint", function () {
                 Bridge.applyStyle(meta.id).then(function () {
                     toast("样式已应用");
                 }).catch(function (e) { toast(e.message, true); });
             });
-            mi("应用到本页同类形状", function () {
+            mi("应用到本页同类形状", "content_copy", function () {
                 Bridge.applyStyleSameType(meta.id).then(function () {
                     toast("已应用到本页同类形状");
                 }).catch(function (e) { toast(e.message, true); });
             });
-            mi("应用到整份演示文稿同类型形状", function () {
+            mi("应用到整份演示文稿同类型形状", "copy_all", function () {
                 Bridge.applyStyleSameTypeAllSlides(meta.id).then(function () {
                     toast("已应用到整份演示文稿同类型形状");
                 }).catch(function (e) { toast(e.message, true); });
             });
         }
-        mi("预览大图…", function () { showPreview(meta); });
+        mi("预览大图…", "zoom_in", function () { showPreview(meta); });
         sep();
-        mi("移动到分类…", function () {
+        mi("移动到分类…", "drive_file_move", function () {
             inputModal("移动到分类", "分类名称（输入新分类或已有分类）：", meta.category, function (v) {
                 if (!v) return;
                 Bridge.setCategory(meta.id, v).then(function () { refreshAll(); }).catch(function (e) { toast(e.message, true); });
             });
         });
-        mi("移动到分组…", function () {
+        mi("移动到分组…", "folder", function () {
             var groups = (state.groups || []).filter(function (g) { return g !== meta.group && g !== "全部"; });
             var hint = "输入一级分组名（" + (groups.length ? groups.join(" / ") : "我的 等") + "，不存在将自动新建）：";
             inputModal("移动到分组", hint, meta.group || "我的", function (v) {
@@ -1607,27 +1679,27 @@
                 }).catch(function (e) { toast(e.message, true); });
             });
         });
-        mi("编辑标签…", function () {
+        mi("编辑标签…", "label", function () {
             inputModal("编辑标签", "标签（多个用逗号分隔）：", (meta.tags || []).join(","), function (v) {
                 Bridge.setTags(meta.id, v).then(function () { reload(); }).catch(function (e) { toast(e.message, true); });
             });
         });
-        mi("重命名", function () {
+        mi("重命名", "edit", function () {
             inputModal("重命名收藏", "名称：", meta.name, function (v) {
                 if (!v) return;
                 Bridge.rename(meta.id, v).then(function () { reload(); }).catch(function (e) { toast(e.message, true); });
             });
         });
-        mi("删除", function () {
-            confirmModal("确定删除收藏「" + meta.name + "」？", function () {
+        mi("删除（可回收）", "delete", function () {
+            confirmModal("将收藏「" + meta.name + "」移入回收站？", function () {
                 Bridge.del([meta.id]).then(function () {
-                    removeItemLocal(meta.id); toast("已删除");
+                    removeItemLocal(meta.id); toast("已移入回收站");
                 }).catch(function (e) { toast(e.message, true); });
             });
         });
         sep();
-        mi("打开收藏文件夹", function () { Bridge.openFolder(meta.id); });
-        mi("导出到素材包…", function () { exportPackPrompt([meta.id], meta.name); });
+        mi("打开收藏文件夹", "folder_open", function () { Bridge.openFolder(meta.id); });
+        mi("导出到素材包…", "package_2", function () { exportPackPrompt([meta.id], meta.name); });
 
         document.body.appendChild(menu);
 
@@ -1818,6 +1890,7 @@
         mi("去重清理…", "delete_sweep", showDuplicateCleaner);
         mi("导入素材包…", "package_2", importPackPrompt);
         mi("管理分组…", "folder", showGroupManager);
+        mi("回收站…", "delete", showTrashModal);
         document.body.appendChild(menu);
 
         var r = anchor.getBoundingClientRect();
@@ -1928,6 +2001,86 @@
         renderTagList(list);
     }
 
+    // ---------------- 回收站 ----------------
+    function showTrashModal() {
+        closeModal();
+        var mask = el("div", "modal-mask");
+        mask.id = "modal";
+        var modal = el("div", "modal");
+        modal.style.width = "320px";
+        modal.appendChild(el("div", "modal-title", "回收站"));
+        var body = el("div");
+        var list = el("div", "tag-mgr-list");
+        list.id = "trashList";
+        body.appendChild(list);
+        modal.appendChild(body);
+        var actions = el("div", "modal-actions");
+        var emptyBtn = el("button", "bar-btn danger", "清空回收站");
+        var closeBtn = el("button", "bar-btn primary", "关闭");
+        actions.appendChild(emptyBtn);
+        actions.appendChild(closeBtn);
+        modal.appendChild(actions);
+        mask.appendChild(modal);
+        document.body.appendChild(mask);
+        closeBtn.addEventListener("click", function () { closeModal(); refreshAll(); });
+        emptyBtn.addEventListener("click", function () {
+            confirmModal("彻底清空回收站？此操作不可恢复。", function () {
+                Bridge.trashPurge().then(function () {
+                    renderTrashList(list);
+                    refreshAll();
+                    toast("回收站已清空");
+                }).catch(function (e) { toast(e.message, true); });
+            });
+        });
+        mask.addEventListener("click", function (e) { if (e.target === mask) { closeModal(); refreshAll(); } });
+
+        renderTrashList(list);
+    }
+
+    function renderTrashList(list) {
+        list.innerHTML = "";
+        Bridge.trashList().then(function (data) {
+            var items = data.items || [];
+            if (items.length === 0) {
+                list.appendChild(el("div", "modal-msg", "回收站是空的。\n删除的素材会先移到这里，可随时恢复。"));
+                return;
+            }
+            var note = el("div", "tool-note", "共 " + items.length + " 项。恢复后回到原分组；彻底删除不可恢复。");
+            list.appendChild(note);
+            items.forEach(function (m) {
+                var row = el("div", "tag-mgr-row");
+                var nameIc = el("span", "msym", m.kind === "Style" ? "format_paint" : "category");
+                nameIc.setAttribute("aria-hidden", "true");
+                nameIc.style.color = "var(--text-sub)";
+                var nm = el("span", "tag-mgr-name", m.name + "（" + (m.kind === "Style" ? "样式" : "形状") + "）");
+                row.appendChild(nameIc);
+                row.appendChild(nm);
+                var restore = el("button", "tag-mgr-btn", "恢复");
+                restore.addEventListener("click", function () {
+                    Bridge.trashRestore(m.id).then(function () {
+                        renderTrashList(list);
+                        refreshAll();
+                        toast("已恢复");
+                    }).catch(function (e) { toast(e.message, true); });
+                });
+                var purge = el("button", "tag-mgr-btn danger", "彻底删除");
+                purge.addEventListener("click", function () {
+                    confirmModal("彻底删除「" + m.name + "」？不可恢复。", function () {
+                        Bridge.trashPurgeOne(m.id).then(function () {
+                            renderTrashList(list);
+                            toast("已彻底删除");
+                        }).catch(function (e) { toast(e.message, true); });
+                    });
+                });
+                row.appendChild(restore);
+                row.appendChild(purge);
+                list.appendChild(row);
+            });
+        }).catch(function (e) {
+            list.appendChild(el("div", "modal-msg", "加载失败：" + e.message));
+        });
+    }
+
     function renderTagList(list) {
         list.innerHTML = "";
         state._tagCounts = state._tagCounts || {};
@@ -1997,12 +2150,12 @@
             modal.appendChild(body);
             var actions = el("div", "modal-actions");
             if (dups.length > 0) {
-                var delBtn = el("button", "bar-btn danger", "删除所选");
+                var delBtn = el("button", "bar-btn danger", "移入回收站");
                 delBtn.addEventListener("click", function () {
                     var ids = Array.prototype.map.call(list.querySelectorAll("input:checked"), function (c) { return c.dataset.id; });
                     if (ids.length === 0) return;
                     Bridge.del(ids).then(function () {
-                        closeModal(); refreshAll(); toast("已删除 " + ids.length + " 条重复项");
+                        closeModal(); refreshAll(); toast("已移入回收站 " + ids.length + " 条重复项");
                     }).catch(function (e) { toast(e.message, true); });
                 });
                 actions.appendChild(delBtn);

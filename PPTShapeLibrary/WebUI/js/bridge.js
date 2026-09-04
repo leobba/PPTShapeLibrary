@@ -114,6 +114,11 @@
         getSettings: function () { return send("getSettings"); },
         saveSettings: function (patch) { return send("saveSettings", { patch: patch }); },
         undo: function () { return send("undo", {}); },
+        redo: function () { return send("redo", {}); },
+        trashList: function () { return send("trashList", {}); },
+        trashRestore: function (id) { return send("trashRestore", { id: id }); },
+        trashPurge: function () { return send("trashPurge", {}); },
+        trashPurgeOne: function (id) { return send("trashPurgeOne", { id: id }); },
         scanDuplicates: function () { return send("scanDuplicates", {}); },
         renameTag: function (oldTag, newTag) { return send("renameTag", { oldTag: oldTag, newTag: newTag }); },
         deleteTag: function (tag) { return send("deleteTag", { tag: tag }); },
@@ -138,6 +143,7 @@
         academicExportPdf: function (p) { return send("academicExportPdf", p || {}); },
         academicExportOutline: function (p) { return send("academicExportOutline", p || {}); },
         academicBeautifyChart: function (p) { return send("academicBeautifyChart", p || {}); },
+        insertTemplatePack: function (p) { return send("insertTemplatePack", p || {}); },
         log: function (level, message) { return send("log", { level: level, message: message }); }
     };
 })();

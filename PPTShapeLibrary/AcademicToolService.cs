@@ -238,5 +238,96 @@ namespace PPTShapeLibrary
         }
 
         // ================= A3 已移除：参考文献（不再提供） =================
+
+        // ================= 成套模板页插入 =================
+
+        /// <summary>在文稿末尾插入一套结构页（封面/目录/内容×N/结束），type 为成套名。返回插入页数。</summary>
+        public static TextToolService.ToolResult InsertTemplatePack(string type, int contentSlides)
+        {
+            try
+            {
+                var pres = App.ActivePresentation;
+                if (pres == null) return Err("没有打开的演示文稿。");
+                if (contentSlides < 1) contentSlides = 1;
+                if (contentSlides > 6) contentSlides = 6;
+                int made = 0;
+                float sw = (float)pres.PageSetup.SlideWidth;
+                float sh = (float)pres.PageSetup.SlideHeight;
+
+                string packName = type;
+                var slide = pres.Slides.Add(pres.Slides.Count + 1, PowerPoint.PpSlideLayout.ppLayoutBlank);
+                DrawPackPage(slide, "封面", packName, sw, sh, 0);
+                made++;
+
+                slide = pres.Slides.Add(pres.Slides.Count + 1, PowerPoint.PpSlideLayout.ppLayoutBlank);
+                DrawPackPage(slide, "目录", "", sw, sh, 1);
+                made++;
+
+                for (int i = 1; i <= contentSlides; i++)
+                {
+                    slide = pres.Slides.Add(pres.Slides.Count + 1, PowerPoint.PpSlideLayout.ppLayoutBlank);
+                    DrawPackPage(slide, "内容", "第 " + i + " 部分", sw, sh, 2);
+                    made++;
+                }
+
+                slide = pres.Slides.Add(pres.Slides.Count + 1, PowerPoint.PpSlideLayout.ppLayoutBlank);
+                DrawPackPage(slide, "结束", "感谢聆听 · 请多指教", sw, sh, 3);
+                made++;
+
+                return Ok("已插入成套模板「" + packName + "」共 " + made + " 页（封面/目录/内容/结束），请替换占位文字。", made);
+            }
+            catch (Exception ex)
+            {
+                return Err(ex.Message);
+            }
+        }
+
+        private static void DrawPackPage(PowerPoint.Slide slide, string pageKind, string title, float sw, float sh, int variant)
+        {
+            try
+            {
+                var tb = slide.Shapes.AddTextbox(MsoTextOrientation.msoTextOrientationHorizontal, sw * 0.1f, sh * 0.08f, sw * 0.8f, sh * 0.1f);
+                var tr = tb.TextFrame.TextRange;
+                tr.Font.Name = "微软雅黑";
+                tr.Font.Size = 30;
+                tr.Font.Bold = MsoTriState.msoTrue;
+                tr.Font.Color.RGB = 0x223344;
+                if (pageKind == "封面")
+                {
+                    tr.Text = "「" + title + "」";
+                    var sub = slide.Shapes.AddTextbox(MsoTextOrientation.msoTextOrientationHorizontal, sw * 0.1f, sh * 0.25f, sw * 0.8f, sh * 0.08f);
+                    sub.TextFrame.TextRange.Text = "汇报人：______\n日期：________";
+                    sub.TextFrame.TextRange.Font.Name = "微软雅黑";
+                    sub.TextFrame.TextRange.Font.Size = 18;
+                    sub.TextFrame.TextRange.Font.Color.RGB = 0x667788;
+                }
+                else if (pageKind == "目录")
+                {
+                    tr.Text = "目录";
+                    string[] lines = { "一、研究背景与意义", "二、相关工作 / 现状", "三、方法与设计", "四、实验 / 结果", "五、总结与展望" };
+                    var body = slide.Shapes.AddTextbox(MsoTextOrientation.msoTextOrientationHorizontal, sw * 0.12f, sh * 0.22f, sw * 0.7f, sh * 0.6f);
+                    var btr = body.TextFrame.TextRange;
+                    btr.Text = string.Join("\n", lines);
+                    btr.Font.Name = "微软雅黑";
+                    btr.Font.Size = 20;
+                    btr.ParagraphFormat.SpaceWithin = 1.5f;
+                }
+                else if (pageKind == "内容")
+                {
+                    tr.Text = title;
+                    var b = slide.Shapes.AddTextbox(MsoTextOrientation.msoTextOrientationHorizontal, sw * 0.1f, sh * 0.22f, sw * 0.8f, sh * 0.6f);
+                    b.TextFrame.TextRange.Text = "（在此填写内容：要点 / 图表 / 代码 / 图片）\n\n• \n• \n• ";
+                    b.TextFrame.TextRange.Font.Name = "微软雅黑";
+                    b.TextFrame.TextRange.Font.Size = 18;
+                }
+                else
+                {
+                    tr.Text = title;
+                    tr.Font.Size = 26;
+                    tr.Font.Color.RGB = 0x1F6FA2;
+                }
+            }
+            catch { }
+        }
     }
 }

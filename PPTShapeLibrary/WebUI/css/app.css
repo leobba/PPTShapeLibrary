@@ -775,6 +775,20 @@ html, body {
 }
 .card.skeleton .sk-img { height: 66px; margin: 5px; }
 .card.skeleton .sk-line { height: 9px; margin: 3px 7px; width: 70%; }
+
+/* 我的收藏星标（左上） */
+.mine-star {
+    position: absolute;
+    left: 5px; top: 5px;
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: rgba(255,255,255,.9);
+    color: #E8A33C;
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: none;
+    box-shadow: 0 1px 3px rgba(0,0,0,.12);
+}
+.mine-star .msym { font-size: 13px; }
 /* ============ 空状态 ============ */
 .empty-state {
     position: absolute;
@@ -875,6 +889,14 @@ html, body {
 }
 .ctx-menu .mi:hover { background: var(--accent-soft); color: var(--accent); }
 .ctx-menu .sep { height: 1px; background: var(--border); margin: 4px 6px; }
+.ctx-menu .mi-info {
+    display: flex; align-items: center; gap: 7px;
+    padding: 5px 12px;
+    color: var(--text-sub);
+    font-size: 10.5px;
+    white-space: nowrap;
+}
+.ctx-menu .mi-info .msym { font-size: 14px; color: var(--accent); }
 
 /* ============ 覆盖层：Lightbox 大图预览 ============ */
 .lightbox-mask {

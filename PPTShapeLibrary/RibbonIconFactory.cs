@@ -164,6 +164,7 @@ namespace PPTShapeLibrary
                 case "Tool9":            return Color.FromArgb(0x3A, 0x6E, 0xA5); // 靛蓝：页脚
                 case "Tool10":           return Color.FromArgb(0xC6, 0x3D, 0x2F); // 红：PDF
                 case "Tool11":           return Color.FromArgb(0x4C, 0x8B, 0x5C); // 绿：图表
+                case "Tool12":           return Color.FromArgb(0xE0, 0x8A, 0x2E); // 橙金：成套模板
                 case "Settings":         return Color.FromArgb(0x60, 0x6B, 0x7A); // 灰
                 case "Advanced":         return Color.FromArgb(0x55, 0x6B, 0x8A); // 靛
                 default:                 return Color.FromArgb(0x1B, 0x5E, 0xAB);
@@ -189,6 +190,7 @@ namespace PPTShapeLibrary
         public const string Tool9Icon = "text_snippet";      // 页脚页码
         public const string Tool10Icon = "picture_as_pdf";   // 导出PDF
         public const string Tool11Icon = "bar_chart";        // 图表美化
+        public const string Tool12Icon = "view_day";         // 成套模板
         public const string SettingsIcon = "settings";
 
         public const string CollectShapesIcon = "content_copy";
