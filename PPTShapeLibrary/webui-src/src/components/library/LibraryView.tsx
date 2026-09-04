@@ -77,6 +77,7 @@ export default function LibraryView({
   const [preview, setPreview] = useState<ListItem | null>(null);
   const [hoverImg, setHoverImg] = useState<string | null>(null);
   const [showTrash, setShowTrash] = useState(false);
+  const [showGroups, setShowGroups] = useState(false);
 
   const groups = useMemo(() => ["全部", ...(init?.groups || [])], [init]);
   const cats = useMemo(() => {
@@ -130,6 +131,9 @@ export default function LibraryView({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={() => setShowGroups(true)}>
+              <Folder className="size-4" /> 管理分组
+            </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setShowTrash(true)}>
               <Trash2 className="size-4" /> 回收站
             </DropdownMenuItem>
@@ -194,22 +198,45 @@ export default function LibraryView({
 
         {/* 主区 */}
         <div className="flex min-w-0 flex-1 flex-col">
-          {/* 顶部二级分类胶囊 */}
-          <div className="flex items-center gap-1 overflow-x-auto border-b bg-card/40 px-2 py-1.5">
-            {cats.map((c) => (
-              <button
-                key={c}
-                onClick={() => lib.setCategory(c)}
-                className={
-                  "shrink-0 rounded-full px-2.5 py-1 text-xs transition-colors " +
-                  (lib.category === c
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-muted")
-                }
-              >
-                {c}
-              </button>
-            ))}
+          {/* 类型段选 + 二级分类胶囊 */}
+          <div className="flex items-center gap-1 border-b bg-card/40 px-2 py-1.5">
+            <div className="flex shrink-0 items-center gap-0.5 rounded-full bg-muted p-0.5">
+              {[
+                ["全部", "全部"],
+                ["形状", "Shape"],
+                ["样式", "Style"],
+              ].map(([label, val]) => (
+                <button
+                  key={val}
+                  onClick={() => lib.setKind(val)}
+                  className={
+                    "rounded-full px-2 py-0.5 text-xs transition-colors " +
+                    (lib.kind === val
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground")
+                  }
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <Separator orientation="vertical" className="mx-1 h-4 shrink-0" />
+            <div className="flex items-center gap-1 overflow-x-auto">
+              {cats.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => lib.setCategory(c)}
+                  className={
+                    "shrink-0 rounded-full px-2.5 py-1 text-xs transition-colors " +
+                    (lib.category === c
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-muted")
+                  }
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* 状态行 */}
@@ -234,28 +261,44 @@ export default function LibraryView({
           {/* 卡片网格（移出网格区清除 hover 预览） */}
           <div className="min-h-0 flex-1" onMouseLeave={() => setHoverImg(null)}>
             <ScrollArea className="h-full">
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2 p-2.5">
-                {items.map((item) => (
-                  <ItemCard
-                    key={item.id}
-                    item={item}
-                    selected={selected.has(item.id)}
-                    onToggle={() => lib.toggleSelect(item.id)}
-                    onPreview={() => setPreview(item)}
-                    onHover={setHoverImg}
-                    onInsert={() => bridge.insert(item.id).then(() => lib.reload(true))}
-                    onChanged={() => lib.refreshMeta()}
-                  />
-                ))}
-                {lib.loading &&
-                  items.length === 0 &&
-                  Array.from({ length: 8 }).map((_, i) => (
-                    <div key={i} className="flex flex-col gap-1.5">
-                      <Skeleton className="aspect-[1/.92] w-full rounded-lg" />
-                      <Skeleton className="h-3 w-3/4" />
-                    </div>
+              {!lib.loading && items.length === 0 ? (
+                <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
+                  <Folder className="size-9 text-muted-foreground/40" />
+                  <p className="text-sm font-medium text-muted-foreground">
+                    {lib.group !== "全部" || lib.category !== "全部" || lib.kind !== "全部" || lib.filter || lib.tag
+                      ? "没有符合筛选条件的素材"
+                      : "素材库还是空的"}
+                  </p>
+                  <p className="max-w-xs text-xs text-muted-foreground/70">
+                    {lib.group !== "全部" || lib.category !== "全部" || lib.kind !== "全部" || lib.filter || lib.tag
+                      ? "试试清空搜索词、切换一级分组 / 二级分类 / 类型 / 标签"
+                      : "在演示文稿中选中形状，点击「素材库」选项卡里的「收藏形状」/「收藏整页」/「收藏样式」等收录素材"}
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2 p-2.5">
+                  {items.map((item) => (
+                    <ItemCard
+                      key={item.id}
+                      item={item}
+                      selected={selected.has(item.id)}
+                      onToggle={() => lib.toggleSelect(item.id)}
+                      onPreview={() => setPreview(item)}
+                      onHover={setHoverImg}
+                      onInsert={() => bridge.insert(item.id).then(() => lib.reload(true))}
+                      onChanged={() => lib.refreshMeta()}
+                    />
                   ))}
-              </div>
+                  {lib.loading &&
+                    items.length === 0 &&
+                    Array.from({ length: 8 }).map((_, i) => (
+                      <div key={i} className="flex flex-col gap-1.5">
+                        <Skeleton className="aspect-[1/.92] w-full rounded-lg" />
+                        <Skeleton className="h-3 w-3/4" />
+                      </div>
+                    ))}
+                </div>
+              )}
             </ScrollArea>
           </div>
 
@@ -337,6 +380,15 @@ export default function LibraryView({
         <TrashDialog
           onClose={() => {
             setShowTrash(false);
+            lib.refreshMeta();
+          }}
+        />
+      )}
+      {showGroups && (
+        <GroupDialog
+          groups={init?.groups || []}
+          onClose={() => {
+            setShowGroups(false);
             lib.refreshMeta();
           }}
         />
@@ -523,6 +575,79 @@ function TrashDialog({ onClose }: { onClose: () => void }) {
             </Button>
           </div>
         )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** 管理分组（一级）：列出全部组，可新建自定义组；预设组只读 */
+function GroupDialog({ groups, onClose }: { groups: string[]; onClose: () => void }) {
+  const presets = ["我的", "模板", "素材", "文字", "背景", "图例"];
+  const custom = groups.filter((g) => !presets.includes(g));
+  const [list, setList] = useState<string[]>(custom);
+  const refresh = () => {
+    bridge.init().then((d) => {
+      setList((d.groups || []).filter((g: string) => !presets.includes(g)));
+      onClose();
+    });
+  };
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>管理一级分组</DialogTitle>
+          <DialogDescription>预设组不可改；自定义组可重命名/删除（条目归「我的」）。</DialogDescription>
+        </DialogHeader>
+        <div className="flex max-h-[45vh] flex-col gap-1.5 overflow-y-auto">
+          {list.length === 0 && (
+            <p className="py-4 text-center text-xs text-muted-foreground">暂无自定义分组。</p>
+          )}
+          {list.map((g) => (
+            <div key={g} className="flex items-center justify-between rounded-md border px-2 py-1.5 text-xs">
+              <span className="truncate">{g}</span>
+              <span className="flex shrink-0 gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-[11px]"
+                  onClick={() => {
+                    const n = prompt("重命名分组为：", g);
+                    if (n?.trim() && n.trim() !== g)
+                      bridge.renameGroup(g, n.trim()).then(refresh);
+                  }}
+                >
+                  重命名
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="h-6 px-2 text-[11px]"
+                  onClick={() => {
+                    if (confirm("删除分组「" + g + "」？其下条目移到「我的」。"))
+                      bridge.deleteGroup(g).then(refresh);
+                  }}
+                >
+                  删除
+                </Button>
+              </span>
+            </div>
+          ))}
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const n = prompt("新建一级分组名称：");
+              if (n?.trim()) bridge.createGroup(n.trim()).then(refresh);
+            }}
+          >
+            新建分组
+          </Button>
+          <Button size="sm" onClick={onClose}>
+            完成
+          </Button>
+        </div>
       </DialogContent>
     </Dialog>
   );
