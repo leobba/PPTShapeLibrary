@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { bridge, ListItem } from "@/lib/bridge";
 import { useLibrary } from "@/hooks/useLibrary";
+import { dialogs } from "@/lib/dialogs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -239,7 +240,7 @@ export default function LibraryView({
               onSelect={() => {
                 bridge.importPictures().then((d) => {
                   lib.refreshMeta();
-                  alert("已导入 " + (d.imported || 0) + " 张图片到 素材 › 图片");
+                  dialogs.alert("已导入 " + (d.imported || 0) + " 张图片到 素材 › 图片");
                 });
               }}
             >
@@ -285,8 +286,11 @@ export default function LibraryView({
           <Separator className="my-1" />
           <button
             className="flex flex-col items-center gap-1 rounded-lg border border-dashed px-0.5 py-2 text-[10px] text-muted-foreground hover:border-primary hover:text-primary"
-            onClick={() => {
-              const name = prompt("新建一级分组名称：");
+            onClick={async () => {
+              const name = await dialogs.prompt("新建一级分组名称：", {
+                placeholder: "如：课程作业",
+                okText: "创建",
+              });
               if (name?.trim()) bridge.createGroup(name.trim()).then(() => lib.refreshMeta());
             }}
           >
@@ -564,8 +568,12 @@ export default function LibraryView({
             variant="outline"
             size="sm"
             className="h-7 text-xs"
-            onClick={() => {
-              const c = prompt("输入二级分类（已有或新分类）：", lib.category !== "全部" ? lib.category : "");
+            onClick={async () => {
+              const c = await dialogs.prompt("输入二级分类（已有或新分类）：", {
+                initial: lib.category !== "全部" ? lib.category : "",
+                placeholder: "如：箭头",
+                okText: "移动",
+              });
               if (c?.trim()) {
                 const ids = Array.from(selected);
                 bridge
@@ -585,8 +593,12 @@ export default function LibraryView({
             variant="outline"
             size="sm"
             className="h-7 text-xs"
-            onClick={() => {
-              const g = prompt("输入一级分组（已有或新分组）：", lib.group !== "全部" ? lib.group : "");
+            onClick={async () => {
+              const g = await dialogs.prompt("输入一级分组（已有或新分组）：", {
+                initial: lib.group !== "全部" ? lib.group : "",
+                placeholder: "如：课程作业",
+                okText: "移动",
+              });
               if (g?.trim()) {
                 const ids = Array.from(selected);
                 bridge
@@ -850,8 +862,11 @@ function ItemCard({
         <ContextMenuItem onSelect={onPreview}>预览大图…</ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem
-          onSelect={() => {
-            const g = prompt("输入一级分组（不存在将新建）：", item.group || "我的");
+          onSelect={async () => {
+            const g = await dialogs.prompt("输入一级分组（不存在将新建）：", {
+              initial: item.group || "我的",
+              okText: "移动",
+            });
             if (g?.trim())
               bridge
                 .createGroup(g.trim())
@@ -862,25 +877,31 @@ function ItemCard({
           移动到分组…
         </ContextMenuItem>
         <ContextMenuItem
-          onSelect={() => {
-            const c = prompt("分类名称（输入新分类或已有分类）：", item.category || "");
+          onSelect={async () => {
+            const c = await dialogs.prompt("分类名称（输入新分类或已有分类）：", {
+              initial: item.category || "",
+              okText: "移动",
+            });
             if (c?.trim()) bridge.setCategory(item.id, c.trim()).then(onChanged);
           }}
         >
           移动到分类…
         </ContextMenuItem>
         <ContextMenuItem
-          onSelect={() => {
-            const n = prompt("新名称：", item.name);
+          onSelect={async () => {
+            const n = await dialogs.prompt("重命名收藏", {
+              initial: item.name,
+              okText: "重命名",
+            });
             if (n?.trim()) bridge.rename(item.id, n.trim()).then(onChanged);
           }}
         >
           重命名
         </ContextMenuItem>
         <ContextMenuItem
-          onSelect={() => {
+          onSelect={async () => {
             const cur = (item.tags || []).join(",");
-            const t = prompt("标签（多个用逗号分隔）：", cur);
+            const t = await dialogs.prompt("标签（多个用逗号分隔）：", { initial: cur, okText: "保存" });
             if (t !== null) bridge.setTags(item.id, t.trim()).then(onChanged);
           }}
         >
@@ -901,8 +922,13 @@ function ItemCard({
         <ContextMenuSeparator />
         <ContextMenuItem
           className="text-destructive focus:text-destructive"
-          onSelect={() => {
-            if (confirm("将「" + item.name + "」移入回收站？")) bridge.del([item.id]).then(onChanged);
+          onSelect={async () => {
+            const ok = await dialogs.confirm("将「" + item.name + "」移入回收站？", {
+              title: "移入回收站",
+              okText: "移入回收站",
+              danger: true,
+            });
+            if (ok) bridge.del([item.id]).then(onChanged);
           }}
         >
           移入回收站
@@ -959,8 +985,13 @@ function TrashDialog({ onClose }: { onClose: () => void }) {
                     variant="destructive"
                     size="sm"
                     className="h-6 px-2 text-[11px]"
-                    onClick={() => {
-                      if (confirm("彻底删除「" + m.name + "」？不可恢复。")) bridge.trashPurgeOne(m.id).then(refresh);
+                    onClick={async () => {
+                      const ok = await dialogs.confirm("彻底删除「" + m.name + "」？此操作不可恢复。", {
+                        title: "彻底删除",
+                        okText: "彻底删除",
+                        danger: true,
+                      });
+                      if (ok) bridge.trashPurgeOne(m.id).then(refresh);
                     }}
                   >
                     删除
@@ -975,8 +1006,13 @@ function TrashDialog({ onClose }: { onClose: () => void }) {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
-                if (confirm("清空回收站？不可恢复。")) bridge.trashPurge().then(refresh);
+              onClick={async () => {
+                const ok = await dialogs.confirm("清空回收站？此操作不可恢复。", {
+                  title: "清空回收站",
+                  okText: "清空",
+                  danger: true,
+                });
+                if (ok) bridge.trashPurge().then(refresh);
               }}
             >
               清空回收站
@@ -1018,10 +1054,9 @@ function GroupDialog({ groups, onClose }: { groups: string[]; onClose: () => voi
                   variant="outline"
                   size="sm"
                   className="h-6 px-2 text-[11px]"
-                  onClick={() => {
-                    const n = prompt("重命名分组为：", g);
-                    if (n?.trim() && n.trim() !== g)
-                      bridge.renameGroup(g, n.trim()).then(refresh);
+                  onClick={async () => {
+                    const n = await dialogs.prompt("重命名分组为：", { initial: g, okText: "重命名" });
+                    if (n?.trim() && n.trim() !== g) bridge.renameGroup(g, n.trim()).then(refresh);
                   }}
                 >
                   重命名
@@ -1030,9 +1065,13 @@ function GroupDialog({ groups, onClose }: { groups: string[]; onClose: () => voi
                   variant="destructive"
                   size="sm"
                   className="h-6 px-2 text-[11px]"
-                  onClick={() => {
-                    if (confirm("删除分组「" + g + "」？其下条目移到「我的」。"))
-                      bridge.deleteGroup(g).then(refresh);
+                  onClick={async () => {
+                    const ok = await dialogs.confirm("删除分组「" + g + "」？其下条目移到「我的」。", {
+                      title: "删除分组",
+                      okText: "删除",
+                      danger: true,
+                    });
+                    if (ok) bridge.deleteGroup(g).then(refresh);
                   }}
                 >
                   删除
@@ -1045,8 +1084,8 @@ function GroupDialog({ groups, onClose }: { groups: string[]; onClose: () => voi
           <Button
             variant="outline"
             size="sm"
-            onClick={() => {
-              const n = prompt("新建一级分组名称：");
+            onClick={async () => {
+              const n = await dialogs.prompt("新建一级分组名称：", { placeholder: "如：课程作业", okText: "创建" });
               if (n?.trim()) bridge.createGroup(n.trim()).then(refresh);
             }}
           >
@@ -1104,8 +1143,8 @@ function TagDialog({ onClose }: { onClose: () => void }) {
                     variant="outline"
                     size="sm"
                     className="h-6 px-2 text-[11px]"
-                    onClick={() => {
-                      const n = prompt("重命名标签为：", t.name);
+                    onClick={async () => {
+                      const n = await dialogs.prompt("重命名标签为：", { initial: t.name, okText: "重命名" });
                       if (n?.trim() && n.trim() !== t.name)
                         bridge.renameTag(t.name, n.trim()).then(refresh);
                     }}
@@ -1116,9 +1155,13 @@ function TagDialog({ onClose }: { onClose: () => void }) {
                     variant="destructive"
                     size="sm"
                     className="h-6 px-2 text-[11px]"
-                    onClick={() => {
-                      if (confirm('从所有素材删除标签「' + t.name + '」？'))
-                        bridge.deleteTag(t.name).then(refresh);
+                    onClick={async () => {
+                      const ok = await dialogs.confirm("从所有素材删除标签「" + t.name + "」？", {
+                        title: "删除标签",
+                        okText: "删除",
+                        danger: true,
+                      });
+                      if (ok) bridge.deleteTag(t.name).then(refresh);
                     }}
                   >
                     删除
@@ -1153,9 +1196,11 @@ function DuplicatesDialog({ onClose }: { onClose: () => void }) {
         // 默认全选可删项
         setChecked(new Set(arr.map((x) => x.id)));
       })
-      .catch((e: Error) => alert("扫描失败：" + e.message));
+      .catch((e: Error) => dialogs.alert("扫描失败：" + e.message));
   };
-  useEffect(scan, []); // eslint-disable-line
+  useEffect(() => {
+    scan();
+  }, []); // eslint-disable-line
   const toggle = (id: string) => {
     setChecked((prev) => {
       const next = new Set(prev);
@@ -1200,12 +1245,19 @@ function DuplicatesDialog({ onClose }: { onClose: () => void }) {
             <Button
               size="sm"
               disabled={checked.size === 0}
-              onClick={() => {
+              onClick={async () => {
                 const ids = Array.from(checked);
-                if (confirm("将 " + ids.length + " 条重复项移入回收站？（保留最早收藏）")) {
-                  bridge.del(ids).then(() => {
-                    onClose();
-                  }).catch((e: Error) => alert("删除失败：" + e.message));
+                const ok = await dialogs.confirm(
+                  "将 " + ids.length + " 条重复项移入回收站？（保留最早收藏）",
+                  { title: "移入回收站", okText: "移入回收站", danger: true }
+                );
+                if (ok) {
+                  bridge
+                    .del(ids)
+                    .then(() => {
+                      onClose();
+                    })
+                    .catch((e: Error) => dialogs.alert("删除失败：" + e.message));
                 }
               }}
             >
