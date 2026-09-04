@@ -58,8 +58,21 @@ namespace PPTShapeLibrary
         {
             try
             {
+                UnhookAppEvents();
                 BridgeController.SettingsSaved -= OnSettingsSaved;
                 if (_refreshDebounce != null) { _refreshDebounce.Stop(); _refreshDebounce.Dispose(); _refreshDebounce = null; }
+                // 释放宿主（WebView2 底层进程与 userData 锁随之释放，避免残留实例占用 profile）
+                var host = _paneControl as WebPaneHost;
+                try
+                {
+                    if (host != null)
+                    {
+                        host.PrepareShutdown();
+                        _paneControl = null;
+                        _paneHost = null;
+                    }
+                }
+                catch { }
             }
             catch { }
         }
@@ -80,11 +93,13 @@ namespace PPTShapeLibrary
             }
         }
 
-        /// <summary>订阅演示文稿生命周期事件：打开/关闭/新建/激活/停用任一演示文稿时防抖刷新素材库。</summary>
+        /// <summary>订阅演示文稿生命周期事件：打开/关闭/新建/激活/停用任一演示文稿时防抖刷新素材库。幂等：重复调用不重复订阅。</summary>
+        private bool _appEventsHooked = false;
         private void HookAppEvents()
         {
             try
             {
+                if (_appEventsHooked) return;
                 var app = this.Application;
                 if (app == null) return;
                 // 经 ApplicationEvents_Event 事件接口订阅
@@ -92,11 +107,32 @@ namespace PPTShapeLibrary
                 events.NewPresentation += OnNewPres;
                 events.PresentationOpen += OnPresOpen;
                 events.PresentationClose += OnPresClose;
+                _appEventsHooked = true;
                 Log.Write("App events hooked");
             }
             catch (Exception ex)
             {
                 Log.Error(ex, "HookAppEvents");
+            }
+        }
+
+        private void UnhookAppEvents()
+        {
+            try
+            {
+                if (!_appEventsHooked) return;
+                var app = this.Application;
+                if (app == null) return;
+                var events = (PowerPoint.EApplication_Event)app;
+                events.NewPresentation -= OnNewPres;
+                events.PresentationOpen -= OnPresOpen;
+                events.PresentationClose -= OnPresClose;
+                _appEventsHooked = false;
+                Log.Write("App events unhooked");
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "UnhookAppEvents");
             }
         }
 

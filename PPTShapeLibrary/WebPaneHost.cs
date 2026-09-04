@@ -136,6 +136,25 @@ namespace PPTShapeLibrary
             get { return _failed; }
         }
 
+        /// <summary>关闭前释放 WebView2 宿主（停止导航、释放底层进程与 userData 文件锁）。</summary>
+        public void PrepareShutdown()
+        {
+            try
+            {
+                if (_webView != null)
+                {
+                    try { _webView.Dispose(); } catch { }
+                    _webView = null;
+                }
+                _bridge = null;
+                _initialized = false;
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "WebPaneHost.PrepareShutdown");
+            }
+        }
+
         // ---------------- ILibraryPane ----------------
 
         public void RefreshLibrary()
