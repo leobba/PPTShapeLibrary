@@ -258,7 +258,8 @@ namespace PPTShapeLibrary
             }
         }
 
-        /// <summary>彻底删除（回收站内清除）。</summary>
+        /// <summary>彻底删除（仅回收站内清除）。注意：不触碰 items 下可能同名的新条目，
+        /// 避免"软删后从备份恢复的同 id 条目被回收站彻底删除连带误删"。</summary>
         public static void HardDelete(string id)
         {
             if (!IsSafeId(id)) { Log.Error(new Exception("HardDelete: unsafe id=" + (id ?? "")), "Security"); return; }
@@ -266,12 +267,6 @@ namespace PPTShapeLibrary
             if (Directory.Exists(dir))
             {
                 try { Directory.Delete(dir, true); } catch { }
-            }
-            // 也兜底 items 下残留
-            string item = Path.Combine(ItemsDir, id);
-            if (Directory.Exists(item))
-            {
-                try { Directory.Delete(item, true); } catch { }
             }
             InvalidateCache();
         }

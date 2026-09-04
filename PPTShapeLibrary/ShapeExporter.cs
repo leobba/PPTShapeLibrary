@@ -1480,19 +1480,26 @@ namespace PPTShapeLibrary
             PowerPoint.Presentation tempPres = null;
             try
             {
+                // 先读原图像素尺寸，按等比（长边≤640）计算目标尺寸，避免 AddPicture 固定尺寸拉伸变形
+                int srcW = 640, srcH = 360;
+                try
+                {
+                    using (var img = System.Drawing.Image.FromFile(filePath))
+                    {
+                        srcW = img.Width; srcH = img.Height;
+                    }
+                }
+                catch { }
+                if (srcW <= 0 || srcH <= 0) { srcW = 640; srcH = 360; }
+                float scale = System.Math.Min(1f, System.Math.Min(640f / srcW, 360f / srcH));
+                int dw = System.Math.Max(1, (int)(srcW * scale));
+                int dh = System.Math.Max(1, (int)(srcH * scale));
+
                 tempPres = App.Presentations.Add(MsoTriState.msoFalse);
                 tempPres.PageSetup.SlideSize = PowerPoint.PpSlideSizeType.ppSlideSizeOnScreen;
                 var slide = tempPres.Slides.Add(1, PowerPoint.PpSlideLayout.ppLayoutBlank);
-                var pic = slide.Shapes.AddPicture(filePath, MsoTriState.msoFalse, MsoTriState.msoTrue, 0, 0, 640, 360);
+                var pic = slide.Shapes.AddPicture(filePath, MsoTriState.msoFalse, MsoTriState.msoTrue, 0, 0, dw, dh);
                 if (pic == null) return null;
-                // 等比适配
-                try
-                {
-                    float pw = (float)pic.Width, ph = (float)pic.Height;
-                    float scale = System.Math.Min(640f / pw, 360f / ph);
-                    pic.Width = pw * scale; pic.Height = ph * scale;
-                }
-                catch { }
 
                 string id = ShapeLibraryService.NewId();
                 ShapeLibraryService.CreateItemDir(id);
