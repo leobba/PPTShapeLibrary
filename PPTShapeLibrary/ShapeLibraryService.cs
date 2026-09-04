@@ -751,11 +751,38 @@ namespace PPTShapeLibrary
             }
         }
 
-        /// <summary>从 .zip 备份恢复收藏库（覆盖现有 items 内容）。</summary>
+        /// <summary>从 .zip 备份恢复收藏库（覆盖现有 items 内容）。两阶段：先安全解压到临时目录并校验，
+        /// 成功后再替换，避免 zip 损坏/恶意路径导致现有收藏丢失或路径穿越。</summary>
         public static bool RestoreFrom(string zipPath)
         {
+            string tmp = null;
             try
             {
+                tmp = Path.Combine(Path.GetTempPath(), "PPTShapeLibrary_restore_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(tmp);
+                string itemsRoot = Path.GetFullPath(tmp) + Path.DirectorySeparatorChar;
+
+                using (var fs = File.OpenRead(zipPath))
+                using (var zip = new System.IO.Compression.ZipArchive(fs, System.IO.Compression.ZipArchiveMode.Read))
+                {
+                    foreach (var entry in zip.Entries)
+                    {
+                        if (entry.FullName.EndsWith("/", StringComparison.Ordinal)) continue; // 目录项
+                        string rel = entry.FullName.Replace('\\', '/');
+                        // 安全校验：拒绝绝对路径与 .. 穿越
+                        string full = Path.GetFullPath(Path.Combine(tmp, rel.Replace('/', Path.DirectorySeparatorChar)));
+                        if (!full.StartsWith(itemsRoot, StringComparison.OrdinalIgnoreCase))
+                            throw new InvalidOperationException("备份包含非法路径：" + entry.FullName);
+                        Directory.CreateDirectory(Path.GetDirectoryName(full));
+                        using (var es = entry.Open())
+                        using (var outFs = File.Create(full))
+                        {
+                            es.CopyTo(outFs);
+                        }
+                    }
+                }
+
+                // 校验成功：清空现有 items 并替换
                 string items = ItemsDir;
                 if (Directory.Exists(items))
                 {
@@ -765,13 +792,22 @@ namespace PPTShapeLibrary
                     }
                 }
                 Directory.CreateDirectory(items);
-                System.IO.Compression.ZipFile.ExtractToDirectory(zipPath, items);
+                foreach (var sub in Directory.GetDirectories(tmp))
+                {
+                    string dest = Path.Combine(items, Path.GetFileName(sub));
+                    if (Directory.Exists(dest)) try { Directory.Delete(dest, true); } catch { }
+                    Directory.Move(sub, dest);
+                }
                 InvalidateCache();
                 return true;
             }
             catch
             {
                 return false;
+            }
+            finally
+            {
+                try { if (tmp != null && Directory.Exists(tmp)) Directory.Delete(tmp, true); } catch { }
             }
         }
     }
