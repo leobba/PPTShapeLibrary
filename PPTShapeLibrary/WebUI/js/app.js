@@ -1889,6 +1889,12 @@
         mi("标签管理…", "label", showTagManager);
         mi("去重清理…", "delete_sweep", showDuplicateCleaner);
         mi("导入素材包…", "package_2", importPackPrompt);
+        mi("导入图片…", "image", function () {
+            Bridge.importPictures().then(function (d) {
+                refreshAll();
+                toast("已导入 " + (d.imported || 0) + " 张图片到「素材 › 图片」");
+            }).catch(function (e) { toast(e.message, true); });
+        });
         mi("管理分组…", "folder", showGroupManager);
         mi("回收站…", "delete", showTrashModal);
         document.body.appendChild(menu);

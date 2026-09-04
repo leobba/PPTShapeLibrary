@@ -124,6 +124,7 @@
         deleteTag: function (tag) { return send("deleteTag", { tag: tag }); },
         exportPack: function (ids, saveAs) { return send("exportPack", { ids: ids, saveAs: saveAs }); },
         importPack: function (openFrom) { return send("importPack", { openFrom: openFrom }); },
+        importPictures: function () { return send("importPictures", {}); },
         // 工具
         toolGetFonts: function () { return send("toolGetFonts", {}); },
         applyTextStyle: function (p) { return send("applyTextStyle", p || {}); },

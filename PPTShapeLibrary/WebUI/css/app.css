@@ -531,6 +531,21 @@ html, body {
 :root[data-cardsize="standard"] .card-grid { grid-template-columns: repeat(auto-fill, minmax(102px, 1fr)); }
 :root[data-cardsize="large"] .card-grid { grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); }
 
+/* 面板宽度联动卡片尺寸：窄→紧凑卡片，宽→更大卡片 */
+@media (min-width: 420px) {
+    .card-grid { grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); }
+    .card { border-radius: var(--radius-lg); }
+    .card .thumb { min-height: 84px; }
+}
+@media (min-width: 520px) {
+    .card-grid { grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); }
+    .card .thumb { min-height: 100px; }
+}
+@media (max-width: 290px) {
+    .card-grid { grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); }
+    .g-name { font-size: 9.5px; }
+}
+
 .section-title {
     display: flex;
     align-items: center;
@@ -1057,3 +1072,130 @@ html, body {
 .grid-scroll::-webkit-scrollbar-thumb:hover { background: #9AA8B8; }
 :root[data-theme="dark"] .grid-scroll::-webkit-scrollbar-thumb { background: #39414D; }
 :root[data-theme="dark"] .grid-scroll::-webkit-scrollbar-thumb:hover { background: #4D5866; }
+
+/* ============================================================
+   组件精修层：统一聚焦环 / 更细腻阴影 / 按压微交互 / 动效质感
+   （叠加在既有组件类之上，保持离线无外部资源）
+   ============================================================ */
+
+:root {
+    --ring: 0 0 0 2px var(--accent-soft), 0 0 0 3.5px var(--accent);
+    --shadow-1: 0 1px 2px rgba(16,24,40,.06), 0 2px 6px rgba(16,24,40,.05);
+    --shadow-2: 0 4px 10px rgba(16,24,40,.07), 0 10px 26px rgba(16,24,40,.09);
+    --shadow-3: 0 10px 26px rgba(16,24,40,.12), 0 24px 60px rgba(16,24,40,.14);
+    --ease-out: cubic-bezier(.16,1,.3,1);
+    --dur: .16s;
+}
+:root[data-theme="dark"] {
+    --shadow-1: 0 1px 2px rgba(0,0,0,.35);
+    --shadow-2: 0 6px 16px rgba(0,0,0,.4);
+    --shadow-3: 0 16px 40px rgba(0,0,0,.55);
+}
+
+/* 统一聚焦环（键盘/点击可达控件） */
+.ctl:focus-visible, input:focus-visible, select:focus-visible, button:focus-visible,
+.bar-btn:focus-visible, .chip:focus-visible, .nav-tab:focus-visible {
+    outline: none;
+    box-shadow: var(--ring) !important;
+}
+.ctl:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+
+/* 按钮：按压微动效 */
+.bar-btn, .tag-mgr-btn, .nav-tab, .chip, .g-item, .g-add, .topbar-btn {
+    transition: transform var(--dur) var(--ease-out), background var(--dur) var(--ease-out),
+                box-shadow var(--dur) var(--ease-out), color var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out);
+}
+.bar-btn:active:not(:disabled), .chip:active, .g-item:active, .nav-tab:active { transform: scale(.96); }
+.bar-btn.primary {
+    background: linear-gradient(180deg, var(--accent-hover), var(--accent));
+    box-shadow: 0 1px 0 rgba(255,255,255,.18) inset, 0 1px 2px rgba(16,24,40,.18);
+}
+.bar-btn.primary:active { box-shadow: 0 1px 0 rgba(0,0,0,.1) inset; transform: scale(.97); }
+
+/* 搜索框微精修 */
+#searchInput { box-shadow: var(--shadow-1); transition: box-shadow .2s var(--ease-out), border-color .2s var(--ease-out); }
+#searchInput:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); background: var(--surface); }
+
+/* 分类胶囊 */
+.chip { font-weight: 500; }
+.chip.active { box-shadow: 0 2px 6px rgba(0,103,192,.22); }
+
+/* 侧栏分组项 active 更精致 */
+.g-item.active { box-shadow: var(--shadow-1); }
+.g-item.active .msym { font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 20; }
+
+/* 卡片：hover 抬升 + 缩略图缩放 + 聚焦环 */
+.card { transition: transform .2s var(--ease-out), box-shadow .2s var(--ease-out), border-color .2s var(--ease-out); }
+.card:hover { box-shadow: var(--shadow-2); }
+.card .thumb { transition: transform .28s var(--ease-out); }
+.card:hover .thumb { transform: scale(1.05); }
+.card.selected { box-shadow: 0 0 0 2px var(--accent), var(--shadow-2); }
+
+/* 标题条与面板头：轻玻璃 */
+.lib-topbar, .view-panel-head, .popup-head {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 82%, transparent), var(--surface));
+    backdrop-filter: saturate(150%) blur(8px);
+    -webkit-backdrop-filter: saturate(150%) blur(8px);
+}
+:root[data-theme="dark"] .lib-topbar, :root[data-theme="dark"] .view-panel-head, :root[data-theme="dark"] .popup-head {
+    background: linear-gradient(180deg, rgba(28,33,42,.9), rgba(28,33,42,.96));
+}
+
+/* 模态：更重阴影 + 入场 */
+.modal { box-shadow: var(--shadow-3); border: 1px solid var(--border); }
+.modal-mask { backdrop-filter: blur(2px); }
+.modal .modal-input { transition: border-color .2s, box-shadow .2s; }
+.modal .modal-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+/* 右键/下拉菜单 */
+.ctx-menu {
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-2);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    animation: menuIn .12s var(--ease-out);
+    background: color-mix(in srgb, var(--surface) 96%, transparent);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+@keyframes menuIn {
+    from { opacity: 0; transform: translateY(-4px) scale(.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Toast 质感 */
+.toast { box-shadow: var(--shadow-2); font-weight: 500; }
+.toast-wrap { top: 10px; }
+
+/* 空态图标与文案间距 */
+.empty-ico { opacity: .9; }
+
+/* 工具卡与表单间距优化 */
+.tool-card { box-shadow: var(--shadow-1); }
+.tool-card-title { letter-spacing: .2px; }
+.fld-label { font-weight: 500; }
+
+/* 顶栏小按钮圆润 */
+.topbar-btn { transition: background var(--dur), color var(--dur), transform var(--dur); }
+.topbar-btn:active { transform: scale(.92); }
+
+/* 弹窗内表单更宽适（避免遮挡） */
+.popup-body .tool-card { max-width: 560px; }
+.tool-card-body .fld { min-height: 30px; }
+.run-btn { min-height: 30px; }
+
+/* lightbox 图片容器轻微内衬 */
+.lb-img-wrap img { border-radius: var(--radius-md); }
+
+/* 徽章圆润 */
+.badge, .mine-star { box-shadow: 0 1px 3px rgba(0,0,0,.16); }
+
+/* 分组栏滚动条细 */
+.side-groups::-webkit-scrollbar, .view-panel-body::-webkit-scrollbar, .popup-body::-webkit-scrollbar,
+.tag-mgr-list::-webkit-scrollbar { width: 5px; }
+.side-groups::-webkit-scrollbar-thumb, .view-panel-body::-webkit-scrollbar-thumb,
+.popup-body::-webkit-scrollbar-thumb, .tag-mgr-list::-webkit-scrollbar-thumb { background: #C9D2DC; border-radius: 3px; }
+:root[data-theme="dark"] .side-groups::-webkit-scrollbar-thumb,
+:root[data-theme="dark"] .view-panel-body::-webkit-scrollbar-thumb,
+:root[data-theme="dark"] .popup-body::-webkit-scrollbar-thumb,
+:root[data-theme="dark"] .tag-mgr-list::-webkit-scrollbar-thumb { background: #39414D; }
