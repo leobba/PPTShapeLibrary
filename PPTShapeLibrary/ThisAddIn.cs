@@ -38,6 +38,8 @@ namespace PPTShapeLibrary
                     catch (Exception ex) { Log.Error(ex, "InstallAcademicTemplates"); }
                     try { ShapeExporter.InstallLibraryContent(); Log.Write("Library content installed"); }
                     catch (Exception ex) { Log.Error(ex, "InstallLibraryContent"); }
+                    try { ShapeExporter.GenerateSamplePictures(); Log.Write("Sample pictures installed"); }
+                    catch (Exception ex) { Log.Error(ex, "GenerateSamplePictures"); }
                     try { ShapeExporter.EnsureGroupAssignments(); }
                     catch (Exception ex) { Log.Error(ex, "EnsureGroupAssignments"); }
                 };

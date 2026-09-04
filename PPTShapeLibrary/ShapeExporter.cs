@@ -1513,11 +1513,13 @@ namespace PPTShapeLibrary
             }
         }
 
-        /// <summary>程序生成示意图片（PNG 字节→临时文件→入库 素材>图片）。离线、无版权。</summary>
+        /// <summary>程序生成示意图片（PNG 字节→临时文件→入库 素材>图片）。离线、无版权。独立 marker 幂等。</summary>
         public static void GenerateSamplePictures()
         {
             try
             {
+                string marker = System.IO.Path.Combine(ShapeLibraryService.RootDir, ".samples_installed");
+                if (System.IO.File.Exists(marker)) return;
                 var types = new System.Collections.Generic.List<Tuple<string, string>>  // name, kind
                 {
                     Tuple.Create("示意·蓝紫渐变", "grad"),
@@ -1543,6 +1545,13 @@ namespace PPTShapeLibrary
                     }
                     catch (Exception ex) { Log.Error(ex, "Sample:" + t.Item1); }
                 }
+                try
+                {
+                    System.IO.File.WriteAllText(
+                        System.IO.Path.Combine(ShapeLibraryService.RootDir, ".samples_installed"),
+                        DateTime.Now.ToString());
+                }
+                catch { }
             }
             catch (Exception ex) { Log.Error(ex, "GenerateSamplePictures"); }
         }
