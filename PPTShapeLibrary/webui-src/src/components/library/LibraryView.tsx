@@ -300,7 +300,17 @@ export default function LibraryView({
               }
             }}
           >
-              {!lib.loading && items.length === 0 ? (
+              {!init && (
+                <div className="grid gap-2 p-2.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${gridMin}px, 1fr))` }}>
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <div key={i} className="flex flex-col gap-1.5">
+                      <Skeleton className="aspect-[1/.92] w-full rounded-lg" />
+                      <Skeleton className="h-3 w-3/4" />
+                    </div>
+                  ))}
+                </div>
+              )}
+              {init && !lib.loading && items.length === 0 ? (
                 <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
                   <Folder className="size-9 text-muted-foreground/40" />
                   <p className="text-sm font-medium text-muted-foreground">
