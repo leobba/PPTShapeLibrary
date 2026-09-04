@@ -167,7 +167,8 @@
   <ItemGroup>
   </ItemGroup>
   <ItemGroup>
-    <Content Include="WebUI\**\*">
+    <!-- 只发布 WebUI 构建产物；明确排除 React 源码工程与旧版备份，防误入安装包 -->
+    <Content Include="WebUI\**\*" Exclude="..\webui-src\**;..\webui-legacy\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
