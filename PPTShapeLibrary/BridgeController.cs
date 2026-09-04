@@ -15,6 +15,10 @@ namespace PPTShapeLibrary
         /// <summary>设置被保存时触发（任意宿主）；ThisAddIn 订阅后即时应用 paneWidth 等需要宿主动作的项。</summary>
         public static event Action<Settings> SettingsSaved;
 
+        /// <summary>库数据被任意宿主修改时触发（删除/改名/移动/回收站等写操作后）。各宿主订阅后刷新自己的列表，
+        /// 解决"在工具弹窗里改数据、任务窗格列表停留在旧缓存不刷新"的跨宿主不同步。</summary>
+        public static event Action RefreshRequested;
+
         private readonly CoreWebView2 _core;
         private readonly JavaScriptSerializer _json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
 
@@ -845,19 +849,26 @@ namespace PPTShapeLibrary
             return d.ContainsKey(key) && d[key] != null ? d[key].ToString() : "";
         }
 
-        /// <summary>文件名净化：去掉路径分隔符与非法字符，防止路径穿越。</summary>
+        /// <summary>文件名净化：替换路径分隔符/冒号/控制字符与 .. 段，防止路径穿越（覆盖 Windows 与便携语义）。</summary>
         private static string SanitizeFileName(string name)
         {
             if (string.IsNullOrWhiteSpace(name)) return "";
             string s = name.Trim();
-            var invalid = System.IO.Path.GetInvalidFileNameChars();
+            var invalid = new System.Collections.Generic.HashSet<char>(System.IO.Path.GetInvalidFileNameChars());
+            // 显式补：/ : 反斜杠与常见穿越字符（GetInvalidFileNameChars 在个别平台不含全量）
+            foreach (char c in new[] { '/', '\\', ':', '\0', '\n', '\r', '\t' }) invalid.Add(c);
             var chars = new List<char>();
             foreach (char c in s)
             {
-                chars.Add(Array.IndexOf(invalid, c) >= 0 ? '_' : c);
+                chars.Add(invalid.Contains(c) ? '_' : c);
             }
             string result = new string(chars.ToArray()).Trim();
+            // 消除纯 ".." 目录段（split 后重组），杜绝 "..\..\x" 残留穿越
+            var segs = result.Split(new[] { '/', '\\' });
+            var keep = segs.Where(seg => seg != ".." && seg != ".").ToArray();
+            result = string.Join("_", keep).Trim();
             if (result == "." || result == "..") return "";
+            // 按完整字符截断（避免切在代理对中间抛异常）
             return result.Length > 80 ? result.Substring(0, 80) : result;
         }
 
