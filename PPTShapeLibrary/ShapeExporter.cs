@@ -247,16 +247,6 @@ namespace PPTShapeLibrary
                 // 0. 创建收藏目录
                 ShapeLibraryService.CreateItemDir(id);
 
-                // 1. 生成缩略图：直接导出选中形状
-                string previewPath = System.IO.Path.Combine(ShapeLibraryService.ItemsDir, id + "_tmp.png");
-                try
-                {
-                    range.Export(previewPath, PowerPoint.PpShapeFormat.ppShapeFormatPNG, 640, 480);
-                    ShapeLibraryService.SavePreviewImage(id, System.IO.File.ReadAllBytes(previewPath));
-                }
-                catch { /* 缩略图失败不阻断 */ }
-                finally { TryDelete(previewPath); }
-
                 // 2. 新建隐藏演示文稿，粘贴形状
                 tempPres = App.Presentations.Add(MsoTriState.msoFalse);
                 tempPres.PageSetup.SlideSize = PowerPoint.PpSlideSizeType.ppSlideSizeOnScreen;
@@ -284,6 +274,17 @@ namespace PPTShapeLibrary
                     s.Left -= minLeft;
                     s.Top -= minTop;
                 }
+
+                // 1. 生成缩略图：从"库文稿中已归一化的形状"导出（与插入到用户页面时的内容一致），
+                //    不再直接从源页面导出——避免源页面排版/页面缩放导致预览文字与形状错位
+                string previewPath = System.IO.Path.Combine(ShapeLibraryService.ItemsDir, id + "_tmp.png");
+                try
+                {
+                    pasted.Export(previewPath, PowerPoint.PpShapeFormat.ppShapeFormatPNG);
+                    ShapeLibraryService.SavePreviewImage(id, System.IO.File.ReadAllBytes(previewPath));
+                }
+                catch { /* 缩略图失败不阻断 */ }
+                finally { TryDelete(previewPath); }
 
                 // 3. 保存为库文件
                 string savePath = ShapeLibraryService.ShapeFile(id);
@@ -364,7 +365,8 @@ namespace PPTShapeLibrary
                 string previewPath = System.IO.Path.Combine(ShapeLibraryService.ItemsDir, id + "_tmp.png");
                 try
                 {
-                    range.Export(previewPath, PowerPoint.PpShapeFormat.ppShapeFormatPNG, 640, 480);
+                    // 自然尺寸导出，避免固定宽高导致文字/形状比例错位
+                    range.Export(previewPath, PowerPoint.PpShapeFormat.ppShapeFormatPNG);
                     ShapeLibraryService.SavePreviewImage(id, System.IO.File.ReadAllBytes(previewPath));
                 }
                 catch { }
