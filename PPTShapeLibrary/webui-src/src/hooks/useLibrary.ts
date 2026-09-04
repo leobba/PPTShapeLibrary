@@ -34,15 +34,18 @@ export function useLibrary() {
 
   const page = useRef(0);
   const debounceRef = useRef<number | undefined>(undefined);
+  const seqRef = useRef(0); // 请求序号：丢弃过期响应，防快速切组/筛选时旧结果覆盖新结果
 
   const reload = useCallback(
     (resetPage = true) => {
       if (resetPage) page.current = 0;
       const offset = resetPage ? 0 : page.current;
+      const seq = ++seqRef.current;
       setLoading(true);
       bridge
         .list(filter, category, kind, tag, group, sort, offset, 200)
         .then((d) => {
+          if (seq !== seqRef.current) return; // 过期响应丢弃
           setLoading(false);
           setFilteredTotal(d.filteredTotal);
           setTotal(d.total);
@@ -51,6 +54,7 @@ export function useLibrary() {
           page.current = offset + (d.items ? d.items.length : 0);
         })
         .catch((e) => {
+          if (seq !== seqRef.current) return;
           setLoading(false);
           console.error("list error", e);
         });

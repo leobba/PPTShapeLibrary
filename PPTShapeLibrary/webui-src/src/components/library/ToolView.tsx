@@ -651,39 +651,69 @@ function Tool9() {
 
 /** tool10 导出 PDF / 大纲 */
 function Tool10() {
-  const { out, run } = useRun();
+  const { run } = useRun();
   const [mode, setMode] = useState("pdf");
   const [dir, setDir] = useState("");
   const [name, setName] = useState("");
+  const [out, setOut] = useState("");
+  const [outText, setOutText] = useState("");
+  async function go() {
+    try {
+      const d = await (mode === "pdf"
+        ? bridge.academicExportPdf({ dir: dir.trim(), name: name.trim(), style: 0, perPage: 1 })
+        : bridge.academicExportOutline({ dir: dir.trim(), name: name.trim() }));
+      setOut(d?.message || "完成");
+      setOutText(mode === "outline" && !dir.trim() ? d?.text || "" : "");
+    } catch (e: any) {
+      setOut("失败：" + (e?.message || e));
+      setOutText("");
+    }
+  }
+  const outline = mode === "outline";
   return (
-    <Shell title="导出 PDF / 大纲" desc="整稿转 PDF 或导出文字大纲">
+    <Shell title="导出 PDF / 大纲" desc={outline ? "整稿文字生成大纲：填目录存文件，或留空直接预览/复制" : "整稿转 PDF"}>
       <Field label="类型">
-        <Select value={mode} onValueChange={setMode}>
+        <Select value={mode} onValueChange={(v) => { setMode(v); setOutText(""); }}>
           <SelectTrigger><SelectValue /></SelectTrigger>
-          <SelectContent><SelectItem value="pdf">PDF</SelectItem><SelectItem value="outline">大纲文本 (.txt)</SelectItem></SelectContent>
+          <SelectContent><SelectItem value="pdf">PDF</SelectItem><SelectItem value="outline">大纲文本</SelectItem></SelectContent>
         </Select>
       </Field>
-      <Field label="保存目录">
+      <Field label={outline ? "保存目录（可选，留空则直接预览）" : "保存目录"}>
         <div className="flex gap-1.5">
           <Input value={dir} onChange={(e) => setDir(e.target.value)} placeholder="选择目录…" />
           <Button variant="outline" onClick={() => bridge.requestFolder("选择保存目录").then((d) => d?.path && setDir(d.path))}>浏览…</Button>
         </div>
       </Field>
-      <Field label="文件名（可留空，自动命名）"><Input value={name} onChange={(e) => setName(e.target.value)} /></Field>
+      {!outline && <Field label="文件名（可留空，自动命名）"><Input value={name} onChange={(e) => setName(e.target.value)} /></Field>}
       <Button
-        disabled={!dir.trim()}
-        onClick={() =>
-          run(() =>
-            mode === "pdf"
-              ? bridge.academicExportPdf({ dir: dir.trim(), name: name.trim(), style: 0, perPage: 1 })
-              : bridge.academicExportOutline({ dir: dir.trim(), name: name.trim() })
-          )
-        }
+        disabled={!outline && !dir.trim()}
+        onClick={go}
       >
-        导出
+        {outline ? (dir.trim() ? "生成大纲文件" : "生成大纲") : "导出 PDF"}
       </Button>
-      {!dir.trim() && <p className="text-xs text-muted-foreground">请先选择保存目录。</p>}
+      {!outline && !dir.trim() && <p className="text-xs text-muted-foreground">请先选择保存目录。</p>}
+      {outline && !dir.trim() && <p className="text-xs text-muted-foreground">留空目录将直接显示大纲文本，可一键复制。</p>}
       <Result out={out} />
+      {outText && (
+        <div className="flex flex-col gap-1.5">
+          <div className="max-h-56 overflow-y-auto rounded-md border bg-muted/40 p-2">
+            <pre className="whitespace-pre-wrap text-xs">{outText}</pre>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="self-end"
+            onClick={() => {
+              navigator.clipboard?.writeText(outText).then(
+                () => setOut("已复制大纲文本"),
+                () => setOut("复制失败，请手动选择复制")
+              );
+            }}
+          >
+            复制大纲
+          </Button>
+        </div>
+      )}
     </Shell>
   );
 }
