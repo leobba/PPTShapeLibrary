@@ -831,11 +831,16 @@ namespace PPTShapeLibrary
             }
         }
 
-        /// <summary>按既有分类把旧收藏归入一级组（幂等，每次启动执行）：内置素材→素材，学术模板→模板，其余保持"我的"。</summary>
+        /// <summary>
+        /// 一次性迁移：把旧分类(内置素材/学术模板)的条目归入对应一级组。只执行一次(marker)，
+        /// 避免每次启动覆盖用户手动分组。
+        /// </summary>
         public static void EnsureGroupAssignments()
         {
             try
             {
+                string marker = System.IO.Path.Combine(ShapeLibraryService.RootDir, ".groups_migrated");
+                if (System.IO.File.Exists(marker)) return;   // 已迁移过：尊重用户后续手动分组
                 bool changed = false;
                 foreach (var m in ShapeLibraryService.LoadAllItems())
                 {
@@ -851,6 +856,7 @@ namespace PPTShapeLibrary
                     }
                 }
                 if (changed) ShapeLibraryService.InvalidateCachePublic();
+                try { System.IO.File.WriteAllText(marker, DateTime.Now.ToString()); } catch { }
             }
             catch (Exception ex)
             {

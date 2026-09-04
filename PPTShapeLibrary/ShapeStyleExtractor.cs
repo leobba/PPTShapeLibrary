@@ -172,7 +172,7 @@ namespace PPTShapeLibrary
                         for (int si = 0; si < p.GradientStops.Count; si++)
                         {
                             if (si < stops.Count) stops[si + 1].Color.RGB = HexToRgb(p.GradientStops[si].Color);
-                            else stops.Insert(RgbToInt(HexToRgb(p.GradientStops[si].Color)), (float)p.GradientStops[si].Position);
+                            else stops.Insert(HexToRgb(p.GradientStops[si].Color), (float)p.GradientStops[si].Position);
                             stops[si + 1].Position = (float)p.GradientStops[si].Position;
                             if (p.GradientStops[si].Transparency != null)
                             {
@@ -336,14 +336,6 @@ namespace PPTShapeLibrary
             int g = int.Parse(hex.Substring(2, 2), NumberStyles.HexNumber);
             int b = int.Parse(hex.Substring(4, 2), NumberStyles.HexNumber);
             return r | (g << 8) | (b << 16);
-        }
-
-        private static int RgbToInt(int rgb)
-        {
-            int r = (rgb >> 0) & 0xFF;
-            int g = (rgb >> 8) & 0xFF;
-            int b = (rgb >> 16) & 0xFF;
-            return (r << 16) | (g << 8) | b;
         }
 
         private static void Try(Action action)
