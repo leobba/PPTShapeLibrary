@@ -96,9 +96,10 @@ namespace PPTShapeLibrary
                 string version = CoreWebView2Environment.GetAvailableBrowserVersionString();
                 Log.Write("Popup WebView2 runtime: " + version);
 
+                // 独立用户数据目录（与任务窗格分开），避免两实例共享 profile 引起偶发白屏/状态串扰
                 string userDataFolder = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                    "PPTShapeLibrary", "webview2");
+                    "PPTShapeLibrary", "webview2_popup");
                 Directory.CreateDirectory(userDataFolder);
 
                 var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder, new CoreWebView2EnvironmentOptions());
