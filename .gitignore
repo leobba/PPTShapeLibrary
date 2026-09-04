@@ -65,3 +65,10 @@ Desktop.ini
 # 说明：PPTShapeLibrary_TemporaryKey.pfx 为 VS 自动生成的开发期临时签名密钥，
 # 工程文件硬编码了其指纹（ManifestCertificateThumbprint），缺失会导致 Release/发布
 # 构建失败，故予以跟踪；正式分发前应替换为正式代码签名证书并停止跟踪该文件。
+
+# ================= Node / webui-src 前端工程 =================
+**/node_modules/
+**/webui-src/dist/
+webui-src/**/node_modules/
+npm-debug.log*
+
