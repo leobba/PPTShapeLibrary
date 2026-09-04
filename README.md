@@ -64,7 +64,7 @@ Ribbon「素材库」选项卡 →「工具」组：文字样式 / 一键换字�
 - **页脚页码**：一键为全部页加页脚（姓名/课题组/日期）与页码
 - **导出 PDF / 大纲**：整稿导出 PDF，或把全部文字整理为 .txt 大纲（做笔记/打印）
 - **图表美化**：选中图表套用 4 套预设配色（学术蓝/清新绿/暖橙/莫兰迪）+ 统一字体
-- **参考文献**：多条文献按 GB/T 7714 或 APA 生成编号文本（弹窗展示、一键复制）
+- **成套模板**：插入封面/目录/内容×N/结束成套结构页
 - **学术模板素材**：首次启动自动装入「学术模板」分类（答辩封面/开题封面/研究要点页/结论页），素材库单击插入后改字即用
 
 ## 开发与运行
@@ -73,6 +73,24 @@ Ribbon「素材库」选项卡 →「工具」组：文字样式 / 一键换字�
 - 存储：`%APPDATA%\PPTShapeLibrary\`（items 每收藏一目录；settings.json 设置；packs 素材包；logs 日志）
 - 界面宿主：WebView2（Evergreen Runtime）。缺失/初始化失败自动降级到提示页（`uiBackend:"wpf"` 旧开关已废弃）
 - 快捷键：无全局快捷键（工具栏操作）
+
+### Web UI 前端（shadcn/ui · React + Tailwind v4）
+
+界面已从免构建静态迁移为 **Vite + React + TypeScript + Tailwind CSS v4 + shadcn/ui** 工程：
+
+```bash
+cd PPTShapeLibrary/webui-src
+npm install          # 首次：安装依赖
+npm run dev          # 开发：热更新预览（无宿主时可浏览器看 UI，桥调用会失败仅 UI）
+npm run build        # 生产：产出到 webui-src/dist
+# 构建后部署到 WebUI/（VSTO 加载目录）：
+#   PowerShell: 拷贝 webui-src/dist/* → PPTShapeLibrary/WebUI/（或运行 deploy 脚本）
+```
+
+- 源码在 `webui-src/src`；旧版纯静态前端备份于 `webui-legacy/`（可回退）
+- C#↔JS 桥协议不变（`src/lib/bridge.ts` 与旧 bridge.js 一致）；`npm run build` 后重启 PowerPoint 生效
+- 新增 shadcn 组件：`npx shadcn add <组件>`；主题 tokens 见 `src/index.css`（`.dark` 类切深色）
+- 注意：`webui-src/node_modules` 与 `dist` 不入 git；`WebUI/` 下提交的是构建产物
 
 ## 文件结构
 
