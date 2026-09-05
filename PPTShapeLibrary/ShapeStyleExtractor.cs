@@ -152,8 +152,43 @@ namespace PPTShapeLibrary
 
             for (int i = 1; i <= selection.Count; i++)
             {
-                ApplyToShape(selection[i], preset);
+                PowerPoint.Shape shp = selection[i];
+                // 组合形状：递归应用样式到组内每个子形状（组合本身无可见样式，
+                // 只设组会让视觉"几乎没变"）
+                try
+                {
+                    if (shp.Type == MsoShapeType.msoGroup)
+                    {
+                        ApplyToGroupChildren(shp, preset);
+                        continue;
+                    }
+                }
+                catch { }
+                ApplyToShape(shp, preset);
             }
+        }
+
+        private static void ApplyToGroupChildren(PowerPoint.Shape group, StylePreset preset)
+        {
+            try
+            {
+                if (group.GroupItems == null || group.GroupItems.Count == 0) return;
+                for (int i = 1; i <= group.GroupItems.Count; i++)
+                {
+                    PowerPoint.Shape child = group.GroupItems[i];
+                    try
+                    {
+                        if (child.Type == MsoShapeType.msoGroup)
+                        {
+                            ApplyToGroupChildren(child, preset);   // 嵌套组合
+                            continue;
+                        }
+                    }
+                    catch { }
+                    ApplyToShape(child, preset);
+                }
+            }
+            catch { }
         }
 
         private static void ApplyToShape(PowerPoint.Shape shape, StylePreset p)
