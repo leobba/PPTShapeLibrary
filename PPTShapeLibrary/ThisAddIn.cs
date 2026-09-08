@@ -12,6 +12,13 @@ namespace PPTShapeLibrary
         private UserControl _paneHost;
         private Microsoft.Office.Tools.CustomTaskPane _taskPane;
         private System.Windows.Forms.Timer _refreshDebounce;
+        private int _boundWindowHwnd;   // 窗格绑定窗口的 HWND（判断"是否当前窗口"用句柄，ReferenceEquals 对 COM 不可靠）
+
+        /// <summary>取文档窗口句柄（不同 PPT 文档窗口 HWND 不同，用于准确判断窗格是否该迁移）。</summary>
+        private static int WindowHwnd(PowerPoint.DocumentWindow win)
+        {
+            try { return win != null ? win.HWND : 0; } catch { return 0; }
+        }
 
         private void ThisAddIn_Startup(object sender, EventArgs e)
         {
@@ -150,22 +157,20 @@ namespace PPTShapeLibrary
             {
                 string cap = "?";
                 try { cap = win != null ? win.Caption : "null"; } catch { }
-                bool sameWin = false;
-                try { sameWin = _taskPane != null && ReferenceEquals(_taskPane.Window, win); } catch { }
-                Log.Write("[pane] WindowActivate caption=[" + cap + "] sameWindow=" + sameWin + " paneVisible=" + (_taskPane != null && _taskPane.Visible));
+                int hwnd = WindowHwnd(win);
+                Log.Write("[pane] WindowActivate caption=[" + cap + "] hwnd=" + hwnd + " boundHwnd=" + _boundWindowHwnd + " paneVisible=" + (_taskPane != null && _taskPane.Visible));
                 if (_taskPane == null) return;
                 if (!_taskPane.Visible) return;
-                if (sameWin)
+                if (hwnd != 0 && hwnd == _boundWindowHwnd)
                 {
-                    // 同窗口多文档：PowerPoint 在文档切换后可能不重绘任务窗格（Visible=true 但不显示）。
-                    // 强制 false→true 触发 Office 重挂（轻量，不重建 WebView2）。
+                    // 同一文档窗口：PowerPoint 切换演示文稿后可能不重绘任务窗格，强制 false→true 重挂
                     _taskPane.Visible = false;
                     _taskPane.Visible = true;
                     Log.Write("[pane] WindowActivate force-repaint done");
                 }
                 else
                 {
-                    EnsurePaneForWindow(win);
+                    EnsurePaneForWindow(win);   // 不同文档窗口（独立 PPT）：迁移窗格过去
                 }
             }
             catch (Exception ex) { Log.Error(ex, "OnWindowActivate"); }
@@ -358,7 +363,8 @@ namespace PPTShapeLibrary
                 _taskPane = this.CustomTaskPanes.Add(_paneHost, "素材库", win);
                 int w = ShapeLibraryService.LoadSettings().PaneWidth;
                 _taskPane.Width = w > 0 ? w : 300;
-                Log.Write("Task pane created lazily for active window");
+                _boundWindowHwnd = WindowHwnd(win);
+                Log.Write("Task pane created lazily, boundHwnd=" + _boundWindowHwnd);
             }
             catch (Exception ex)
             {
@@ -377,11 +383,10 @@ namespace PPTShapeLibrary
                     try { win = Application.ActiveWindow; } catch { }
                 }
                 if (win == null) return;
-                object current = null;
-                try { current = _taskPane.Window; } catch { }
-                if (ReferenceEquals(current, win)) return;   // 已绑定当前窗口
+                int hwnd = WindowHwnd(win);
+                if (hwnd != 0 && hwnd == _boundWindowHwnd) return;   // 已绑定当前窗口（按句柄判断）
 
-                Log.Write("Migrating task pane to window (was bound to another)");
+                Log.Write("Migrating task pane (boundHwnd=" + _boundWindowHwnd + " -> " + hwnd + ")");
                 bool wasVisible = _taskPane.Visible;
                 int width = _taskPane.Width;
                 this.CustomTaskPanes.Remove(_taskPane);
@@ -393,10 +398,11 @@ namespace PPTShapeLibrary
                 CreatePane();
                 _taskPane = this.CustomTaskPanes.Add(_paneHost, "素材库", win);
                 _taskPane.Width = width;
+                _boundWindowHwnd = hwnd;
                 // 关键：必须立即 Visible=true 触发内容控件 Load → WebPaneHost.InitializeAsync 启动；
                 // 若设为 false，UserControl.Load 不触发，WebView2 永不初始化、窗格永不显示（此前 bug）。
                 _taskPane.Visible = true;
-                Log.Write("Task pane rebuilt & shown for new window (wasVisible=" + wasVisible + ")");
+                Log.Write("Task pane rebuilt & shown for new window (wasVisible=" + wasVisible + ", hwnd=" + hwnd + ")");
             }
             catch (Exception ex)
             {
