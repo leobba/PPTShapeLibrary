@@ -877,6 +877,10 @@ namespace PPTShapeLibrary
                 {
                     bool b; if (bool.TryParse(patch["themeAdaptStyle"].ToString(), out b)) s.ThemeAdaptStyle = b;
                 }
+                if (patch.ContainsKey("collectPlaceholderText"))
+                {
+                    bool b; if (bool.TryParse(patch["collectPlaceholderText"].ToString(), out b)) s.CollectPlaceholderText = b;
+                }
                 if (patch.ContainsKey("pageSize"))
                 {
                     int n; if (int.TryParse(patch["pageSize"].ToString(), out n) && n > 0) s.PageSize = n;
@@ -1043,7 +1047,8 @@ namespace PPTShapeLibrary
                 { "cardSize", s.CardSize },
                 { "clickToInsert", s.ClickToInsert },
                 { "themeAdaptStyle", s.ThemeAdaptStyle },
-                { "authorName", s.AuthorName ?? "" }
+                { "authorName", s.AuthorName ?? "" },
+                { "collectPlaceholderText", s.CollectPlaceholderText }
             };
         }
 

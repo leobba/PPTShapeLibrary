@@ -36,6 +36,9 @@ namespace PPTShapeLibrary
         [DataMember(Name = "authorName", EmitDefaultValue = false)]
         public string AuthorName { get; set; }          // 素材作者署名（导出素材包时写入 manifest）
 
+        [DataMember(Name = "collectPlaceholderText")]
+        public bool CollectPlaceholderText { get; set; }  // 收藏形状时把文字替换为占位提示（模板化收藏）
+
         public Settings()
         {
             Theme = "light";
@@ -48,6 +51,7 @@ namespace PPTShapeLibrary
             ThemeAdaptStyle = false;
             UiBackend = "webview2";
             AuthorName = "";
+            CollectPlaceholderText = false;
         }
     }
 }

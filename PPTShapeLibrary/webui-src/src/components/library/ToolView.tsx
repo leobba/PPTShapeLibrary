@@ -837,6 +837,12 @@ function SettingsForm() {
         <CheckRow label="按形状类型自动命名" checked={!!s.autoName} onChecked={(v) => set("autoName", !!v)} />
         <CheckRow label="单击卡片直接插入（取消则单击预览、双击插入）" checked={s.clickToInsert !== false} onChecked={(v) => set("clickToInsert", !!v)} />
         <CheckRow label="应用样式时把主色映射到当前文档主题色" checked={!!s.themeAdaptStyle} onChecked={(v) => set("themeAdaptStyle", !!v)} />
+        <CheckRow
+          label="收藏形状时把文字替换为占位提示"
+          checked={!!s.collectPlaceholderText}
+          onChecked={(v) => set("collectPlaceholderText", !!v)}
+          hint="开启后收藏的形状内文字会变成「在这里插入你想要输入的文字」，适合把常用版式存成模板"
+        />
         <Row label="素材作者署名（导出素材包时写入）">
           <Input
             className="h-8 w-56"
@@ -860,11 +866,24 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-function CheckRow({ label, checked, onChecked }: { label: string; checked: boolean; onChecked: (v: boolean) => void }) {
+function CheckRow({
+  label,
+  checked,
+  onChecked,
+  hint,
+}: {
+  label: string;
+  checked: boolean;
+  onChecked: (v: boolean) => void;
+  hint?: string;
+}) {
   return (
-    <div className="flex items-center gap-2">
-      <Checkbox id={label} checked={checked} onCheckedChange={(v) => onChecked(!!v)} />
-      <Label htmlFor={label} className="text-sm">{label}</Label>
+    <div className="flex flex-col gap-0.5">
+      <div className="flex items-center gap-2">
+        <Checkbox id={label} checked={checked} onCheckedChange={(v) => onChecked(!!v)} />
+        <Label htmlFor={label} className="text-sm">{label}</Label>
+      </div>
+      {hint && <p className="pl-6 text-[11px] text-muted-foreground">{hint}</p>}
     </div>
   );
 }

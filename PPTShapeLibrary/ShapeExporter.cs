@@ -204,6 +204,43 @@ namespace PPTShapeLibrary
         }
 
         /// <summary>收藏任意 ShapeRange 的核心实现。</summary>
+        /// <summary>把形状(含组合内子形状)的文本替换为占位提示文字。保留字体名/字号/加粗/颜色等首字符格式。</summary>
+        private static void ReplaceShapeTextWithPlaceholder(PowerPoint.Shape shape, string placeholder)
+        {
+            try
+            {
+                if (shape.Type == MsoShapeType.msoGroup && shape.GroupItems != null)
+                {
+                    for (int i = 1; i <= shape.GroupItems.Count; i++)
+                    {
+                        ReplaceShapeTextWithPlaceholder(shape.GroupItems[i], placeholder);
+                    }
+                    return;
+                }
+                var tf = shape.TextFrame2;
+                if (tf == null || tf.HasText != MsoTriState.msoTrue || tf.TextRange.Length == 0) return;
+                var tr = tf.TextRange;
+                if (tr.Text == placeholder) return;
+
+                // 抓首字符格式
+                string fontName = null; float fontSize = 0; int bold = -1;
+                System.Drawing.Color fc = System.Drawing.Color.Empty;
+                try { fontName = tr.Font.Name; } catch { }
+                try { fontSize = tr.Font.Size; } catch { }
+                try { bold = tr.Font.Bold == MsoTriState.msoTrue ? 1 : (tr.Font.Bold == MsoTriState.msoFalse ? 0 : -1); } catch { }
+                try { fc = System.Drawing.Color.FromArgb(tr.Font.Fill.ForeColor.RGB); } catch { }
+
+                tr.Text = placeholder;
+
+                // 回刷格式
+                try { if (fontName != null) tr.Font.Name = fontName; } catch { }
+                try { if (fontSize > 0) tr.Font.Size = fontSize; } catch { }
+                try { if (bold >= 0) tr.Font.Bold = bold == 1 ? MsoTriState.msoTrue : MsoTriState.msoFalse; } catch { }
+                try { if (fc != System.Drawing.Color.Empty) tr.Font.Fill.ForeColor.RGB = fc.ToArgb(); } catch { }
+            }
+            catch { /* 单个形状文字替换失败不阻断收藏 */ }
+        }
+
         public static string CollectRange(PowerPoint.ShapeRange range, string name)
         {
             return CollectRangeCore(range, name, false);
@@ -273,6 +310,16 @@ namespace PPTShapeLibrary
                 {
                     s.Left -= minLeft;
                     s.Top -= minTop;
+                }
+
+                // 设置「收藏时替换文字为占位提示」：把库副本内文字换成占位文本（不改源画布），
+                // 生成的缩略图也显示占位文字，插入后用户直接输入真实内容即可。
+                if (ShapeLibraryService.LoadSettings().CollectPlaceholderText)
+                {
+                    foreach (PowerPoint.Shape s in pasted)
+                    {
+                        ReplaceShapeTextWithPlaceholder(s, "在这里插入你想要输入的文字");
+                    }
                 }
 
                 // 1. 生成缩略图：从"库文稿中已归一化的形状"导出（与插入到用户页面时的内容一致），
