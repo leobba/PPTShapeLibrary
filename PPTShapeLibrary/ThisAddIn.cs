@@ -12,8 +12,6 @@ namespace PPTShapeLibrary
         private UserControl _paneHost;
         private Microsoft.Office.Tools.CustomTaskPane _taskPane;
         private System.Windows.Forms.Timer _refreshDebounce;
-        private bool _pendingPaneShow;   // 迁移/重建后待 Pane ready 再显示
-        private System.Windows.Forms.Timer _paneShowTimer;
 
         private void ThisAddIn_Startup(object sender, EventArgs e)
         {
@@ -343,57 +341,18 @@ namespace PPTShapeLibrary
                 var oldHost = _paneControl as WebPaneHost;
                 try { oldHost?.PrepareShutdown(); } catch { }
 
-                // 为当前窗口重建（WebView2 重新初始化；显示推迟到 Pane ready 由轮询机制接管）
+                // 为当前窗口重建（WebView2 重新初始化）
                 CreatePane();
                 _taskPane = this.CustomTaskPanes.Add(_paneHost, "素材库", win);
                 _taskPane.Width = width;
-                _taskPane.Visible = false;              // 先隐藏，等 WebView2 就绪再显示避免空白
-                _pendingPaneShow = wasVisible;
-                StartPaneShowWait();
-                Log.Write("Task pane rebuilt for new window; pendingShow=" + wasVisible);
+                // 关键：必须立即 Visible=true 触发内容控件 Load → WebPaneHost.InitializeAsync 启动；
+                // 若设为 false，UserControl.Load 不触发，WebView2 永不初始化、窗格永不显示（此前 bug）。
+                _taskPane.Visible = true;
+                Log.Write("Task pane rebuilt & shown for new window (wasVisible=" + wasVisible + ")");
             }
             catch (Exception ex)
             {
                 Log.Error(ex, "EnsurePaneForWindow");
-            }
-        }
-
-        /// <summary>迁移/重建后轮询 WebView2 就绪，就绪即显示窗格（避免空白/未初始化）。</summary>
-        private void StartPaneShowWait()
-        {
-            try
-            {
-                if (_paneShowTimer != null) { _paneShowTimer.Stop(); _paneShowTimer.Dispose(); _paneShowTimer = null; }
-                _paneShowTimer = new System.Windows.Forms.Timer { Interval = 200 };
-                int ticks = 0;
-                _paneShowTimer.Tick += (s, e) =>
-                {
-                    try
-                    {
-                        ticks++;
-                        var host = _paneControl as WebPaneHost;
-                        bool failed = host != null && host.IsFailed;
-                        bool ready = host != null && host.IsReady;
-                        if (failed || ready || ticks > 50)   // 最多 ~10s
-                        {
-                            _paneShowTimer.Stop();
-                            _paneShowTimer.Dispose();
-                            _paneShowTimer = null;
-                            if (_pendingPaneShow && _taskPane != null && !failed)
-                            {
-                                _taskPane.Visible = true;
-                                Log.Write("Task pane shown after ready (ticks=" + ticks + ")");
-                            }
-                            _pendingPaneShow = false;
-                        }
-                    }
-                    catch (Exception ex) { Log.Error(ex, "PaneShowWait"); }
-                };
-                _paneShowTimer.Start();
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "StartPaneShowWait");
             }
         }
 
@@ -413,11 +372,6 @@ namespace PPTShapeLibrary
         {
             if (_taskPane == null) return;
             EnsurePaneOnActiveWindow();
-            if (_pendingPaneShow)
-            {
-                // 正在迁移重建：等 WebView2 就绪由轮询显示，避免空白
-                return;
-            }
             _taskPane.Visible = true;
             _paneControl.RefreshLibrary();
         }
