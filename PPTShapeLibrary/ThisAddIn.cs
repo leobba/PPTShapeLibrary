@@ -146,8 +146,6 @@ namespace PPTShapeLibrary
         private void OnWindowActivate(PowerPoint.Presentation pres, PowerPoint.DocumentWindow win)
         {
             ScheduleRefresh();
-            // 窗格可见时跟随激活窗口：切到另一个独立窗口（DocumentWindow 不同）时把素材库迁过去；
-            // 同窗口内多文档切换时 DocumentWindow 相同，EnsurePaneForWindow 内部 ReferenceEquals 判定相等不会重建。
             try
             {
                 string cap = "?";
@@ -155,7 +153,20 @@ namespace PPTShapeLibrary
                 bool sameWin = false;
                 try { sameWin = _taskPane != null && ReferenceEquals(_taskPane.Window, win); } catch { }
                 Log.Write("[pane] WindowActivate caption=[" + cap + "] sameWindow=" + sameWin + " paneVisible=" + (_taskPane != null && _taskPane.Visible));
-                if (_taskPane != null && _taskPane.Visible && !sameWin) EnsurePaneForWindow(win);
+                if (_taskPane == null) return;
+                if (!_taskPane.Visible) return;
+                if (sameWin)
+                {
+                    // 同窗口多文档：PowerPoint 在文档切换后可能不重绘任务窗格（Visible=true 但不显示）。
+                    // 强制 false→true 触发 Office 重挂（轻量，不重建 WebView2）。
+                    _taskPane.Visible = false;
+                    _taskPane.Visible = true;
+                    Log.Write("[pane] WindowActivate force-repaint done");
+                }
+                else
+                {
+                    EnsurePaneForWindow(win);
+                }
             }
             catch (Exception ex) { Log.Error(ex, "OnWindowActivate"); }
         }
