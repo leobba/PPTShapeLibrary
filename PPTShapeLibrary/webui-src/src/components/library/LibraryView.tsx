@@ -76,6 +76,7 @@ import {
   ChartPie,
   FolderPlus,
   Package,
+  LayoutGrid,
 } from "lucide-react";
 
 const GROUP_ICONS: Record<string, React.ReactNode> = {
@@ -100,6 +101,7 @@ export default function LibraryView() {
   const [showTrash, setShowTrash] = useState(false);
   const [showGroups, setShowGroups] = useState(false);
   const [showTags, setShowTags] = useState(false);
+  const [showCats, setShowCats] = useState(false);   // 管理二级分类（按当前一级组）
   const [showDupes, setShowDupes] = useState(false);
   const [trashConfirmIds, setTrashConfirmIds] = useState<string[] | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -250,6 +252,17 @@ export default function LibraryView() {
           <DropdownMenuContent align="end">
             <DropdownMenuItem onSelect={() => setShowGroups(true)}>
               <Folder className="size-4" /> 管理分组
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => {
+                if (lib.group === "全部") {
+                  dialogs.alert("请先在左侧一级栏选中要管理分类的分组（如：我的 / 模板 / 素材…）。");
+                  return;
+                }
+                setShowCats(true);
+              }}
+            >
+              <LayoutGrid className="size-4" /> 管理分类…
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setShowTags(true)}>
               <Tags className="size-4" /> 标签管理
@@ -405,6 +418,29 @@ export default function LibraryView() {
                   {c}
                 </button>
               ))}
+              {lib.group !== "全部" && (
+                <button
+                  className="flex shrink-0 items-center gap-0.5 rounded-full border border-dashed px-2 py-1 text-xs text-muted-foreground hover:border-primary hover:text-primary"
+                  title="新建二级分类"
+                  onClick={async () => {
+                    const name = await dialogs.prompt("新建二级分类（当前组：「" + lib.group + "」）", {
+                      placeholder: "分类名，如：箭头",
+                      okText: "创建",
+                    });
+                    if (name?.trim()) {
+                      bridge
+                        .createGroupCategory(lib.group, name.trim())
+                        .then(() => {
+                          lib.refreshMeta();
+                          lib.setCategory(name.trim()); // 选中新分类
+                        })
+                        .catch((e: any) => dialogs.alert("创建失败：" + (e?.message || e)));
+                    }
+                  }}
+                >
+                  <Plus className="size-3" /> 新建二级
+                </button>
+              )}
             </div>
           </div>
 
@@ -425,7 +461,7 @@ export default function LibraryView() {
                 </span>
               ) : (
                 <span>
-                  共 <span className="font-semibold text-foreground">{lib.total}</span> 项
+                  共 <span className="font-semibold text-foreground">{lib.filteredTotal}</span> 项
                 </span>
               )}
             </span>
@@ -845,6 +881,16 @@ export default function LibraryView() {
         <DuplicatesDialog
           onClose={() => {
             setShowDupes(false);
+            lib.refreshMeta();
+            lib.reload(true);
+          }}
+        />
+      )}
+      {showCats && (
+        <CategoriesDialog
+          group={lib.group}
+          onClose={() => {
+            setShowCats(false);
             lib.refreshMeta();
             lib.reload(true);
           }}
@@ -1333,6 +1379,92 @@ function TagDialog({ onClose }: { onClose: () => void }) {
           )}
         </div>
         <div className="flex justify-end">
+          <Button size="sm" onClick={onClose}>
+            完成
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** 管理二级分类（针对当前一级组）：列出组内真实分类∪自定义分类，可新建/重命名/删除 */
+function CategoriesDialog({ group, onClose }: { group: string; onClose: () => void }) {
+  const [cats, setCats] = useState<string[] | null>(null);
+  const load = () => {
+    bridge.init().then((d) => {
+      const per = (d.groupCategories as Record<string, string[]>) || {};
+      setCats((per[group] as string[]) || []);
+    });
+  };
+  useEffect(load, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>管理分类 · {group}</DialogTitle>
+          <DialogDescription>为该一级组新增/重命名/删除二级分类。删除会把该分类下素材归入「未分类」。</DialogDescription>
+        </DialogHeader>
+        <div className="flex max-h-[45vh] flex-col gap-1.5 overflow-y-auto">
+          {!cats ? (
+            <Skeleton className="h-8 w-full" />
+          ) : cats.length === 0 ? (
+            <p className="py-4 text-center text-xs text-muted-foreground">
+              该组还没有分类。点下方「新建分类」添加。
+            </p>
+          ) : (
+            cats.map((name) => (
+              <div key={name} className="flex items-center justify-between rounded-md border px-2 py-1.5 text-xs">
+                <span className="truncate">{name}</span>
+                <span className="flex shrink-0 gap-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-6 px-2 text-[11px]"
+                    onClick={async () => {
+                      const n = await dialogs.prompt("重命名分类「" + name + "」为：", {
+                        initial: name,
+                        okText: "重命名",
+                      });
+                      if (n?.trim() && n.trim() !== name)
+                        bridge.renameGroupCategory(group, name, n.trim()).then(load);
+                    }}
+                  >
+                    重命名
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="h-6 px-2 text-[11px]"
+                    onClick={async () => {
+                      const ok = await dialogs.confirm(
+                        "删除分类「" + name + "」？其下素材将归入「未分类」（可稍后移回）。",
+                        { title: "删除分类", okText: "删除", danger: true }
+                      );
+                      if (ok) bridge.deleteGroupCategory(group, name).then(load);
+                    }}
+                  >
+                    删除
+                  </Button>
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              const n = await dialogs.prompt("新建分类（「" + group + "」组）：", {
+                placeholder: "分类名，如：箭头",
+                okText: "创建",
+              });
+              if (n?.trim()) bridge.createGroupCategory(group, n.trim()).then(load);
+            }}
+          >
+            <Plus className="mr-1 size-3.5" /> 新建分类
+          </Button>
           <Button size="sm" onClick={onClose}>
             完成
           </Button>

@@ -609,6 +609,29 @@ namespace PPTShapeLibrary
                             Ok(reqId, new Dictionary<string, object> { { "duplicates", arr } });
                             break;
                         }
+                    case "createGroupCategory":
+                        {
+                            ShapeLibraryService.CreateGroupCategory(ToStr(payload, "group"), ToStr(payload, "category"));
+                            Ok(reqId, new Dictionary<string, object>());
+                            BroadcastRefresh();
+                            break;
+                        }
+                    case "renameGroupCategory":
+                        {
+                            int n = ShapeLibraryService.RenameGroupCategory(
+                                ToStr(payload, "group"), ToStr(payload, "oldCategory"), ToStr(payload, "newCategory"));
+                            Ok(reqId, new Dictionary<string, object> { { "touched", n } });
+                            BroadcastRefresh();
+                            break;
+                        }
+                    case "deleteGroupCategory":
+                        {
+                            int n = ShapeLibraryService.DeleteGroupCategory(
+                                ToStr(payload, "group"), ToStr(payload, "category"));
+                            Ok(reqId, new Dictionary<string, object> { { "touched", n } });
+                            BroadcastRefresh();
+                            break;
+                        }
                     case "renameTag":
                         {
                             int n = ShapeLibraryService.RenameTagAll(ToStr(payload, "oldTag"), ToStr(payload, "newTag"));
@@ -741,7 +764,7 @@ namespace PPTShapeLibrary
             var groupCats = new Dictionary<string, object>();
             foreach (var g in groups)
             {
-                groupCats[g] = ShapeLibraryService.GetCategoriesOfGroup(g);
+                groupCats[g] = ShapeLibraryService.GetAllCategoriesOfGroup(g);
             }
             d["groupCategories"] = groupCats;
             return d;

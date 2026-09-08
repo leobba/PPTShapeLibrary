@@ -639,6 +639,130 @@ namespace PPTShapeLibrary
             return list.OrderBy(c => c).ToList();
         }
 
+        // ---------------- 用户二级分类清单（每组可声明的分类，含空分类；持久化 usercategories.json） ----------------
+
+        private static string UserCatsFile
+        {
+            get { return Path.Combine(RootDir, "usercategories.json"); }
+        }
+        private static Dictionary<string, List<string>> _userCats;
+
+        private static Dictionary<string, List<string>> LoadUserCats()
+        {
+            if (_userCats != null) return _userCats;
+            _userCats = new Dictionary<string, List<string>>();
+            try
+            {
+                if (File.Exists(UserCatsFile))
+                {
+                    var ser = new System.Web.Script.Serialization.JavaScriptSerializer();
+                    var raw = ser.Deserialize<Dictionary<string, object>>(File.ReadAllText(UserCatsFile));
+                    if (raw != null)
+                    {
+                        foreach (var kv in raw)
+                        {
+                            var arr = kv.Value as System.Collections.ArrayList;
+                            if (arr != null)
+                                _userCats[kv.Key] = arr.Cast<object>()
+                                    .Select(o => o?.ToString() ?? "").Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
+                        }
+                    }
+                }
+            }
+            catch { }
+            return _userCats;
+        }
+
+        private static void SaveUserCats()
+        {
+            try
+            {
+                var ser = new System.Web.Script.Serialization.JavaScriptSerializer();
+                File.WriteAllText(UserCatsFile, ser.Serialize(LoadUserCats()));
+            }
+            catch { }
+        }
+
+        /// <summary>用户声明过的二级分类（含空分类），可自行管理。</summary>
+        public static List<string> GetUserCategoriesOfGroup(string group)
+        {
+            var d = LoadUserCats();
+            return d.ContainsKey(group ?? "") ? new List<string>(d[group ?? ""]) : new List<string>();
+        }
+
+        /// <summary>组可展示的全部二级分类 = 组内条目真实分类 ∪ 用户声明分类（去重排序）。</summary>
+        public static List<string> GetAllCategoriesOfGroup(string group)
+        {
+            var set = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var c in GetCategoriesOfGroup(group)) if (c != "未分类") set.Add(c);
+            foreach (var c in GetUserCategoriesOfGroup(group)) set.Add(c);
+            return set.ToList();
+        }
+
+        /// <summary>新建二级分类（写清单；同名已存在则不重复）。</summary>
+        public static void CreateGroupCategory(string group, string cat)
+        {
+            if (string.IsNullOrWhiteSpace(group) || string.IsNullOrWhiteSpace(cat)) return;
+            var d = LoadUserCats();
+            string g = group.Trim();
+            if (!d.ContainsKey(g)) d[g] = new List<string>();
+            string c = cat.Trim();
+            if (!d[g].Any(x => x.Equals(c, StringComparison.OrdinalIgnoreCase))) d[g].Add(c);
+            SaveUserCats();
+        }
+
+        /// <summary>重命名二级分类：改清单 + 该组条目批量改 category。返回受影响条目数。</summary>
+        public static int RenameGroupCategory(string group, string oldCat, string newCat)
+        {
+            if (string.IsNullOrWhiteSpace(oldCat) || string.IsNullOrWhiteSpace(newCat)) return 0;
+            if (oldCat == newCat) return 0;
+            int touched = 0;
+            // 条目批量改
+            foreach (var m in LoadAllItems())
+            {
+                if (m.GetGroup() != group) continue;
+                if (m.GetCategory().Equals(oldCat, StringComparison.OrdinalIgnoreCase))
+                {
+                    SetCategory(m.Id, newCat.Trim());
+                    touched++;
+                }
+            }
+            // 清单同步
+            var d = LoadUserCats();
+            if (d.ContainsKey(group ?? ""))
+            {
+                var lst = d[group ?? ""];
+                int i = lst.FindIndex(x => x.Equals(oldCat, StringComparison.OrdinalIgnoreCase));
+                if (i >= 0) { lst[i] = newCat.Trim(); SaveUserCats(); }
+            }
+            if (touched > 0) InvalidateCache();
+            return touched;
+        }
+
+        /// <summary>删除二级分类：清单移除 + 该组条目 category 归「未分类」。返回受影响条目数。</summary>
+        public static int DeleteGroupCategory(string group, string cat)
+        {
+            int touched = 0;
+            foreach (var m in LoadAllItems())
+            {
+                if (m.GetGroup() != group) continue;
+                if (m.GetCategory().Equals(cat, StringComparison.OrdinalIgnoreCase))
+                {
+                    SetCategory(m.Id, "未分类");
+                    touched++;
+                }
+            }
+            var d = LoadUserCats();
+            if (d.ContainsKey(group ?? ""))
+            {
+                d[group ?? ""].RemoveAll(x => x.Equals(cat, StringComparison.OrdinalIgnoreCase));
+                if (d[group ?? ""].Count == 0) d.Remove(group ?? "");
+                SaveUserCats();
+            }
+            if (touched > 0) InvalidateCache();
+            return touched;
+        }
+
         /// <summary>标签使用计数（供标签管理器显示）。</summary>
         public static Dictionary<string, int> GetTagCounts()
         {
