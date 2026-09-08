@@ -146,8 +146,18 @@ namespace PPTShapeLibrary
         private void OnWindowActivate(PowerPoint.Presentation pres, PowerPoint.DocumentWindow win)
         {
             ScheduleRefresh();
-            // 注意：不做自动迁移（切窗口反复重建 WebView2 会卡）；
-            // 用户在某窗口点"打开素材库"/收藏时，由 ToggleTaskPane/ShowTaskPane 内 EnsurePane 迁移到该窗口。
+            // 窗格可见时跟随激活窗口：切到另一个独立窗口（DocumentWindow 不同）时把素材库迁过去；
+            // 同窗口内多文档切换时 DocumentWindow 相同，EnsurePaneForWindow 内部 ReferenceEquals 判定相等不会重建。
+            try
+            {
+                string cap = "?";
+                try { cap = win != null ? win.Caption : "null"; } catch { }
+                bool sameWin = false;
+                try { sameWin = _taskPane != null && ReferenceEquals(_taskPane.Window, win); } catch { }
+                Log.Write("[pane] WindowActivate caption=[" + cap + "] sameWindow=" + sameWin + " paneVisible=" + (_taskPane != null && _taskPane.Visible));
+                if (_taskPane != null && _taskPane.Visible && !sameWin) EnsurePaneForWindow(win);
+            }
+            catch (Exception ex) { Log.Error(ex, "OnWindowActivate"); }
         }
 
         private void ScheduleRefresh()
