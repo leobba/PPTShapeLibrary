@@ -22,10 +22,10 @@ namespace PPTShapeLibrary
                 BridgeController.SettingsSaved += OnSettingsSaved;
                 CreatePane();
                 Log.Write("TaskPane created");
-                _taskPane = this.CustomTaskPanes.Add(_paneHost, "素材库");
-                _taskPane.Width = ShapeLibraryService.LoadSettings().PaneWidth > 0
-                    ? ShapeLibraryService.LoadSettings().PaneWidth : 300;
-                Log.Write("TaskPane added");
+                // 注意：不在 Startup 立即 Add 任务窗格——此时可能无活动文档窗口，
+                // Add 会绑定"幽灵窗口"导致窗格 Visible=true 却永不显示（用户实测问题）。
+                // 改为首次打开素材库（必有活动窗口）时再 Add（见 EnsureTaskPaneForActiveWindow）。
+                Log.Write("TaskPane deferred to first open");
 
                 // 内置素材延迟安装（避免启动期复杂 COM 操作）
                 var timer = new System.Windows.Forms.Timer { Interval = 8000 };
@@ -253,10 +253,14 @@ namespace PPTShapeLibrary
             {
                 bool visible = _taskPane != null && _taskPane.Visible;
                 int width = _taskPane != null ? _taskPane.Width : 300;
-                this.CustomTaskPanes.Remove(_taskPane);
+                if (_taskPane != null) this.CustomTaskPanes.Remove(_taskPane);
 
                 UseFallbackPane(reason);
-                _taskPane = this.CustomTaskPanes.Add(_paneHost, "素材库");
+                PowerPoint.DocumentWindow win = null;
+                try { win = Application.ActiveWindow; } catch { }
+                _taskPane = win != null
+                    ? this.CustomTaskPanes.Add(_paneHost, "素材库", win)
+                    : this.CustomTaskPanes.Add(_paneHost, "素材库");
                 _taskPane.Width = width;
                 _taskPane.Visible = visible;
             }
@@ -340,10 +344,33 @@ namespace PPTShapeLibrary
             EnsurePaneForWindow(null);
         }
 
+        /// <summary>首次打开时创建任务窗格（Startup 不建，避免无活动窗口时绑定幽灵窗口导致永不显示）。</summary>
+        private void EnsureTaskPaneCreated()
+        {
+            try
+            {
+                if (_taskPane != null) return;
+                if (_paneHost == null) return;
+                PowerPoint.DocumentWindow win = null;
+                try { win = Application.ActiveWindow; } catch { }
+                if (win == null) return;   // 仍无活动窗口：等下次调用
+
+                _taskPane = this.CustomTaskPanes.Add(_paneHost, "素材库", win);
+                int w = ShapeLibraryService.LoadSettings().PaneWidth;
+                _taskPane.Width = w > 0 ? w : 300;
+                Log.Write("Task pane created lazily for active window");
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "EnsureTaskPaneCreated");
+            }
+        }
+
         private void EnsurePaneForWindow(PowerPoint.DocumentWindow win)
         {
             try
             {
+                EnsureTaskPaneCreated();   // 懒建兜底
                 if (_taskPane == null) return;
                 if (win == null)
                 {
@@ -396,6 +423,7 @@ namespace PPTShapeLibrary
         public void ToggleTaskPane()
         {
             LogPaneState("Toggle enter");
+            EnsureTaskPaneCreated();   // 首次/懒创建（Startup 未建）
             if (_taskPane == null) return;
             if (!_taskPane.Visible) EnsurePaneOnActiveWindow();   // 要显示时确保在当前窗口
             _taskPane.Visible = !_taskPane.Visible;
@@ -409,6 +437,7 @@ namespace PPTShapeLibrary
         public void ShowTaskPane()
         {
             LogPaneState("Show enter");
+            EnsureTaskPaneCreated();
             if (_taskPane == null) return;
             EnsurePaneOnActiveWindow();
             _taskPane.Visible = true;
