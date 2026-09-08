@@ -52,8 +52,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Folder,
   Search,
-  Moon,
-  Sun,
   MoreVertical,
   Plus,
   Upload,
@@ -93,13 +91,7 @@ function tooltip(e: React.MouseEvent) {
   /* noop */
 }
 
-export default function LibraryView({
-  theme,
-  setTheme,
-}: {
-  theme: string;
-  setTheme: (t: string) => void;
-}) {
+export default function LibraryView() {
   const lib = useLibrary();
   const { init, items, selected, loadMore } = lib;
   const selCount = selected.size;
@@ -197,21 +189,11 @@ export default function LibraryView({
     return ["全部", ...(init?.groupCategories?.[lib.group] || [])];
   }, [init, lib.group]);
 
-  const toggleTheme = () => {
-    const next = theme === "dark" ? "light" : "dark";
-    setTheme(next);
-    document.documentElement.classList.toggle("dark", next === "dark");
-    bridge.saveSettings({ theme: next }).catch(() => {});
-  };
-
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
-      {/* 顶栏 */}
+      {/* 顶栏（无标题块：直接搜索 + 管理） */}
       <header className="flex items-center gap-2 border-b bg-card/70 px-3 py-2 backdrop-blur">
-        <span className="flex items-center gap-1.5 text-sm font-semibold">
-          <Folder className="size-4 text-primary" /> 素材库
-        </span>
-        <div className="ml-2 flex flex-1 items-center gap-1 rounded-md bg-muted px-2">
+        <div className="ml-0 flex flex-1 items-center gap-1 rounded-md bg-muted px-2">
           <Search className="size-3.5 text-muted-foreground" />
           <Input
             className="h-7 border-0 bg-transparent focus-visible:ring-0"
@@ -336,9 +318,6 @@ export default function LibraryView({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={toggleTheme}>
-          {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
-        </Button>
       </header>
 
       <div className="flex min-h-0 flex-1">

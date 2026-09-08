@@ -200,15 +200,7 @@ function Result({ out }: { out: string }) {
   );
 }
 
-export default function ToolView({
-  view,
-  theme,
-  setTheme,
-}: {
-  view: string;
-  theme: string;
-  setTheme: (t: string) => void;
-}) {
+export default function ToolView({ view }: { view: string }) {
   const meta = META[view] || { title: "工具", desc: "" };
   useEffect(() => {
     const head = document.getElementById("popup-drag");
@@ -265,23 +257,15 @@ export default function ToolView({
         </Button>
       </div>
       <div className="flex-1 overflow-y-auto p-4">
-        <ToolBody view={view} theme={theme} setTheme={setTheme} />
+        <ToolBody view={view} />
       </div>
     </div>
   );
 }
 
-function ToolBody({
-  view,
-  theme,
-  setTheme,
-}: {
-  view: string;
-  theme: string;
-  setTheme: (t: string) => void;
-}) {
+function ToolBody({ view }: { view: string }) {
   const metaObj = META[view] || { title: "工具", desc: "" };
-  if (view === "settings") return <SettingsForm theme={theme} setTheme={setTheme} />;
+  if (view === "settings") return <SettingsForm />;
 
   switch (view) {
     case "tool1": return <Tool1 />;
@@ -800,17 +784,11 @@ function Tool12() {
   );
 }
 
-/** settings */
-function SettingsForm({
-  theme,
-  setTheme,
-}: {
-  theme: string;
-  setTheme: (t: string) => void;
-}) {
+/** settings（深色主题已移除，固定浅色） */
+function SettingsForm() {
   const [s, setS] = useState<Record<string, any> | null>(null);
   useEffect(() => {
-    bridge.getSettings().then((d) => setS({ ...d })).catch(() => setS({ theme }));
+    bridge.getSettings().then((d) => setS({ ...d })).catch(() => setS({}));
   }, []);
   const set = (k: string, v: any) => setS((prev) => (prev ? { ...prev, [k]: v } : prev));
   const [saved, setSaved] = useState(false);
@@ -818,9 +796,7 @@ function SettingsForm({
   if (!s) return null;
 
   const save = () => {
-    bridge.saveSettings(s).then((d) => {
-      setTheme(d.theme || s.theme);
-      document.documentElement.classList.toggle("dark", (d.theme || s.theme) === "dark");
+    bridge.saveSettings(s).then(() => {
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
     });
@@ -833,15 +809,6 @@ function SettingsForm({
         <p className="text-xs text-muted-foreground">改动后点击保存生效</p>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        <Row label="主题">
-          <Select value={s.theme === "dark" ? "dark" : "light"} onValueChange={(v) => set("theme", v)}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="light">浅色</SelectItem>
-              <SelectItem value="dark">深色</SelectItem>
-            </SelectContent>
-          </Select>
-        </Row>
         <Row label="插入位置">
           <Select value={s.insertPosition === "original" ? "original" : "center"} onValueChange={(v) => set("insertPosition", v)}>
             <SelectTrigger><SelectValue /></SelectTrigger>
