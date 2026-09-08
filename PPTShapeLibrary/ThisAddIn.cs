@@ -109,6 +109,7 @@ namespace PPTShapeLibrary
                 events.NewPresentation += OnNewPres;
                 events.PresentationOpen += OnPresOpen;
                 events.PresentationClose += OnPresClose;
+                events.WindowActivate += OnWindowActivate;
                 _appEventsHooked = true;
                 Log.Write("App events hooked");
             }
@@ -129,6 +130,7 @@ namespace PPTShapeLibrary
                 events.NewPresentation -= OnNewPres;
                 events.PresentationOpen -= OnPresOpen;
                 events.PresentationClose -= OnPresClose;
+                events.WindowActivate -= OnWindowActivate;
                 _appEventsHooked = false;
                 Log.Write("App events unhooked");
             }
@@ -141,6 +143,10 @@ namespace PPTShapeLibrary
         private void OnNewPres(PowerPoint.Presentation pres) { ScheduleRefresh(); }
         private void OnPresOpen(PowerPoint.Presentation pres) { ScheduleRefresh(); }
         private void OnPresClose(PowerPoint.Presentation pres) { ScheduleRefresh(); }
+        private void OnWindowActivate(PowerPoint.Presentation pres, PowerPoint.DocumentWindow win)
+        {
+            ScheduleRefresh();
+        }
 
         private void ScheduleRefresh()
         {
@@ -301,10 +307,49 @@ namespace PPTShapeLibrary
             }
         }
 
+        /// <summary>
+        /// 确保素材库任务窗格出现在当前活动窗口。
+        /// PowerPoint 独立窗口各自承载窗格：若窗格绑定窗口 ≠ 活动窗口，则把窗格迁移到活动窗口
+        /// （移除旧窗格并为当前窗口重建，VSTO 的 CustomTaskPane.Window 只读，无法原地改绑）。
+        /// </summary>
+        private void EnsurePaneOnActiveWindow()
+        {
+            try
+            {
+                if (_taskPane == null) return;
+                PowerPoint.DocumentWindow win = null;
+                try { win = Application.ActiveWindow; } catch { }
+                if (win == null) return;
+                object current = null;
+                try { current = _taskPane.Window; } catch { }
+                if (ReferenceEquals(current, win)) return;   // 已绑定当前窗口
+
+                Log.Write("Migrating task pane to active window (was bound to another window)");
+                bool wasVisible = _taskPane.Visible;
+                int width = _taskPane.Width;
+                this.CustomTaskPanes.Remove(_taskPane);
+                // 释放旧宿主，避免 WebView2 残留
+                var oldHost = _paneControl as WebPaneHost;
+                try { oldHost?.PrepareShutdown(); } catch { }
+
+                // 为当前窗口重建（WebView2 重新初始化）
+                CreatePane();
+                _taskPane = this.CustomTaskPanes.Add(_paneHost, "素材库", win);
+                _taskPane.Width = width;
+                _taskPane.Visible = wasVisible;
+                Log.Write("Task pane migrated & added for active window");
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "EnsurePaneOnActiveWindow");
+            }
+        }
+
         /// <summary>显示/隐藏收藏任务窗格。</summary>
         public void ToggleTaskPane()
         {
             if (_taskPane == null) return;
+            if (!_taskPane.Visible) EnsurePaneOnActiveWindow();   // 要显示时确保在当前窗口
             _taskPane.Visible = !_taskPane.Visible;
             if (_taskPane.Visible)
             {
@@ -315,6 +360,7 @@ namespace PPTShapeLibrary
         public void ShowTaskPane()
         {
             if (_taskPane == null) return;
+            EnsurePaneOnActiveWindow();
             _taskPane.Visible = true;
             _paneControl.RefreshLibrary();
         }
