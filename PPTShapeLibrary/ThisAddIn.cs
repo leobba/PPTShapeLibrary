@@ -356,9 +356,25 @@ namespace PPTShapeLibrary
             }
         }
 
+        /// <summary>诊断：记录窗格绑定窗口 vs 当前活动窗口，用于多窗口问题定位。</summary>
+        private void LogPaneState(string who)
+        {
+            try
+            {
+                string active = "?";
+                try { active = Application.ActiveWindow != null ? Application.ActiveWindow.Caption : "null"; } catch { }
+                string bound = "?";
+                try { bound = _taskPane != null && _taskPane.Window != null ? "bound-window" : "none"; } catch { }
+                string vis = _taskPane != null ? _taskPane.Visible.ToString() : "no-pane";
+                Log.Write("[pane] " + who + " active=[" + active + "] bound=" + bound + " visible=" + vis);
+            }
+            catch { }
+        }
+
         /// <summary>显示/隐藏收藏任务窗格。</summary>
         public void ToggleTaskPane()
         {
+            LogPaneState("Toggle enter");
             if (_taskPane == null) return;
             if (!_taskPane.Visible) EnsurePaneOnActiveWindow();   // 要显示时确保在当前窗口
             _taskPane.Visible = !_taskPane.Visible;
@@ -366,14 +382,17 @@ namespace PPTShapeLibrary
             {
                 _paneControl.RefreshLibrary();
             }
+            LogPaneState("Toggle exit");
         }
 
         public void ShowTaskPane()
         {
+            LogPaneState("Show enter");
             if (_taskPane == null) return;
             EnsurePaneOnActiveWindow();
             _taskPane.Visible = true;
             _paneControl.RefreshLibrary();
+            LogPaneState("Show exit");
         }
 
         public void RefreshLibrary()
