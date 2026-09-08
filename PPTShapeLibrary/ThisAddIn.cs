@@ -12,6 +12,8 @@ namespace PPTShapeLibrary
         private UserControl _paneHost;
         private Microsoft.Office.Tools.CustomTaskPane _taskPane;
         private System.Windows.Forms.Timer _refreshDebounce;
+        private bool _pendingPaneShow;   // 迁移/重建后待 Pane ready 再显示
+        private System.Windows.Forms.Timer _paneShowTimer;
 
         private void ThisAddIn_Startup(object sender, EventArgs e)
         {
@@ -146,6 +148,8 @@ namespace PPTShapeLibrary
         private void OnWindowActivate(PowerPoint.Presentation pres, PowerPoint.DocumentWindow win)
         {
             ScheduleRefresh();
+            // 注意：不做自动迁移（切窗口反复重建 WebView2 会卡）；
+            // 用户在某窗口点"打开素材库"/收藏时，由 ToggleTaskPane/ShowTaskPane 内 EnsurePane 迁移到该窗口。
         }
 
         private void ScheduleRefresh()
@@ -314,17 +318,24 @@ namespace PPTShapeLibrary
         /// </summary>
         private void EnsurePaneOnActiveWindow()
         {
+            EnsurePaneForWindow(null);
+        }
+
+        private void EnsurePaneForWindow(PowerPoint.DocumentWindow win)
+        {
             try
             {
                 if (_taskPane == null) return;
-                PowerPoint.DocumentWindow win = null;
-                try { win = Application.ActiveWindow; } catch { }
+                if (win == null)
+                {
+                    try { win = Application.ActiveWindow; } catch { }
+                }
                 if (win == null) return;
                 object current = null;
                 try { current = _taskPane.Window; } catch { }
                 if (ReferenceEquals(current, win)) return;   // 已绑定当前窗口
 
-                Log.Write("Migrating task pane to active window (was bound to another window)");
+                Log.Write("Migrating task pane to window (was bound to another)");
                 bool wasVisible = _taskPane.Visible;
                 int width = _taskPane.Width;
                 this.CustomTaskPanes.Remove(_taskPane);
@@ -332,16 +343,57 @@ namespace PPTShapeLibrary
                 var oldHost = _paneControl as WebPaneHost;
                 try { oldHost?.PrepareShutdown(); } catch { }
 
-                // 为当前窗口重建（WebView2 重新初始化）
+                // 为当前窗口重建（WebView2 重新初始化；显示推迟到 Pane ready 由轮询机制接管）
                 CreatePane();
                 _taskPane = this.CustomTaskPanes.Add(_paneHost, "素材库", win);
                 _taskPane.Width = width;
-                _taskPane.Visible = wasVisible;
-                Log.Write("Task pane migrated & added for active window");
+                _taskPane.Visible = false;              // 先隐藏，等 WebView2 就绪再显示避免空白
+                _pendingPaneShow = wasVisible;
+                StartPaneShowWait();
+                Log.Write("Task pane rebuilt for new window; pendingShow=" + wasVisible);
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "EnsurePaneOnActiveWindow");
+                Log.Error(ex, "EnsurePaneForWindow");
+            }
+        }
+
+        /// <summary>迁移/重建后轮询 WebView2 就绪，就绪即显示窗格（避免空白/未初始化）。</summary>
+        private void StartPaneShowWait()
+        {
+            try
+            {
+                if (_paneShowTimer != null) { _paneShowTimer.Stop(); _paneShowTimer.Dispose(); _paneShowTimer = null; }
+                _paneShowTimer = new System.Windows.Forms.Timer { Interval = 200 };
+                int ticks = 0;
+                _paneShowTimer.Tick += (s, e) =>
+                {
+                    try
+                    {
+                        ticks++;
+                        var host = _paneControl as WebPaneHost;
+                        bool failed = host != null && host.IsFailed;
+                        bool ready = host != null && host.IsReady;
+                        if (failed || ready || ticks > 50)   // 最多 ~10s
+                        {
+                            _paneShowTimer.Stop();
+                            _paneShowTimer.Dispose();
+                            _paneShowTimer = null;
+                            if (_pendingPaneShow && _taskPane != null && !failed)
+                            {
+                                _taskPane.Visible = true;
+                                Log.Write("Task pane shown after ready (ticks=" + ticks + ")");
+                            }
+                            _pendingPaneShow = false;
+                        }
+                    }
+                    catch (Exception ex) { Log.Error(ex, "PaneShowWait"); }
+                };
+                _paneShowTimer.Start();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "StartPaneShowWait");
             }
         }
 
@@ -361,6 +413,11 @@ namespace PPTShapeLibrary
         {
             if (_taskPane == null) return;
             EnsurePaneOnActiveWindow();
+            if (_pendingPaneShow)
+            {
+                // 正在迁移重建：等 WebView2 就绪由轮询显示，避免空白
+                return;
+            }
             _taskPane.Visible = true;
             _paneControl.RefreshLibrary();
         }

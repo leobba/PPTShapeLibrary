@@ -139,6 +139,12 @@ namespace PPTShapeLibrary
             get { return _failed; }
         }
 
+        /// <summary>WebView2 首次导航成功（前端可交互）后为 true。供迁移重建后等待显示。</summary>
+        public bool IsReady
+        {
+            get { return _initialized; }
+        }
+
         /// <summary>跨宿主刷新回调（其他宿主改数据后触发本窗格刷新）。</summary>
         private void OnCrossRefresh()
         {
