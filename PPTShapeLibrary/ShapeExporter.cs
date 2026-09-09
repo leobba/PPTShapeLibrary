@@ -203,8 +203,8 @@ namespace PPTShapeLibrary
             }
         }
 
-        /// <summary>收藏任意 ShapeRange 的核心实现。</summary>
-        /// <summary>把形状(含组合内子形状)的文本替换为占位提示文字。保留字体名/字号/加粗/颜色等首字符格式。</summary>
+        /// <summary>把形状(含组合内子形状)的文本替换为占位提示文字。
+        /// 保留首字符的字体名/字号/加粗/斜体/颜色(以 PPT 原生 int RGB 直读直写，避免 ARGB/BGR 错乱)/段落对齐。</summary>
         private static void ReplaceShapeTextWithPlaceholder(PowerPoint.Shape shape, string placeholder)
         {
             try
@@ -218,29 +218,37 @@ namespace PPTShapeLibrary
                     return;
                 }
                 var tf = shape.TextFrame2;
-                if (tf == null || tf.HasText != MsoTriState.msoTrue || tf.TextRange.Length == 0) return;
-                var tr = tf.TextRange;
-                if (tr.Text == placeholder) return;
+                if (tf == null || tf.HasText != MsoTriState.msoTrue) return;
+                var tr = tf.TextRange;   // TextFrame2.TextRange 是 Office.TextRange2
+                if (tr == null || tr.Length == 0) return;
+                string oldText = "";
+                try { oldText = tr.Text; } catch { }
+                if (oldText == placeholder) return;
 
-                // 抓首字符格式
-                string fontName = null; float fontSize = 0; int bold = -1;
-                System.Drawing.Color fc = System.Drawing.Color.Empty;
+                // 抓首字符格式（用 PPT 原生 int RGB，直读直写避免 BGR/ARGB 转换错乱）
+                string fontName = null; float fontSize = 0; int bold = -1; int italic = -1;
+                int colorRgb = -1; int align = -1;
                 try { fontName = tr.Font.Name; } catch { }
                 try { fontSize = tr.Font.Size; } catch { }
                 try { bold = tr.Font.Bold == MsoTriState.msoTrue ? 1 : (tr.Font.Bold == MsoTriState.msoFalse ? 0 : -1); } catch { }
-                try { fc = System.Drawing.Color.FromArgb(tr.Font.Fill.ForeColor.RGB); } catch { }
+                try { italic = tr.Font.Italic == MsoTriState.msoTrue ? 1 : (tr.Font.Italic == MsoTriState.msoFalse ? 0 : -1); } catch { }
+                try { colorRgb = tr.Font.Fill.ForeColor.RGB; } catch { }
+                try { align = (int)tr.ParagraphFormat.Alignment; } catch { }
 
                 tr.Text = placeholder;
 
-                // 回刷格式
-                try { if (fontName != null) tr.Font.Name = fontName; } catch { }
+                // 回刷格式（占位文字继承原观感）
+                try { if (!string.IsNullOrEmpty(fontName)) tr.Font.Name = fontName; } catch { }
                 try { if (fontSize > 0) tr.Font.Size = fontSize; } catch { }
                 try { if (bold >= 0) tr.Font.Bold = bold == 1 ? MsoTriState.msoTrue : MsoTriState.msoFalse; } catch { }
-                try { if (fc != System.Drawing.Color.Empty) tr.Font.Fill.ForeColor.RGB = fc.ToArgb(); } catch { }
+                try { if (italic >= 0) tr.Font.Italic = italic == 1 ? MsoTriState.msoTrue : MsoTriState.msoFalse; } catch { }
+                try { if (colorRgb >= 0) tr.Font.Fill.ForeColor.RGB = colorRgb; } catch { }
+                try { if (align >= 0) tr.ParagraphFormat.Alignment = (Microsoft.Office.Core.MsoParagraphAlignment)align; } catch { }
             }
             catch { /* 单个形状文字替换失败不阻断收藏 */ }
         }
 
+        /// <summary>收藏任意 ShapeRange 的核心实现。</summary>
         public static string CollectRange(PowerPoint.ShapeRange range, string name)
         {
             return CollectRangeCore(range, name, false);
@@ -318,7 +326,7 @@ namespace PPTShapeLibrary
                 {
                     foreach (PowerPoint.Shape s in pasted)
                     {
-                        ReplaceShapeTextWithPlaceholder(s, "在这里插入你想要输入的文字");
+                        ReplaceShapeTextWithPlaceholder(s, "双击编辑文字");
                     }
                 }
 

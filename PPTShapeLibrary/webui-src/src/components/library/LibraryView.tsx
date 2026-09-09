@@ -77,6 +77,10 @@ import {
   FolderPlus,
   Package,
   LayoutGrid,
+  PanelRight,
+  PanelLeft,
+  PanelTop,
+  PanelBottom,
 } from "lucide-react";
 
 const GROUP_ICONS: Record<string, React.ReactNode> = {
@@ -331,6 +335,34 @@ export default function LibraryView() {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        {/* 窗格停靠位置切换（右/上/左/下），记忆在设置里 */}
+        <div className="flex items-center rounded-md bg-muted p-0.5" title="窗格停靠位置">
+          {(
+            [
+              ["left", PanelLeft],
+              ["top", PanelTop],
+              ["right", PanelRight],
+              ["bottom", PanelBottom],
+            ] as const
+          ).map(([pos, Icon]) => {
+            const cur = ((init as any)?.paneDock as string) || "right";
+            return (
+              <button
+                key={pos}
+                title={{ left: "停靠左侧", top: "停靠上方", right: "停靠右侧", bottom: "停靠下方" }[pos]}
+                onClick={() => {
+                  bridge.setPaneDock(pos).then(() => lib.refreshMeta());
+                }}
+                className={
+                  "flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-background hover:text-foreground " +
+                  (cur === pos ? "bg-background text-foreground shadow-sm" : "")
+                }
+              >
+                <Icon className="size-3.5" />
+              </button>
+            );
+          })}
+        </div>
       </header>
 
       <div className="flex min-h-0 flex-1">

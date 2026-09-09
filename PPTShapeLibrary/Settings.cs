@@ -39,6 +39,12 @@ namespace PPTShapeLibrary
         [DataMember(Name = "collectPlaceholderText")]
         public bool CollectPlaceholderText { get; set; }  // 收藏形状时把文字替换为占位提示（模板化收藏）
 
+        [DataMember(Name = "paneDock")]
+        public string PaneDock { get; set; }              // 任务窗格停靠："right"/"left"/"top"/"bottom"
+
+        [DataMember(Name = "paneHeight")]
+        public int PaneHeight { get; set; }               // 停靠 上/下 时窗格高度
+
         public Settings()
         {
             Theme = "light";
@@ -52,6 +58,8 @@ namespace PPTShapeLibrary
             UiBackend = "webview2";
             AuthorName = "";
             CollectPlaceholderText = false;
+            PaneDock = "right";
+            PaneHeight = 180;
         }
     }
 }

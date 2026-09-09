@@ -114,6 +114,7 @@ export const bridge = {
   trashPurge: () => send("trashPurge", {}),
   trashPurgeOne: (id: string) => send("trashPurgeOne", { id }),
   rebuildPreviews: () => send("rebuildPreviews", {}, 120000), // 逐个打开文稿重建，可能较慢
+  setPaneDock: (dock: string) => send("setPaneDock", { dock }),
   scanDuplicates: () => send("scanDuplicates", {}),
   renameTag: (oldTag: string, newTag: string) => send("renameTag", { oldTag, newTag }),
   deleteTag: (tag: string) => send("deleteTag", { tag }),

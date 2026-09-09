@@ -266,7 +266,7 @@ namespace PPTShapeLibrary
                 _taskPane = win != null
                     ? this.CustomTaskPanes.Add(_paneHost, "素材库", win)
                     : this.CustomTaskPanes.Add(_paneHost, "素材库");
-                _taskPane.Width = width;
+                ApplyPaneLayout();
                 _taskPane.Visible = visible;
             }
             catch (Exception ex)
@@ -361,9 +361,8 @@ namespace PPTShapeLibrary
                 if (win == null) return;   // 仍无活动窗口：等下次调用
 
                 _taskPane = this.CustomTaskPanes.Add(_paneHost, "素材库", win);
-                int w = ShapeLibraryService.LoadSettings().PaneWidth;
-                _taskPane.Width = w > 0 ? w : 300;
                 _boundWindowHwnd = WindowHwnd(win);
+                ApplyPaneLayout();
                 Log.Write("Task pane created lazily, boundHwnd=" + _boundWindowHwnd);
             }
             catch (Exception ex)
@@ -397,8 +396,8 @@ namespace PPTShapeLibrary
                 // 为当前窗口重建（WebView2 重新初始化）
                 CreatePane();
                 _taskPane = this.CustomTaskPanes.Add(_paneHost, "素材库", win);
-                _taskPane.Width = width;
                 _boundWindowHwnd = hwnd;
+                ApplyPaneLayout();
                 // 关键：必须立即 Visible=true 触发内容控件 Load → WebPaneHost.InitializeAsync 启动；
                 // 若设为 false，UserControl.Load 不触发，WebView2 永不初始化、窗格永不显示（此前 bug）。
                 _taskPane.Visible = true;
@@ -408,6 +407,52 @@ namespace PPTShapeLibrary
             {
                 Log.Error(ex, "EnsurePaneForWindow");
             }
+        }
+
+        /// <summary>把窗格按设置应用停靠位置与尺寸（右/左→宽度，上/下→高度）。</summary>
+        private void ApplyPaneLayout()
+        {
+            try
+            {
+                if (_taskPane == null) return;
+                var s = ShapeLibraryService.LoadSettings();
+                string dock = s.PaneDock ?? "right";
+                Microsoft.Office.Core.MsoCTPDockPosition pos;
+                switch (dock)
+                {
+                    case "left": pos = Microsoft.Office.Core.MsoCTPDockPosition.msoCTPDockPositionLeft; break;
+                    case "top": pos = Microsoft.Office.Core.MsoCTPDockPosition.msoCTPDockPositionTop; break;
+                    case "bottom": pos = Microsoft.Office.Core.MsoCTPDockPosition.msoCTPDockPositionBottom; break;
+                    default: pos = Microsoft.Office.Core.MsoCTPDockPosition.msoCTPDockPositionRight; break;
+                }
+                _taskPane.DockPosition = pos;
+                if (dock == "top" || dock == "bottom")
+                {
+                    int h = s.PaneHeight > 0 ? s.PaneHeight : 180;
+                    try { _taskPane.Height = h; } catch { }
+                }
+                else
+                {
+                    int w = s.PaneWidth > 0 ? s.PaneWidth : 300;
+                    try { _taskPane.Width = w; } catch { }
+                }
+            }
+            catch (Exception ex) { Log.Error(ex, "ApplyPaneLayout"); }
+        }
+
+        /// <summary>切换窗格停靠位置（"right"/"left"/"top"/"bottom"）并保存记忆。</summary>
+        public void SetPaneDock(string dock)
+        {
+            try
+            {
+                if (dock != "right" && dock != "left" && dock != "top" && dock != "bottom") return;
+                var s = ShapeLibraryService.LoadSettings();
+                s.PaneDock = dock;
+                ShapeLibraryService.SaveSettings(s);
+                ApplyPaneLayout();
+                Log.Write("Pane dock set to " + dock);
+            }
+            catch (Exception ex) { Log.Error(ex, "SetPaneDock"); }
         }
 
         /// <summary>诊断：记录窗格绑定窗口 vs 当前活动窗口，用于多窗口问题定位。</summary>

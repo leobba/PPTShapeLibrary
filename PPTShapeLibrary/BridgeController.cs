@@ -309,6 +309,13 @@ namespace PPTShapeLibrary
                             BroadcastRefresh();
                             break;
                         }
+                    case "setPaneDock":
+                        {
+                            Globals.ThisAddIn.SetPaneDock(ToStr(payload, "dock"));
+                            Ok(reqId, new Dictionary<string, object>());
+                            BroadcastRefresh();
+                            break;
+                        }
                     // ---------------- PPT 工具（Web 工具页） ----------------
                     case "toolGetFonts":
                         {
@@ -881,6 +888,15 @@ namespace PPTShapeLibrary
                 {
                     bool b; if (bool.TryParse(patch["collectPlaceholderText"].ToString(), out b)) s.CollectPlaceholderText = b;
                 }
+                if (patch.ContainsKey("paneDock"))
+                {
+                    string v = patch["paneDock"]?.ToString() ?? "";
+                    if (v == "right" || v == "left" || v == "top" || v == "bottom") s.PaneDock = v;
+                }
+                if (patch.ContainsKey("paneHeight"))
+                {
+                    int n; if (int.TryParse(patch["paneHeight"].ToString(), out n) && n >= 100 && n <= 800) s.PaneHeight = n;
+                }
                 if (patch.ContainsKey("pageSize"))
                 {
                     int n; if (int.TryParse(patch["pageSize"].ToString(), out n) && n > 0) s.PageSize = n;
@@ -1048,7 +1064,9 @@ namespace PPTShapeLibrary
                 { "clickToInsert", s.ClickToInsert },
                 { "themeAdaptStyle", s.ThemeAdaptStyle },
                 { "authorName", s.AuthorName ?? "" },
-                { "collectPlaceholderText", s.CollectPlaceholderText }
+                { "collectPlaceholderText", s.CollectPlaceholderText },
+                { "paneDock", s.PaneDock ?? "right" },
+                { "paneHeight", s.PaneHeight }
             };
         }
 
