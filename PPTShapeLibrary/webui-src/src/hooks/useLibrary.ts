@@ -96,9 +96,18 @@ export function useLibrary() {
     if (!init) return;
     if (!didInitialLoad.current) {
       didInitialLoad.current = true;
+      // 页面重载/窗口迁移重建后，恢复上次浏览的 组/分类（避免跳回"全部"）
+      const lg = (init as any)?.lastGroup as string | undefined;
+      const lc = (init as any)?.lastCategory as string | undefined;
+      if (lg && lg !== "全部" && lg !== group) {
+        // setGroup 后由"防抖搜索 effect"(依赖 group) 自动 reload
+        setGroup(lg);
+        setCategory(lc && lc !== "全部" ? lc : "全部");
+        return;
+      }
       reload(true);
     }
-  }, [init, reload]);
+  }, [init, reload]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 组/分类有效性：当前选中的组或分类已被删除时回退（避免请求旧名返回空、筛选态悬空）
   useEffect(() => {

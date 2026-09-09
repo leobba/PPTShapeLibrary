@@ -721,6 +721,12 @@ namespace PPTShapeLibrary
             var all = ShapeLibraryService.LoadAllItems();
             d["categories"] = ShapeLibraryService.GetAllCategories();
             d["total"] = all.Count;
+            // 浏览上下文：页面重载/窗口迁移重建后前端据此恢复上次浏览的 组/分类（避免跳回"全部"）
+            if (ShapeLibraryService.BrowseWasSet)
+            {
+                d["lastGroup"] = ShapeLibraryService.BrowseGroupForRestore;
+                d["lastCategory"] = ShapeLibraryService.BrowseCategoryForRestore ?? "全部";
+            }
 
             // 分类计数（前端胶囊徽标）
             var counts = new Dictionary<string, int>();

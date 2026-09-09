@@ -71,31 +71,56 @@ namespace PPTShapeLibrary
     /// </summary>
     public class ShapeLibraryService
     {
-        // ---------------- 浏览上下文（收藏落点：收藏到当前正在浏览的分类） ----------------
+        // ---------------- 浏览上下文（收藏落点 + 重载后视图恢复） ----------------
 
         private static readonly object BrowseSync = new object();
-        private static string _browseGroup = "我的";     // 面板当前浏览的一级组（"全部" 时收藏回落默认组）
-        private static string _browseCategory;           // 面板当前浏览的二级分类（"全部"/空 → null 回落默认）
+        private static string _browseGroup = "全部";     // 面板当前浏览的一级组（可能为"全部"）
+        private static string _browseCategory;           // 面板当前浏览的二级分类（"全部"/空 → null）
+        private static bool _browseSet;                  // 是否浏览过（未浏览过则 init 不强制恢复）
 
         /// <summary>前端浏览到某 组/分类 时登记（list 请求携带）。</summary>
         public static void SetBrowseContext(string group, string category)
         {
             lock (BrowseSync)
             {
-                if (!string.IsNullOrWhiteSpace(group) && group != "全部") _browseGroup = group.Trim();
-                if (string.IsNullOrWhiteSpace(category) || category == "全部") _browseCategory = null;
-                else _browseCategory = category.Trim();
+                _browseSet = true;
+                _browseGroup = string.IsNullOrWhiteSpace(group) ? "全部" : group.Trim();
+                _browseCategory = (string.IsNullOrWhiteSpace(category) || category == "全部") ? null : category.Trim();
             }
         }
 
-        /// <summary>收藏应写入的目标组（当前浏览组；未浏览/在"全部"时回落「我的」）。</summary>
+        /// <summary>收藏应写入的目标组（浏览"全部"/未浏览时回落「我的」）。</summary>
         public static string BrowseGroupForCollect
         {
-            get { lock (BrowseSync) { return string.IsNullOrEmpty(_browseGroup) ? "我的" : _browseGroup; } }
+            get
+            {
+                lock (BrowseSync)
+                {
+                    if (!_browseSet || string.IsNullOrWhiteSpace(_browseGroup) || _browseGroup == "全部") return "我的";
+                    return _browseGroup;
+                }
+            }
         }
 
-        /// <summary>收藏应写入的目标分类（当前浏览分类；未明确则 null 表示回落后由收藏方填默认）。</summary>
+        /// <summary>收藏应写入的目标分类（当前浏览分类；未明确则 null 回落后由收藏方填默认）。</summary>
         public static string BrowseCategoryForCollect
+        {
+            get { lock (BrowseSync) { return _browseCategory; } }
+        }
+
+        /// <summary>页面重载后恢复浏览：是否已浏览过(否则保持前端默认"全部")。</summary>
+        public static bool BrowseWasSet
+        {
+            get { lock (BrowseSync) { return _browseSet; } }
+        }
+
+        /// <summary>页面重载后应恢复到的组（原样，可能"全部"）。</summary>
+        public static string BrowseGroupForRestore
+        {
+            get { lock (BrowseSync) { return string.IsNullOrWhiteSpace(_browseGroup) ? "全部" : _browseGroup; } }
+        }
+
+        public static string BrowseCategoryForRestore
         {
             get { lock (BrowseSync) { return _browseCategory; } }
         }
@@ -105,8 +130,9 @@ namespace PPTShapeLibrary
         {
             lock (BrowseSync)
             {
-                _browseGroup = "我的";
+                _browseGroup = "全部";
                 _browseCategory = null;
+                _browseSet = false;
             }
         }
 
