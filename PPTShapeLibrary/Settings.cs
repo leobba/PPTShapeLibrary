@@ -49,7 +49,7 @@ namespace PPTShapeLibrary
         {
             Theme = "light";
             InsertPosition = "center";
-            PaneWidth = 830;
+            PaneWidth = 400;
             AutoName = true;
             PageSize = 200;
             CardSize = "compact";

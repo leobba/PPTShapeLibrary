@@ -421,7 +421,7 @@ namespace PPTShapeLibrary
                 _taskPane.DockPosition = dock == "left"
                     ? Microsoft.Office.Core.MsoCTPDockPosition.msoCTPDockPositionLeft
                     : Microsoft.Office.Core.MsoCTPDockPosition.msoCTPDockPositionRight;
-                int w = s.PaneWidth > 0 ? s.PaneWidth : 830;
+                int w = s.PaneWidth > 0 ? s.PaneWidth : 400;
                 try { _taskPane.Width = w; } catch { }
             }
             catch (Exception ex) { Log.Error(ex, "ApplyPaneLayout"); }

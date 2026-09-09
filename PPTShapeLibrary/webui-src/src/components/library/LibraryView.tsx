@@ -160,8 +160,6 @@ export default function LibraryView() {
   };
   // 面板宽度自适应：容器宽度 → 卡片列最小宽（窄面板小卡，宽面板大卡）
   const [gridMin, setGridMin] = useState(96);
-  // 宽面板固定每行两个素材（>=760px 时 2 列），窄面板回退自适应列
-  const [gridCols, setGridCols] = useState<string | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const el = gridRef.current;
@@ -172,16 +170,12 @@ export default function LibraryView() {
       (init as any)?.cardSize === "compact" ? 0.85 : (init as any)?.cardSize === "large" ? 1.3 : 1;
     const ro = new ResizeObserver(() => {
       const w = el.clientWidth;
-      if (w >= 690) setGridCols("repeat(2, 1fr)");
-      else setGridCols(null);
       const base = w >= 620 ? 148 : w >= 420 ? 120 : w >= 300 ? 98 : 84;
       setGridMin(Math.round(base * k));
     });
     ro.observe(el);
     return () => ro.disconnect();
   }, [init]);
-  // 网格模板：宽面板固定 2 列，否则 auto-fill 自适应
-  const gridTemplate = gridCols || `repeat(auto-fill, minmax(${gridMin}px, 1fr))`;
 
   const groups = useMemo(() => ["全部", ...(init?.groups || [])], [init]);
 
@@ -338,67 +332,36 @@ export default function LibraryView() {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        {/* 左侧分组栏（第一层）：我的/模板/自定义组 下挂 全部/形状/样式；素材等内置组直接一级 */}
-        <nav className="flex w-[78px] shrink-0 flex-col items-stretch gap-1 overflow-y-auto border-r bg-card/40 px-1.5 py-2">
+        {/* 左侧分组栏：一级分组（类型 全部/形状/样式 已移至主区分类行上方） */}
+        <nav className="flex w-[76px] shrink-0 flex-col items-stretch gap-0.5 overflow-y-auto border-r bg-card/40 px-1.5 py-2">
           {groups.map((g) => {
             const count = init?.groupCounts?.[g];
-            // 有类型子项：我的/模板 及用户自定义组（预设内置组素材/文字/背景/图例 与虚拟"全部" 无类型细分，仅组）
-            const presetPlain = ["素材", "文字", "背景", "图例"];
-            const typed = g !== "全部" && !presetPlain.includes(g);
-            const inThisGroup = lib.group === g;
+            const active = lib.group === g;
             return (
-              <div key={g} className="flex flex-col items-stretch gap-0.5">
-                <button
-                  title={g}
-                  onClick={() => {
-                    lib.setGroup(g);
-                    lib.setKind("全部"); // 点组头=该组全部类型（无类型组恒 全部）
-                  }}
-                  className={
-                    "flex items-center gap-1 rounded-lg px-1.5 py-1.5 text-[11px] transition-colors " +
-                    (inThisGroup && lib.kind === "全部"
-                      ? "bg-primary/15 font-medium text-primary"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground")
-                  }
-                >
-                  <span className="relative shrink-0">
-                    {GROUP_ICONS[g] || <Folder className="size-3.5" />}
-                    {!!count && (
-                      <span className="absolute -right-2 -top-1.5 rounded-full bg-muted px-0.5 text-[8px] leading-3">
-                        {count > 99 ? "99+" : count}
-                      </span>
-                    )}
-                  </span>
-                  <span className="max-w-full truncate">{g}</span>
-                </button>
-                {typed && (
-                  <div className="flex flex-col gap-0.5 pl-4">
-                    {(
-                      [
-                        ["全部", "全部"],
-                        ["形状", "Shape"],
-                        ["样式", "Style"],
-                      ] as const
-                    ).map(([label, k]) => (
-                      <button
-                        key={k}
-                        onClick={() => {
-                          lib.setGroup(g);
-                          lib.setKind(k);
-                        }}
-                        className={
-                          "self-start rounded px-1.5 py-0.5 text-[10px] leading-none transition-colors " +
-                          (inThisGroup && lib.kind === k
-                            ? "bg-primary text-primary-foreground"
-                            : "text-muted-foreground hover:bg-muted hover:text-foreground")
-                        }
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <button
+                key={g}
+                title={g}
+                onClick={() => {
+                  lib.setGroup(g);
+                  lib.setKind("全部"); // 切组默认看全部类型；类型行/子项再细化
+                }}
+                className={
+                  "flex flex-col items-center gap-1 rounded-lg px-0.5 py-2 text-[11px] transition-colors " +
+                  (active
+                    ? "bg-primary/15 font-medium text-primary"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground")
+                }
+              >
+                <span className="relative">
+                  {GROUP_ICONS[g] || <Folder className="size-4" />}
+                  {!!count && (
+                    <span className="absolute -right-2.5 -top-1.5 rounded-full bg-muted px-1 text-[9px] leading-3">
+                      {count > 99 ? "99+" : count}
+                    </span>
+                  )}
+                </span>
+                <span className="max-w-full truncate">{g}</span>
+              </button>
             );
           })}
           <Separator className="my-1" />
@@ -418,6 +381,32 @@ export default function LibraryView() {
 
         {/* 主区 */}
         <div className="flex min-w-0 flex-1 flex-col">
+          {/* 类型行（仅我的/模板/自定义组有 全部/形状/样式 类型区分）：显示在二级分类行之上 */}
+          {lib.group !== "全部" && !["素材", "文字", "背景", "图例"].includes(lib.group) && (
+            <div className="flex items-center gap-0.5 border-b bg-card/40 px-2 py-1.5">
+              <span className="mr-1 text-[11px] text-muted-foreground">类型</span>
+              {(
+                [
+                  ["全部", "全部"],
+                  ["形状", "Shape"],
+                  ["样式", "Style"],
+                ] as const
+              ).map(([label, k]) => (
+                <button
+                  key={k}
+                  onClick={() => lib.setKind(k)}
+                  className={
+                    "shrink-0 rounded-full px-2.5 py-1 text-xs transition-colors " +
+                    (lib.kind === k
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground")
+                  }
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
           {/* 二级分类行：全部 | 当前分类下拉(列出全部分类) | 新建分类 */}
           <div className="flex items-center gap-1.5 border-b bg-card/40 px-2 py-1.5">
             <button
@@ -566,7 +555,7 @@ export default function LibraryView() {
             }}
           >
               {!init && (
-                <div className="grid gap-2 p-2.5" style={{ gridTemplateColumns: gridTemplate }}>
+                <div className="grid gap-2 p-2.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${gridMin}px, 1fr))` }}>
                   {Array.from({ length: 8 }).map((_, i) => (
                     <div key={i} className="flex flex-col gap-1.5">
                       <Skeleton className="aspect-[1/.92] w-full rounded-lg" />
@@ -630,7 +619,7 @@ export default function LibraryView() {
               ) : (
                 <div
                   className="grid gap-2 p-2.5"
-                  style={{ gridTemplateColumns: gridTemplate }}
+                  style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${gridMin}px, 1fr))` }}
                 >
                   {items.map((item) => {
                     // 最近使用横条显示时，网格内不重复展示同 id 卡片
