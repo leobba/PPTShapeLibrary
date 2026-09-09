@@ -158,24 +158,9 @@ export default function LibraryView() {
       lib.reload(true); // TouchUsed 更新了使用统计/最近使用排序，重载列表
     }).catch((e: Error) => showToast(e.message || "应用失败（请先选中形状）"));
   };
-  // 面板宽度自适应：容器宽度 → 卡片列最小宽（窄面板小卡，宽面板大卡）
-  const [gridMin, setGridMin] = useState(96);
+  // 素材网格：固定每行两个素材（卡片随面板宽度伸展）
+  const gridTemplate = "repeat(2, minmax(0, 1fr))";
   const gridRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    const el = gridRef.current;
-    if (!el) return;
-    if (typeof ResizeObserver === "undefined") return;
-    // 卡片密度系数：compact 小卡 / standard 标准 / large 大图
-    const k =
-      (init as any)?.cardSize === "compact" ? 0.85 : (init as any)?.cardSize === "large" ? 1.3 : 1;
-    const ro = new ResizeObserver(() => {
-      const w = el.clientWidth;
-      const base = w >= 620 ? 148 : w >= 420 ? 120 : w >= 300 ? 98 : 84;
-      setGridMin(Math.round(base * k));
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [init]);
 
   const groups = useMemo(() => ["全部", ...(init?.groups || [])], [init]);
 
@@ -564,7 +549,7 @@ export default function LibraryView() {
             }}
           >
               {!init && (
-                <div className="grid gap-2 p-2.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${gridMin}px, 1fr))` }}>
+                <div className="grid gap-2 p-2.5" style={{ gridTemplateColumns: gridTemplate }}>
                   {Array.from({ length: 8 }).map((_, i) => (
                     <div key={i} className="flex flex-col gap-1.5">
                       <Skeleton className="aspect-[1/.92] w-full rounded-lg" />
@@ -628,7 +613,7 @@ export default function LibraryView() {
               ) : (
                 <div
                   className="grid gap-2 p-2.5"
-                  style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${gridMin}px, 1fr))` }}
+                  style={{ gridTemplateColumns: gridTemplate }}
                 >
                   {items.map((item) => {
                     // 最近使用横条显示时，网格内不重复展示同 id 卡片
