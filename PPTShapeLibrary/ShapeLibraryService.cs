@@ -750,7 +750,15 @@ namespace PPTShapeLibrary
                     var ser = new DataContractJsonSerializer(typeof(Settings));
                     using (var fs = File.OpenRead(path))
                     {
-                        return (Settings)ser.ReadObject(fs);
+                        var s = (Settings)ser.ReadObject(fs);
+                        // 第二十四批迁移：旧默认(右侧 300px) → 新默认(左侧 830px)，仅当用户从未自定义过
+                        if ((s.PaneDock ?? "right") == "right" && s.PaneWidth <= 300 && s.PaneHeight == 180)
+                        {
+                            s.PaneDock = "left";
+                            s.PaneWidth = 830;
+                            SaveSettings(s);
+                        }
+                        return s;
                     }
                 }
             }

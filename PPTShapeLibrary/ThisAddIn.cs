@@ -409,43 +409,30 @@ namespace PPTShapeLibrary
             }
         }
 
-        /// <summary>把窗格按设置应用停靠位置与尺寸（右/左→宽度，上/下→高度）。</summary>
+        /// <summary>把窗格按设置应用停靠位置与宽度（仅左/右停靠；旧 top/bottom 设置归一到右侧）。</summary>
         private void ApplyPaneLayout()
         {
             try
             {
                 if (_taskPane == null) return;
                 var s = ShapeLibraryService.LoadSettings();
-                string dock = s.PaneDock ?? "right";
-                Microsoft.Office.Core.MsoCTPDockPosition pos;
-                switch (dock)
-                {
-                    case "left": pos = Microsoft.Office.Core.MsoCTPDockPosition.msoCTPDockPositionLeft; break;
-                    case "top": pos = Microsoft.Office.Core.MsoCTPDockPosition.msoCTPDockPositionTop; break;
-                    case "bottom": pos = Microsoft.Office.Core.MsoCTPDockPosition.msoCTPDockPositionBottom; break;
-                    default: pos = Microsoft.Office.Core.MsoCTPDockPosition.msoCTPDockPositionRight; break;
-                }
-                _taskPane.DockPosition = pos;
-                if (dock == "top" || dock == "bottom")
-                {
-                    int h = s.PaneHeight > 0 ? s.PaneHeight : 180;
-                    try { _taskPane.Height = h; } catch { }
-                }
-                else
-                {
-                    int w = s.PaneWidth > 0 ? s.PaneWidth : 300;
-                    try { _taskPane.Width = w; } catch { }
-                }
+                string dock = s.PaneDock ?? "left";
+                if (dock != "left") dock = "right";   // 停靠仅左右（用户 24 批要求；top/bottom 兼容为 right）
+                _taskPane.DockPosition = dock == "left"
+                    ? Microsoft.Office.Core.MsoCTPDockPosition.msoCTPDockPositionLeft
+                    : Microsoft.Office.Core.MsoCTPDockPosition.msoCTPDockPositionRight;
+                int w = s.PaneWidth > 0 ? s.PaneWidth : 830;
+                try { _taskPane.Width = w; } catch { }
             }
             catch (Exception ex) { Log.Error(ex, "ApplyPaneLayout"); }
         }
 
-        /// <summary>切换窗格停靠位置（"right"/"left"/"top"/"bottom"）并保存记忆。</summary>
+        /// <summary>切换窗格停靠位置（仅 "right"/"left"）并保存记忆。</summary>
         public void SetPaneDock(string dock)
         {
             try
             {
-                if (dock != "right" && dock != "left" && dock != "top" && dock != "bottom") return;
+                if (dock != "right" && dock != "left") return;
                 var s = ShapeLibraryService.LoadSettings();
                 s.PaneDock = dock;
                 ShapeLibraryService.SaveSettings(s);

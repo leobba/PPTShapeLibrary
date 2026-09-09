@@ -78,8 +78,7 @@ import {
   LayoutGrid,
   PanelRight,
   PanelLeft,
-  PanelTop,
-  PanelBottom,
+  ChevronDown,
 } from "lucide-react";
 
 const GROUP_ICONS: Record<string, React.ReactNode> = {
@@ -161,6 +160,8 @@ export default function LibraryView() {
   };
   // 面板宽度自适应：容器宽度 → 卡片列最小宽（窄面板小卡，宽面板大卡）
   const [gridMin, setGridMin] = useState(96);
+  // 宽面板固定每行两个素材（>=760px 时 2 列），窄面板回退自适应列
+  const [gridCols, setGridCols] = useState<string | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const el = gridRef.current;
@@ -171,12 +172,16 @@ export default function LibraryView() {
       (init as any)?.cardSize === "compact" ? 0.85 : (init as any)?.cardSize === "large" ? 1.3 : 1;
     const ro = new ResizeObserver(() => {
       const w = el.clientWidth;
+      if (w >= 690) setGridCols("repeat(2, 1fr)");
+      else setGridCols(null);
       const base = w >= 620 ? 148 : w >= 420 ? 120 : w >= 300 ? 98 : 84;
       setGridMin(Math.round(base * k));
     });
     ro.observe(el);
     return () => ro.disconnect();
   }, [init]);
+  // 网格模板：宽面板固定 2 列，否则 auto-fill 自适应
+  const gridTemplate = gridCols || `repeat(auto-fill, minmax(${gridMin}px, 1fr))`;
 
   const groups = useMemo(() => ["全部", ...(init?.groups || [])], [init]);
 
@@ -314,66 +319,86 @@ export default function LibraryView() {
             >
               <Download className="size-4" /> 导入素材包…
             </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-[11px]">窗格停靠</DropdownMenuLabel>
+            <DropdownMenuItem
+              onSelect={() => bridge.setPaneDock("left").then(() => lib.refreshMeta())}
+              className={(((init as any)?.paneDock as string) || "left") === "left" ? "bg-accent text-accent-foreground" : ""}
+            >
+              <PanelLeft className="size-4" /> 停靠左侧
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => bridge.setPaneDock("right").then(() => lib.refreshMeta())}
+              className={(((init as any)?.paneDock as string) || "left") === "right" ? "bg-accent text-accent-foreground" : ""}
+            >
+              <PanelRight className="size-4" /> 停靠右侧
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        {/* 窗格停靠位置切换（右/上/左/下），记忆在设置里 */}
-        <div className="flex items-center rounded-md bg-muted p-0.5" title="窗格停靠位置">
-          {(
-            [
-              ["left", PanelLeft],
-              ["top", PanelTop],
-              ["right", PanelRight],
-              ["bottom", PanelBottom],
-            ] as const
-          ).map(([pos, Icon]) => {
-            const cur = ((init as any)?.paneDock as string) || "right";
-            return (
-              <button
-                key={pos}
-                title={{ left: "停靠左侧", top: "停靠上方", right: "停靠右侧", bottom: "停靠下方" }[pos]}
-                onClick={() => {
-                  bridge.setPaneDock(pos).then(() => lib.refreshMeta());
-                }}
-                className={
-                  "flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-background hover:text-foreground " +
-                  (cur === pos ? "bg-background text-foreground shadow-sm" : "")
-                }
-              >
-                <Icon className="size-3.5" />
-              </button>
-            );
-          })}
-        </div>
       </header>
 
       <div className="flex min-h-0 flex-1">
-        {/* 左侧一级分组栏 */}
-        <nav className="flex w-16 shrink-0 flex-col items-stretch gap-0.5 overflow-y-auto border-r bg-card/40 px-1.5 py-2">
+        {/* 左侧分组栏（第一层）：我的/模板/自定义组 下挂 全部/形状/样式；素材等内置组直接一级 */}
+        <nav className="flex w-[78px] shrink-0 flex-col items-stretch gap-1 overflow-y-auto border-r bg-card/40 px-1.5 py-2">
           {groups.map((g) => {
             const count = init?.groupCounts?.[g];
-            const active = lib.group === g;
+            // 有类型子项：我的/模板 及用户自定义组（预设内置组素材/文字/背景/图例 与虚拟"全部" 无类型细分，仅组）
+            const presetPlain = ["素材", "文字", "背景", "图例"];
+            const typed = g !== "全部" && !presetPlain.includes(g);
+            const inThisGroup = lib.group === g;
             return (
-              <button
-                key={g}
-                title={g}
-                onClick={() => lib.setGroup(g)}
-                className={
-                  "flex flex-col items-center gap-1 rounded-lg px-0.5 py-2 text-[11px] transition-colors " +
-                  (active
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground")
-                }
-              >
-                <span className="relative">
-                  {GROUP_ICONS[g] || <Folder className="size-4" />}
-                  {!!count && (
-                    <span className="absolute -right-2.5 -top-1.5 rounded-full bg-muted px-1 text-[9px] leading-3">
-                      {count > 99 ? "99+" : count}
-                    </span>
-                  )}
-                </span>
-                <span className="max-w-full truncate">{g}</span>
-              </button>
+              <div key={g} className="flex flex-col items-stretch gap-0.5">
+                <button
+                  title={g}
+                  onClick={() => {
+                    lib.setGroup(g);
+                    lib.setKind("全部"); // 点组头=该组全部类型（无类型组恒 全部）
+                  }}
+                  className={
+                    "flex items-center gap-1 rounded-lg px-1.5 py-1.5 text-[11px] transition-colors " +
+                    (inThisGroup && lib.kind === "全部"
+                      ? "bg-primary/15 font-medium text-primary"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground")
+                  }
+                >
+                  <span className="relative shrink-0">
+                    {GROUP_ICONS[g] || <Folder className="size-3.5" />}
+                    {!!count && (
+                      <span className="absolute -right-2 -top-1.5 rounded-full bg-muted px-0.5 text-[8px] leading-3">
+                        {count > 99 ? "99+" : count}
+                      </span>
+                    )}
+                  </span>
+                  <span className="max-w-full truncate">{g}</span>
+                </button>
+                {typed && (
+                  <div className="flex flex-col gap-0.5 pl-4">
+                    {(
+                      [
+                        ["全部", "全部"],
+                        ["形状", "Shape"],
+                        ["样式", "Style"],
+                      ] as const
+                    ).map(([label, k]) => (
+                      <button
+                        key={k}
+                        onClick={() => {
+                          lib.setGroup(g);
+                          lib.setKind(k);
+                        }}
+                        className={
+                          "self-start rounded px-1.5 py-0.5 text-[10px] leading-none transition-colors " +
+                          (inThisGroup && lib.kind === k
+                            ? "bg-primary text-primary-foreground"
+                            : "text-muted-foreground hover:bg-muted hover:text-foreground")
+                        }
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             );
           })}
           <Separator className="my-1" />
@@ -393,68 +418,71 @@ export default function LibraryView() {
 
         {/* 主区 */}
         <div className="flex min-w-0 flex-1 flex-col">
-          {/* 类型段选 + 二级分类胶囊 */}
-          <div className="flex items-center gap-1 border-b bg-card/40 px-2 py-1.5">
-            <div className="flex shrink-0 items-center gap-0.5 rounded-full bg-muted p-0.5">
-              {[
-                ["全部", "全部"],
-                ["形状", "Shape"],
-                ["样式", "Style"],
-              ].map(([label, val]) => (
+          {/* 二级分类行：全部 | 当前分类下拉(列出全部分类) | 新建分类 */}
+          <div className="flex items-center gap-1.5 border-b bg-card/40 px-2 py-1.5">
+            <button
+              onClick={() => lib.setCategory("全部")}
+              className={
+                "shrink-0 rounded-full px-2.5 py-1 text-xs transition-colors " +
+                (lib.category === "全部"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground")
+              }
+            >
+              全部
+            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
                 <button
-                  key={val}
-                  onClick={() => lib.setKind(val)}
                   className={
-                    "rounded-full px-2 py-0.5 text-xs transition-colors " +
-                    (lib.kind === val
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground")
+                    "flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-colors " +
+                    (lib.category !== "全部"
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:bg-muted hover:text-foreground")
                   }
+                  title="选择二级分类"
                 >
-                  {label}
+                  {lib.category !== "全部" ? lib.category : "选择分类"}
+                  <ChevronDown className="size-3 opacity-60" />
                 </button>
-              ))}
-            </div>
-            <Separator orientation="vertical" className="mx-1 h-4 shrink-0" />
-            <div className="flex items-center gap-1 overflow-x-auto">
-              {cats.map((c) => (
-                <button
-                  key={c}
-                  onClick={() => lib.setCategory(c)}
-                  className={
-                    "shrink-0 rounded-full px-2.5 py-1 text-xs transition-colors " +
-                    (lib.category === c
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-muted")
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
+                {(cats as string[])
+                  .filter((c) => c !== "全部")
+                  .map((c) => (
+                    <DropdownMenuItem key={c} onSelect={() => lib.setCategory(c)}>
+                      <span className={"mr-1 size-2 rounded-full " + (lib.category === c ? "bg-primary" : "bg-muted")} />
+                      {c}
+                    </DropdownMenuItem>
+                  ))}
+                {(cats as string[]).filter((c) => c !== "全部").length === 0 && (
+                  <p className="px-2 py-1 text-[11px] text-muted-foreground">该组暂无二级分类</p>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {lib.group !== "全部" && (
+              <button
+                className="flex shrink-0 items-center gap-0.5 rounded-full border border-dashed px-2 py-1 text-xs text-muted-foreground hover:border-primary hover:text-primary"
+                title="新建二级分类"
+                onClick={async () => {
+                  const name = await dialogs.prompt("新建二级分类（当前组：「" + lib.group + "」）", {
+                    placeholder: "分类名，如：箭头",
+                    okText: "创建",
+                  });
+                  if (name?.trim()) {
+                    bridge
+                      .createGroupCategory(lib.group, name.trim())
+                      .then(() => {
+                        lib.refreshMeta();
+                        lib.setCategory(name.trim()); // 选中新分类
+                      })
+                      .catch((e: any) => dialogs.alert("创建失败：" + (e?.message || e)));
                   }
-                >
-                  {c}
-                </button>
-              ))}
-              {lib.group !== "全部" && (
-                <button
-                  className="flex shrink-0 items-center gap-0.5 rounded-full border border-dashed px-2 py-1 text-xs text-muted-foreground hover:border-primary hover:text-primary"
-                  title="新建二级分类"
-                  onClick={async () => {
-                    const name = await dialogs.prompt("新建二级分类（当前组：「" + lib.group + "」）", {
-                      placeholder: "分类名，如：箭头",
-                      okText: "创建",
-                    });
-                    if (name?.trim()) {
-                      bridge
-                        .createGroupCategory(lib.group, name.trim())
-                        .then(() => {
-                          lib.refreshMeta();
-                          lib.setCategory(name.trim()); // 选中新分类
-                        })
-                        .catch((e: any) => dialogs.alert("创建失败：" + (e?.message || e)));
-                    }
-                  }}
-                >
-                  <Plus className="size-3" /> 新建二级
-                </button>
-              )}
-            </div>
+                }}
+              >
+                <Plus className="size-3" /> 新建分类
+              </button>
+            )}
           </div>
 
           {/* 状态行 */}
@@ -538,7 +566,7 @@ export default function LibraryView() {
             }}
           >
               {!init && (
-                <div className="grid gap-2 p-2.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${gridMin}px, 1fr))` }}>
+                <div className="grid gap-2 p-2.5" style={{ gridTemplateColumns: gridTemplate }}>
                   {Array.from({ length: 8 }).map((_, i) => (
                     <div key={i} className="flex flex-col gap-1.5">
                       <Skeleton className="aspect-[1/.92] w-full rounded-lg" />
@@ -602,7 +630,7 @@ export default function LibraryView() {
               ) : (
                 <div
                   className="grid gap-2 p-2.5"
-                  style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${gridMin}px, 1fr))` }}
+                  style={{ gridTemplateColumns: gridTemplate }}
                 >
                   {items.map((item) => {
                     // 最近使用横条显示时，网格内不重复展示同 id 卡片

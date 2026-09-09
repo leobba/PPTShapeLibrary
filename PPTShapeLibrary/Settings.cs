@@ -49,7 +49,7 @@ namespace PPTShapeLibrary
         {
             Theme = "light";
             InsertPosition = "center";
-            PaneWidth = 300;
+            PaneWidth = 830;
             AutoName = true;
             PageSize = 200;
             CardSize = "compact";
@@ -58,7 +58,7 @@ namespace PPTShapeLibrary
             UiBackend = "webview2";
             AuthorName = "";
             CollectPlaceholderText = false;
-            PaneDock = "right";
+            PaneDock = "left";
             PaneHeight = 180;
         }
     }
