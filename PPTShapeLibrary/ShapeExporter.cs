@@ -365,7 +365,6 @@ namespace PPTShapeLibrary
                     ShapeCount = range.Count,
                     SourceSlide = GetSourceInfo(),
                     Category = "未分类",
-                    Tags = "",
                     LastUsedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                     SortOrder = Environment.TickCount,
                     Width = tw,
@@ -436,7 +435,6 @@ namespace PPTShapeLibrary
                     ShapeCount = range.Count,
                     SourceSlide = GetSourceInfo(),
                     Category = "未分类",
-                    Tags = "",
                     LastUsedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                     SortOrder = Environment.TickCount,
                     SourceAutoType = GetAutoType(range[1])
@@ -884,7 +882,6 @@ namespace PPTShapeLibrary
                                 CreatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                                 ShapeCount = slide.Shapes.Count,
                                 Category = "内置素材",
-                                Tags = "",
                                 LastUsedAt = "",
                                 SortOrder = Environment.TickCount
                             };
@@ -999,7 +996,6 @@ namespace PPTShapeLibrary
                                 CreatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                                 ShapeCount = slide.Shapes.Count,
                                 Category = "学术模板",
-                                Tags = "模板",
                                 LastUsedAt = "",
                                 SortOrder = Environment.TickCount
                             };
@@ -1675,7 +1671,6 @@ namespace PPTShapeLibrary
                     ShapeCount = 1,
                     Category = "图片",
                     Group = "素材",
-                    Tags = "图片",
                     LastUsedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                     SortOrder = Environment.TickCount
                 };
@@ -1868,7 +1863,6 @@ namespace PPTShapeLibrary
                                 ShapeCount = slide.Shapes.Count,
                                 Category = spec.Item3,
                                 Group = spec.Item2,
-                                Tags = "内置",
                                 LastUsedAt = "",
                                 SortOrder = Environment.TickCount
                             };

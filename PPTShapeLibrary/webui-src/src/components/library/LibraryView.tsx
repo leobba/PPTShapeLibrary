@@ -59,7 +59,6 @@ import {
   RotateCcw,
   RotateCw,
   Star,
-  Tags,
   Download,
   RefreshCw,
   X,
@@ -104,7 +103,6 @@ export default function LibraryView() {
   const [hoverImg, setHoverImg] = useState<{ url: string; kind: string } | null>(null);
   const [showTrash, setShowTrash] = useState(false);
   const [showGroups, setShowGroups] = useState(false);
-  const [showTags, setShowTags] = useState(false);
   const [showCats, setShowCats] = useState(false);   // 管理二级分类（按当前一级组）
   const [showDupes, setShowDupes] = useState(false);
   const [trashConfirmIds, setTrashConfirmIds] = useState<string[] | null>(null);
@@ -221,20 +219,6 @@ export default function LibraryView() {
             </button>
           )}
         </div>
-        <Select
-          value={lib.tag || "__all__"}
-          onValueChange={(v) => lib.setTag(v === "__all__" ? "" : v)}
-        >
-          <SelectTrigger className="h-7 w-24 text-xs">
-            <SelectValue placeholder="标签" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__all__">全部标签</SelectItem>
-            {(init?.tags as string[])?.map((t) => (
-              <SelectItem key={t} value={t}>{t}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
         <Select value={lib.sort} onValueChange={(v) => lib.setSort(v as any)}>
           <SelectTrigger className="h-7 w-28 text-xs">
             <SelectValue />
@@ -267,9 +251,6 @@ export default function LibraryView() {
               }}
             >
               <LayoutGrid className="size-4" /> 管理分类…
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => setShowTags(true)}>
-              <Tags className="size-4" /> 标签管理
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setShowDupes(true)}>
               <ScanSearch className="size-4" /> 去重清理
@@ -484,7 +465,7 @@ export default function LibraryView() {
               {lib.category !== "全部" && <span className="text-foreground">{lib.category}</span>}
               {lib.loading ? (
                 <span className="italic">加载中…</span>
-              ) : lib.category !== "全部" || lib.kind !== "全部" || lib.filter || lib.tag ? (
+              ) : lib.category !== "全部" || lib.kind !== "全部" || lib.filter  ? (
                 <span>
                   <span className="font-semibold text-foreground">{items.length}</span>
                   {" / "}
@@ -514,8 +495,7 @@ export default function LibraryView() {
             lib.group === "全部" &&
             lib.category === "全部" &&
             lib.kind === "全部" &&
-            !lib.filter &&
-            !lib.tag && (
+            !lib.filter && (
               <div className="flex items-center gap-2 overflow-x-auto border-b bg-card/30 px-3 py-2">
                 <span className="shrink-0 text-[11px] font-medium text-muted-foreground">最近使用</span>
                 <div className="flex shrink-0 gap-2">
@@ -571,20 +551,19 @@ export default function LibraryView() {
                 <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
                   <Folder className="size-9 text-muted-foreground/40" />
                   <p className="text-sm font-medium text-muted-foreground">
-                    {lib.group !== "全部" || lib.category !== "全部" || lib.kind !== "全部" || lib.filter || lib.tag
+                    {lib.group !== "全部" || lib.category !== "全部" || lib.kind !== "全部" || lib.filter 
                       ? "没有符合筛选条件的素材"
                       : "素材库还是空的"}
                   </p>
                   <p className="max-w-xs text-xs text-muted-foreground/70">
-                    {lib.group !== "全部" || lib.category !== "全部" || lib.kind !== "全部" || lib.filter || lib.tag
+                    {lib.group !== "全部" || lib.category !== "全部" || lib.kind !== "全部" || lib.filter 
                       ? "试试清空搜索词、切换一级分组 / 二级分类 / 类型 / 标签"
                       : "在演示文稿中选中形状，点击「素材库」选项卡里的「收藏形状」/「收藏整页」/「收藏样式」等收录素材"}
                   </p>
                   {lib.group === "全部" &&
                     lib.category === "全部" &&
                     lib.kind === "全部" &&
-                    !lib.filter &&
-                    !lib.tag && (
+                    !lib.filter && (
                       <div className="mt-2 flex gap-2">
                         <Button
                           variant="outline"
@@ -632,7 +611,6 @@ export default function LibraryView() {
                       lib.category === "全部" &&
                       lib.kind === "全部" &&
                       !lib.filter &&
-                      !lib.tag &&
                       (init?.recentTop as any[])?.some((r: any) => r.id === item.id);
                     if (inRecent) return null;
                     return (
@@ -900,15 +878,6 @@ export default function LibraryView() {
           }}
         />
       )}
-      {showTags && (
-        <TagDialog
-          onClose={() => {
-            setShowTags(false);
-            lib.refreshMeta();
-            lib.reload(true); // 标签重命名/删除后刷新
-          }}
-        />
-      )}
       {showDupes && (
         <DuplicatesDialog
           onClose={() => {
@@ -1133,15 +1102,6 @@ function ItemCard({
         >
           重命名
         </ContextMenuItem>
-        <ContextMenuItem
-          onSelect={async () => {
-            const cur = (item.tags || []).join(",");
-            const t = await dialogs.prompt("标签（多个用逗号分隔）：", { initial: cur, okText: "保存" });
-            if (t !== null) bridge.setTags(item.id, t.trim()).then(onChanged);
-          }}
-        >
-          编辑标签…
-        </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={() => bridge.openFolder(item.id)}>打开收藏文件夹</ContextMenuItem>
         <ContextMenuItem
@@ -1339,86 +1299,6 @@ function GroupDialog({ groups, onClose }: { groups: string[]; onClose: () => voi
   );
 }
 
-/** 标签管理：列出全部标签(计数)，重命名/删除 */
-function TagDialog({ onClose }: { onClose: () => void }) {
-  const [tags, setTags] = useState<{ name: string; count: number }[] | null>(null);
-  useEffect(() => {
-    bridge.init().then((d) => {
-      const counts = (d.tagCounts as Record<string, number>) || {};
-      const arr = (d.tags as string[]) || [];
-      setTags(arr.map((t) => ({ name: t, count: counts[t] || 0 })));
-    });
-  }, []);
-  const refresh = () => {
-    bridge.init().then((d) => {
-      const counts = (d.tagCounts as Record<string, number>) || {};
-      const arr = (d.tags as string[]) || [];
-      setTags(arr.map((t) => ({ name: t, count: counts[t] || 0 })));
-    });
-  };
-  return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>标签管理</DialogTitle>
-          <DialogDescription>重命名会同步所有素材；删除会从全部素材移除该标签。</DialogDescription>
-        </DialogHeader>
-        <div className="flex max-h-[45vh] flex-col gap-1.5 overflow-y-auto">
-          {!tags ? (
-            <Skeleton className="h-8 w-full" />
-          ) : tags.length === 0 ? (
-            <p className="py-4 text-center text-xs text-muted-foreground">
-              暂无标签。可右键素材 → 编辑标签 添加。
-            </p>
-          ) : (
-            tags.map((t) => (
-              <div key={t.name} className="flex items-center justify-between rounded-md border px-2 py-1.5 text-xs">
-                <span className="truncate">
-                  {t.name}
-                  <span className="ml-1 text-muted-foreground">({t.count})</span>
-                </span>
-                <span className="flex shrink-0 gap-1">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-6 px-2 text-[11px]"
-                    onClick={async () => {
-                      const n = await dialogs.prompt("重命名标签为：", { initial: t.name, okText: "重命名" });
-                      if (n?.trim() && n.trim() !== t.name)
-                        bridge.renameTag(t.name, n.trim()).then(refresh);
-                    }}
-                  >
-                    重命名
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    className="h-6 px-2 text-[11px]"
-                    onClick={async () => {
-                      const ok = await dialogs.confirm("从所有素材删除标签「" + t.name + "」？", {
-                        title: "删除标签",
-                        okText: "删除",
-                        danger: true,
-                      });
-                      if (ok) bridge.deleteTag(t.name).then(refresh);
-                    }}
-                  >
-                    删除
-                  </Button>
-                </span>
-              </div>
-            ))
-          )}
-        </div>
-        <div className="flex justify-end">
-          <Button size="sm" onClick={onClose}>
-            完成
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 /** 管理二级分类（针对当前一级组）：列出组内真实分类∪自定义分类，可新建/重命名/删除 */
 function CategoriesDialog({ group, onClose }: { group: string; onClose: () => void }) {

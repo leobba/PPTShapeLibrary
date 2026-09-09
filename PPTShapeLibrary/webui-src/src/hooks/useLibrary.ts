@@ -9,7 +9,6 @@ export interface LibraryState {
   category: string;
   kind: string; // 全部/Shape/Style
   filter: string;
-  tag: string;
   sort: SortMode;
   items: ListItem[];
   filteredTotal: number;
@@ -24,7 +23,6 @@ export function useLibrary() {
   const [category, setCategory] = useState("全部");
   const [kind, setKind] = useState("全部");
   const [filter, setFilter] = useState("");
-  const [tag, setTag] = useState("");
   const [sort, setSort] = useState<SortMode>("最新");
   const [items, setItems] = useState<ListItem[]>([]);
   const [filteredTotal, setFilteredTotal] = useState(0);
@@ -48,7 +46,7 @@ export function useLibrary() {
       const seq = ++seqRef.current;
       setLoading(true);
       bridge
-        .list(filter, category, kind, tag, group, sort, offset, pageSizeRef.current)
+        .list(filter, category, kind, group, sort, offset, pageSizeRef.current)
         .then((d) => {
           if (seq !== seqRef.current) return; // 过期响应丢弃
           setLoading(false);
@@ -64,7 +62,7 @@ export function useLibrary() {
           console.error("list error", e);
         });
     },
-    [filter, category, kind, tag, group, sort]
+    [filter, category, kind, group, sort]
   );
 
   // init 加载（失败自动重试最多 3 次，避免大库冷启动偶发超时后永久骨架）
@@ -118,7 +116,7 @@ export function useLibrary() {
     return () => {
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
     };
-  }, [filter, category, kind, tag, group, sort, reload]);
+  }, [filter, category, kind, group, sort, reload]);
 
   // 下行 refresh（C# 数据变化：收藏/删除/移动等）：刷新元数据 + 重载当前列表，
   // 使刚收藏的形状/样式卡片立即出现（切组/搜索等筛选态保持）。
@@ -171,7 +169,6 @@ export function useLibrary() {
     category,
     kind,
     filter,
-    tag,
     sort,
     setGroup: (g: string) => {
       setGroup(g);
@@ -180,7 +177,6 @@ export function useLibrary() {
     setCategory,
     setKind,
     setFilter,
-    setTag,
     setSort,
     toggleSelect,
     clearSelection,

@@ -34,8 +34,6 @@ namespace PPTShapeLibrary
         public string Category { get; set; }
         [DataMember(Name = "group", EmitDefaultValue = false)]
         public string Group { get; set; }          // 一级分组（我的/模板/素材/文字/背景/图例/自定义…），缺省=我的
-        [DataMember(Name = "tags")]
-        public string Tags { get; set; }
         [DataMember(Name = "lastUsedAt")]
         public string LastUsedAt { get; set; }
         [DataMember(Name = "sortOrder")]
@@ -59,12 +57,6 @@ namespace PPTShapeLibrary
         public string GetGroup()
         {
             return string.IsNullOrWhiteSpace(Group) ? DefaultGroup : Group;
-        }
-
-        public string[] GetTags()
-        {
-            if (string.IsNullOrWhiteSpace(Tags)) return new string[0];
-            return Tags.Split(new[] { ',', '，', ';', '；' }, StringSplitOptions.RemoveEmptyEntries);
         }
     }
 
@@ -447,15 +439,6 @@ namespace PPTShapeLibrary
             InvalidateCache();
         }
 
-        public static void SetTags(string id, string tags)
-        {
-            var meta = LoadMeta(id);
-            if (meta == null) return;
-            meta.Tags = tags == null ? "" : tags.Trim();
-            SaveMeta(meta);
-            InvalidateCache();
-        }
-
         /// <summary>记录最近使用时间与使用次数。</summary>
         public static void TouchUsed(string id)
         {
@@ -474,19 +457,6 @@ namespace PPTShapeLibrary
             meta.SortOrder = order;
             SaveMeta(meta);
             InvalidateCache();
-        }
-
-        public static List<string> GetAllTags()
-        {
-            var list = new List<string>();
-            foreach (var meta in LoadAllItems())
-            {
-                foreach (var t in meta.GetTags())
-                {
-                    if (!list.Contains(t)) list.Add(t);
-                }
-            }
-            return list.OrderBy(t => t).ToList();
         }
 
         // ---------------- 一级分组（Group） ----------------
@@ -758,61 +728,6 @@ namespace PPTShapeLibrary
                 d[group ?? ""].RemoveAll(x => x.Equals(cat, StringComparison.OrdinalIgnoreCase));
                 if (d[group ?? ""].Count == 0) d.Remove(group ?? "");
                 SaveUserCats();
-            }
-            if (touched > 0) InvalidateCache();
-            return touched;
-        }
-
-        /// <summary>标签使用计数（供标签管理器显示）。</summary>
-        public static Dictionary<string, int> GetTagCounts()
-        {
-            var counts = new Dictionary<string, int>();
-            foreach (var meta in LoadAllItems())
-            {
-                foreach (var t in meta.GetTags())
-                {
-                    counts.TryGetValue(t, out int n);
-                    counts[t] = n + 1;
-                }
-            }
-            return counts;
-        }
-
-        /// <summary>全局重命名标签：把所有收藏中的 oldTag 替换为 newTag（已存在则合并）。</summary>
-        public static int RenameTagAll(string oldTag, string newTag)
-        {
-            if (string.IsNullOrWhiteSpace(oldTag) || string.IsNullOrWhiteSpace(newTag)) return 0;
-            if (oldTag == newTag) return 0;
-            int touched = 0;
-            foreach (var meta in LoadAllItems())
-            {
-                var tags = meta.GetTags().ToList();
-                if (tags.Contains(oldTag))
-                {
-                    tags.Remove(oldTag);
-                    if (!tags.Contains(newTag)) tags.Add(newTag);
-                    SetTags(meta.Id, string.Join(",", tags));
-                    touched++;
-                }
-            }
-            if (touched > 0) InvalidateCache();
-            return touched;
-        }
-
-        /// <summary>全局删除标签：从所有收藏中移除。返回受影响条目数。</summary>
-        public static int DeleteTagAll(string tag)
-        {
-            if (string.IsNullOrWhiteSpace(tag)) return 0;
-            int touched = 0;
-            foreach (var meta in LoadAllItems())
-            {
-                var tags = meta.GetTags().ToList();
-                if (tags.Contains(tag))
-                {
-                    tags.Remove(tag);
-                    SetTags(meta.Id, string.Join(",", tags));
-                    touched++;
-                }
             }
             if (touched > 0) InvalidateCache();
             return touched;

@@ -178,13 +178,6 @@ namespace PPTShapeLibrary
                             Ok(reqId, new Dictionary<string, object>());
                             break;
                         }
-                    case "setTags":
-                        {
-                            string id = ToStr(payload, "id");
-                            ShapeLibraryService.SetTags(id, ToStr(payload, "tags"));
-                            Ok(reqId, new Dictionary<string, object>());
-                            break;
-                        }
                     case "setCategory":
                         {
                             string id = ToStr(payload, "id");
@@ -639,18 +632,6 @@ namespace PPTShapeLibrary
                             BroadcastRefresh();
                             break;
                         }
-                    case "renameTag":
-                        {
-                            int n = ShapeLibraryService.RenameTagAll(ToStr(payload, "oldTag"), ToStr(payload, "newTag"));
-                            Ok(reqId, new Dictionary<string, object> { { "touched", n } });
-                            break;
-                        }
-                    case "deleteTag":
-                        {
-                            int n = ShapeLibraryService.DeleteTagAll(ToStr(payload, "tag"));
-                            Ok(reqId, new Dictionary<string, object> { { "touched", n } });
-                            break;
-                        }
                     case "exportPack":
                         {
                             // saveAs 为纯文件名（不含扩展名），实际落盘到 %APPDATA%\PPTShapeLibrary\packs\
@@ -731,8 +712,6 @@ namespace PPTShapeLibrary
             foreach (var kv in SettingsDict(s)) d[kv.Key] = kv.Value;
             var all = ShapeLibraryService.LoadAllItems();
             d["categories"] = ShapeLibraryService.GetAllCategories();
-            d["tags"] = ShapeLibraryService.GetAllTags();
-            d["tagCounts"] = ShapeLibraryService.GetTagCounts();
             d["total"] = all.Count;
 
             // 分类计数（前端胶囊徽标）
@@ -756,7 +735,6 @@ namespace PPTShapeLibrary
                     { "name", m.Name },
                     { "kind", m.Kind },
                     { "category", m.GetCategory() },
-                    { "tags", m.GetTags() },
                     { "lastUsedAt", m.LastUsedAt ?? "" },
                     { "useCount", m.UseCount },
                     { "previewUrl", "https://data.pptshapes.local/" + m.Id + "/preview.png?v=" + PreviewStamp(m.Id) }
@@ -782,7 +760,6 @@ namespace PPTShapeLibrary
             string filter = ToStr(payload, "filter");
             string category = ToStr(payload, "category");
             string kind = ToStr(payload, "kind");
-            string tag = ToStr(payload, "tag");
             string group = ToStr(payload, "group");
             string sort = ToStr(payload, "sort");
             int offset = ToInt(payload, "offset");
@@ -795,8 +772,7 @@ namespace PPTShapeLibrary
             {
                 items = items.Where(m =>
                     m.Name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    m.GetCategory().IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    string.Join(" ", m.GetTags()).IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0);
+                    m.GetCategory().IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0);
             }
             if (!string.IsNullOrEmpty(category) && category != "全部")
             {
@@ -806,11 +782,6 @@ namespace PPTShapeLibrary
             {
                 string k = kind;
                 items = items.Where(m => (m.Kind ?? "").Equals(k, StringComparison.OrdinalIgnoreCase));
-            }
-            if (!string.IsNullOrEmpty(tag))
-            {
-                string t = tag;
-                items = items.Where(m => m.GetTags().Any(x => x.Equals(t, StringComparison.OrdinalIgnoreCase)));
             }
             if (!string.IsNullOrEmpty(group) && group != "全部")
             {
@@ -834,7 +805,6 @@ namespace PPTShapeLibrary
             var arr = new List<Dictionary<string, object>>();
             foreach (var m in page)
             {
-                var tags = m.GetTags();
                 arr.Add(new Dictionary<string, object>
                 {
                     { "id", m.Id },
@@ -842,7 +812,6 @@ namespace PPTShapeLibrary
                     { "kind", m.Kind },
                     { "category", m.GetCategory() },
                     { "group", m.GetGroup() },
-                    { "tags", tags },
                     { "shapeCount", m.ShapeCount },
                     { "width", m.Width },
                     { "height", m.Height },

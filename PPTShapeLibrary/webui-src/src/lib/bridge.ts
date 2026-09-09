@@ -86,8 +86,8 @@ export const bridge = {
   send,
   on,
   init: () => send("init"),
-  list: (filter: string, category: string, kind: string, tag: string, group: string, sort: string, offset: number, limit: number) =>
-    send("list", { filter, category, kind, tag, group, sort, offset, limit }),
+  list: (filter: string, category: string, kind: string, group: string, sort: string, offset: number, limit: number) =>
+    send("list", { filter, category, kind, group, sort, offset, limit }),
   insert: (id: string) => send("insert", { id }),
   applyStyle: (id: string) => send("applyStyle", { id }),
   applyStyleSameType: (id: string) => send("applyStyleSameType", { id }),
@@ -95,7 +95,6 @@ export const bridge = {
   adjust: (action: string) => send("adjust", { action }),
   del: (ids: string[]) => send("delete", { ids }),
   rename: (id: string, name: string) => send("rename", { id, name }),
-  setTags: (id: string, tags: string) => send("setTags", { id, tags }),
   setCategory: (id: string, category: string) => send("setCategory", { id, category }),
   batchMove: (ids: string[], category: string) => send("batchMove", { ids, category }),
   setGroup: (id: string, group: string) => send("setGroup", { id, group }),
@@ -116,8 +115,6 @@ export const bridge = {
   rebuildPreviews: () => send("rebuildPreviews", {}, 120000), // 逐个打开文稿重建，可能较慢
   setPaneDock: (dock: string) => send("setPaneDock", { dock }),
   scanDuplicates: () => send("scanDuplicates", {}),
-  renameTag: (oldTag: string, newTag: string) => send("renameTag", { oldTag, newTag }),
-  deleteTag: (tag: string) => send("deleteTag", { tag }),
   createGroupCategory: (group: string, category: string) => send("createGroupCategory", { group, category }),
   renameGroupCategory: (group: string, oldCategory: string, newCategory: string) => send("renameGroupCategory", { group, oldCategory, newCategory }),
   deleteGroupCategory: (group: string, category: string) => send("deleteGroupCategory", { group, category }),
