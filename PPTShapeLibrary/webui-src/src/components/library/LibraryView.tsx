@@ -206,7 +206,7 @@ export default function LibraryView() {
           <Search className="size-3.5 text-muted-foreground" />
           <Input
             className="h-7 border-0 bg-transparent focus-visible:ring-0"
-            placeholder="搜索 名称 / 分类 / 标签"
+            placeholder="搜索 名称 / 分类"
             value={lib.filter}
             onChange={(e) => lib.setFilter(e.target.value)}
             onFocus={(e) => e.target.select()}
