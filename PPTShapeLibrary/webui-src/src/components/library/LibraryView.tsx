@@ -346,21 +346,30 @@ export default function LibraryView() {
                   lib.setKind("全部"); // 切组默认看全部类型；类型行/子项再细化
                 }}
                 className={
-                  "flex flex-col items-center gap-1 rounded-lg px-0.5 py-2 text-[11px] transition-colors " +
+                  "group relative flex flex-col items-center gap-1 rounded-lg px-0.5 py-2 text-[11px] transition-colors " +
                   (active
-                    ? "bg-primary/15 font-medium text-primary"
+                    ? "text-primary"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground")
                 }
               >
-                <span className="relative">
+                {/* 选中指示竖条 */}
+                {active && <span className="absolute -left-1.5 top-1/2 h-6 w-1 -translate-y-1/2 rounded-full bg-primary" />}
+                <span
+                  className={
+                    "relative flex items-center justify-center rounded-xl transition-colors " +
+                    (active
+                      ? "h-9 w-9 bg-primary text-primary-foreground shadow-md"
+                      : "h-9 w-9 bg-transparent group-hover:bg-primary/10")
+                  }
+                >
                   {GROUP_ICONS[g] || <Folder className="size-4" />}
                   {!!count && (
-                    <span className="absolute -right-2.5 -top-1.5 rounded-full bg-muted px-1 text-[9px] leading-3">
+                    <span className="absolute -right-1 -top-1 flex min-w-3.5 items-center justify-center rounded-full bg-background px-0.5 text-[8px] leading-3 ring-1 ring-border">
                       {count > 99 ? "99+" : count}
                     </span>
                   )}
                 </span>
-                <span className="max-w-full truncate">{g}</span>
+                <span className={"max-w-full truncate " + (active ? "font-semibold" : "")}>{g}</span>
               </button>
             );
           })}
