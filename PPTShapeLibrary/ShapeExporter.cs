@@ -73,6 +73,8 @@ namespace PPTShapeLibrary
         }
 
         /// <summary>收藏当前页全部形状（B2）。</summary>
+        /// <summary>收藏整页（整页快照）：以幻灯片为单位复制当前页（含背景/版式/全部内容），
+        /// 存入库；之后插入可原样还原整页。返回收藏 id。</summary>
         public static string CollectWholePage()
         {
             EnsurePresentation();
@@ -81,26 +83,122 @@ namespace PPTShapeLibrary
                 var pres = App.ActivePresentation;
                 if (pres == null) return null;
                 var slide = pres.Slides[App.ActiveWindow.View.Slide.SlideIndex];
-                var idx = new System.Collections.Generic.List<int>();
-                for (int i = 1; i <= slide.Shapes.Count; i++)
-                {
-                            if (!IsEmptyPlaceholder(slide.Shapes[i])) idx.Add(i);
-                }
-                if (idx.Count == 0)
-                {
-                    System.Windows.Forms.MessageBox.Show("当前页没有可收藏的形状。", "素材库",
-                        System.Windows.Forms.MessageBoxButtons.OK, System.Windows.Forms.MessageBoxIcon.Information);
-                    return null;
-                }
-                var range = slide.Shapes.Range(idx.ToArray());
+
                 string autoName = "整页 " + DateTime.Now.ToString("MM-dd HH:mm");
                 if (!ResolveItemName(null, autoName, out string resolved)) return null;   // 用户取消命名
-                return CollectRange(range, resolved);
+
+                string id = ShapeLibraryService.NewId();
+                ShapeLibraryService.CreateItemDir(id);
+                PowerPoint.Presentation tempPres = null;
+                var clip = ClipboardGuard.Snapshot();
+                try
+                {
+                    // 幻灯片级复制 → 保留背景与版式
+                    slide.Copy();
+                    System.Threading.Thread.Sleep(200);
+                    tempPres = App.Presentations.Add(MsoTriState.msoFalse);
+                    tempPres.PageSetup.SlideSize = PowerPoint.PpSlideSizeType.ppSlideSizeOnScreen;
+                    var pasted = tempPres.Slides.Paste();   // SlideRange
+                    if (pasted == null) throw new Exception("页面复制失败");
+
+                    // 缩略图：整页导出（含背景）
+                    string previewPath = System.IO.Path.Combine(ShapeLibraryService.ItemsDir, id + "_tmp.png");
+                    try
+                    {
+                        pasted.Export(previewPath, "PNG", 640, 480);
+                        if (System.IO.File.Exists(previewPath))
+                            ShapeLibraryService.SavePreviewImage(id, System.IO.File.ReadAllBytes(previewPath));
+                    }
+                    catch { }
+                    finally { TryDelete(previewPath); }
+
+                    // 保存库文件（单页含背景/版式）
+                    string savePath = ShapeLibraryService.ShapeFile(id);
+                    tempPres.SaveAs(savePath, PowerPoint.PpSaveAsFileType.ppSaveAsOpenXMLPresentation);
+
+                    var meta = new LibraryMeta
+                    {
+                        Id = id,
+                        Name = resolved,
+                        Kind = "Shape",
+                        CreatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                        ShapeCount = 0,
+                        SourceSlide = GetSourceInfo(),
+                        Group = ShapeLibraryService.BrowseGroupForCollect,
+                        Category = ShapeLibraryService.BrowseCategoryForCollect ?? "未分类",
+                        SnapshotPage = true,
+                        LastUsedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                        SortOrder = Environment.TickCount,
+                        Width = 0,
+                        Height = 0
+                    };
+                    ShapeLibraryService.SaveMeta(meta);
+                    return id;
+                }
+                finally
+                {
+                    ClipboardGuard.Restore(clip);
+                    if (tempPres != null) { try { tempPres.Close(); } catch { } }
+                }
             }
             catch (Exception ex)
             {
                 System.Windows.Forms.MessageBox.Show("收藏整页失败：" + ex.Message, "素材库");
                 return null;
+            }
+        }
+
+        /// <summary>插入整页快照：打开库内整页，以幻灯片级复制粘贴到当前文稿（保留背景/版式）。
+        /// 插入位置：当前页之后。失败原因写入 error（Web 桥 Toast 呈现）。</summary>
+        public static bool InsertPageSnapshot(string id, out string error)
+        {
+            error = null;
+            try
+            {
+                if (App.Presentations.Count == 0)
+                {
+                    error = "请先新建或打开演示文稿，再插入整页。";
+                    return false;
+                }
+                var meta = ShapeLibraryService.LoadMeta(id);
+                if (meta == null || !meta.SnapshotPage)
+                {
+                    error = "这不是整页快照。";
+                    return false;
+                }
+                string shapePath = ShapeLibraryService.ShapeFile(id);
+                if (!System.IO.File.Exists(shapePath))
+                {
+                    error = "整页文件缺失。";
+                    return false;
+                }
+
+                var pres = App.ActivePresentation;
+                PowerPoint.Presentation libPres = null;
+                var clip = ClipboardGuard.Snapshot();
+                try
+                {
+                    libPres = App.Presentations.Open(shapePath, MsoTriState.msoTrue, MsoTriState.msoFalse, MsoTriState.msoFalse);
+                    if (libPres.Slides.Count == 0) { error = "整页内容为空。"; return false; }
+                    libPres.Slides[1].Copy();
+                    System.Threading.Thread.Sleep(200);
+                    int insertAt = App.ActiveWindow.View.Slide.SlideIndex + 1;   // 当前页之后
+                    if (insertAt > pres.Slides.Count + 1) insertAt = pres.Slides.Count + 1;
+                    var inserted = pres.Slides.Paste(insertAt);   // SlideRange
+                    if (inserted == null || inserted.Count == 0) { error = "整页粘贴失败。"; return false; }
+                    ShapeLibraryService.TouchUsed(id);
+                    return true;
+                }
+                finally
+                {
+                    ClipboardGuard.Restore(clip);
+                    if (libPres != null) { try { libPres.Close(); } catch { } }
+                }
+            }
+            catch (Exception ex)
+            {
+                error = "插入整页失败：" + ex.Message;
+                return false;
             }
         }
 

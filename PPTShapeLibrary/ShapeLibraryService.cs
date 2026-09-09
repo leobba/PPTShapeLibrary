@@ -46,6 +46,8 @@ namespace PPTShapeLibrary
         public float Height { get; set; }
         [DataMember(Name = "sourceAutoType")]
         public int SourceAutoType { get; set; }
+        [DataMember(Name = "snapshotPage", EmitDefaultValue = false)]
+        public bool SnapshotPage { get; set; }       // true=整页快照（含背景/版式的整页复制，以页为单位插入）
 
         public string GetCategory()
         {

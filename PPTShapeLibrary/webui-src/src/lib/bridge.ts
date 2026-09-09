@@ -89,6 +89,7 @@ export const bridge = {
   list: (filter: string, category: string, kind: string, group: string, sort: string, offset: number, limit: number) =>
     send("list", { filter, category, kind, group, sort, offset, limit }),
   insert: (id: string) => send("insert", { id }),
+  insertPage: (id: string) => send("insertPage", { id }),
   applyStyle: (id: string) => send("applyStyle", { id }),
   applyStyleSameType: (id: string) => send("applyStyleSameType", { id }),
   applyStyleSameTypeAllSlides: (id: string) => send("applyStyleSameTypeAllSlides", { id }),
@@ -152,6 +153,8 @@ export type ListItem = {
   shapeCount?: number;
   useCount?: number;
   previewUrl: string;
+  /** true=整页快照（含背景版式，插入以整页为单位） */
+  snapshotPage?: boolean;
 };
 
 export type InitData = {

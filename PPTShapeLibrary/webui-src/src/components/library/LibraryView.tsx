@@ -99,7 +99,7 @@ export default function LibraryView() {
   const { init, items, selected, loadMore } = lib;
   const selCount = selected.size;
   const [preview, setPreview] = useState<ListItem | null>(null);
-  const [hoverImg, setHoverImg] = useState<{ url: string; kind: string } | null>(null);
+  const [hoverImg, setHoverImg] = useState<{ url: string; kind: string; page?: boolean } | null>(null);
   const [showTrash, setShowTrash] = useState(false);
   const [showGroups, setShowGroups] = useState(false);
   const [showCats, setShowCats] = useState(false);   // 管理二级分类（按当前一级组）
@@ -149,6 +149,32 @@ export default function LibraryView() {
           : e.message || "插入失败";
         showToast(msg);
       });
+  };
+  // 整页快照走页级插入（含背景/版式，插入当前页之后）
+  const insertPageItem = (id: string) => {
+    if (insertingRef.current) {
+      showToast("正在插入，请稍候…");
+      return;
+    }
+    insertingRef.current = true;
+    bridge
+      .insertPage(id)
+      .then(() => {
+        insertingRef.current = false;
+        showToast("✓ 整页已插入当前页之后");
+        lib.reload(true);
+      })
+      .catch((e: Error) => {
+        insertingRef.current = false;
+        const msg = /timeout/i.test(e.message)
+          ? "插入处理超时：请检查演示文稿中是否已出现该页，勿重复点击"
+          : e.message || "插入失败";
+        showToast(msg);
+      });
+  };
+  const insertAny = (item: { id: string; snapshotPage?: boolean }) => {
+    if (item.snapshotPage) insertPageItem(item.id);
+    else insertItem(item.id);
   };
   const applyStyleWithFeedback = (id: string, all?: boolean) => {
     const p = all ? bridge.applyStyleSameTypeAllSlides(id) : bridge.applyStyle(id);
@@ -517,7 +543,7 @@ export default function LibraryView() {
                       title={r.name}
                       onClick={() => {
                         if (r.kind === "Style") applyStyleWithFeedback(r.id);
-                        else insertItem(r.id);
+                        else insertAny(r);
                       }}
                     >
                       <div className="aspect-square w-full overflow-hidden rounded-md border bg-muted/40">
@@ -650,7 +676,7 @@ export default function LibraryView() {
                       onToggle={() => lib.toggleSelect(item.id)}
                       onPreview={() => setPreview(item)}
                       onHover={setHoverImg}
-                      onInsert={() => insertItem(item.id)}
+                      onInsert={() => insertAny(item)}
                       onApplyStyle={() => applyStyleWithFeedback(item.id)}
                       onChanged={() => {
                         lib.refreshMeta(); // 刷新侧栏组计数/元数据
@@ -843,7 +869,16 @@ export default function LibraryView() {
               />
             </div>
             <div className="flex justify-end gap-2">
-              {preview.kind !== "Style" ? (
+              {(preview as any).snapshotPage ? (
+                <Button
+                  onClick={() => {
+                    setPreview(null);
+                    insertPageItem(preview.id);
+                  }}
+                >
+                  插入整页（追加到当前页后）
+                </Button>
+              ) : preview.kind !== "Style" ? (
                 <Button
                   onClick={() => {
                     setPreview(null);
@@ -962,7 +997,7 @@ function ItemCard({
   selected: boolean;
   onToggle: () => void;
   onPreview: () => void;
-  onHover: (v: { url: string; kind: string } | null) => void;
+  onHover: (v: { url: string; kind: string; page?: boolean } | null) => void;
   onInsert: () => void;
   onApplyStyle: () => void;
   onChanged: () => void;
@@ -1036,7 +1071,7 @@ function ItemCard({
             }
           }}
           onClick={handleClick}
-          onMouseEnter={() => onHover({ url: item.previewUrl, kind: item.kind })}
+          onMouseEnter={() => onHover({ url: item.previewUrl, kind: item.kind, page: !!item.snapshotPage })}
           onMouseLeave={() => onHover(null)}
           title={item.name}
         >
@@ -1052,8 +1087,8 @@ function ItemCard({
             {item.group === "我的" && <Star className="size-3.5 fill-amber-400 text-amber-400" />}
           </div>
           <div className="absolute right-1 top-1">
-            <Badge variant={isStyle ? "secondary" : "default"} className="h-4 px-1 text-[9px]">
-              {isStyle ? "样式" : "形状"}
+            <Badge variant={item.snapshotPage ? "outline" : isStyle ? "secondary" : "default"} className="h-4 px-1 text-[9px]">
+              {item.snapshotPage ? "整页" : isStyle ? "样式" : "形状"}
             </Badge>
           </div>
           <p className="line-clamp-2 min-h-[2.2em] whitespace-normal break-words px-1.5 pb-1 pt-0.5 text-[11px] leading-snug">
@@ -1067,7 +1102,9 @@ function ItemCard({
         </ContextMenuLabel>
         <ContextMenuSeparator />
         {!isStyle ? (
-          <ContextMenuItem onSelect={onInsert}>插入到当前页</ContextMenuItem>
+          <ContextMenuItem onSelect={onInsert}>
+            {item.snapshotPage ? "插入整页（追加到当前页后）" : "插入到当前页"}
+          </ContextMenuItem>
         ) : (
           <>
             <ContextMenuItem onSelect={() => bridge.applyStyle(item.id)}>应用样式到选中形状</ContextMenuItem>
@@ -1145,15 +1182,15 @@ function ItemCard({
 }
 
 /** hover 放大预览（图片查看器式，纯展示不拦截事件；提示文案随素材类型） */
-function HoverLens({ data }: { data: { url: string; kind: string } }) {
-  const isStyle = data.kind === "Style";
+function HoverLens({ data }: { data: { url: string; kind: string; page?: boolean } }) {
+  const hint = data.kind === "Style" ? "单击 应用到选中形状" : data.page ? "单击 插入整页" : "单击 插入到当前页";
   return (
     <div className="pointer-events-none fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/45 p-6 backdrop-blur-[2px]">
       <div className="flex max-h-[74%] max-w-[min(560px,92%)] items-center justify-center overflow-hidden rounded-xl bg-muted/80 p-2 shadow-2xl">
         <img src={data.url} alt="" className="max-h-[70vh] w-auto rounded object-contain" />
       </div>
       <div className="mt-3 flex items-center gap-1.5 rounded-full bg-black/50 px-3 py-1 text-xs text-white">
-        {isStyle ? "单击 应用到选中形状 · 右键更多操作" : "单击 插入到当前页 · 右键更多操作"}
+        {hint} · 右键更多操作
       </div>
     </div>
   );

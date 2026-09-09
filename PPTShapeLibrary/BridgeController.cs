@@ -100,6 +100,14 @@ namespace PPTShapeLibrary
                                    ok ? null : insErr);
                             break;
                         }
+                    case "insertPage":
+                        {
+                            string id = ToStr(payload, "id");
+                            bool ok = ShapeExporter.InsertPageSnapshot(id, out string pgErr);
+                            Result(reqId, ok, ok ? new Dictionary<string, object> { { "kind", "Page" } } : null,
+                                   ok ? null : pgErr);
+                            break;
+                        }
                     case "applyStyle":
                         {
                             string id = ToStr(payload, "id");
@@ -737,7 +745,8 @@ namespace PPTShapeLibrary
                     { "category", m.GetCategory() },
                     { "lastUsedAt", m.LastUsedAt ?? "" },
                     { "useCount", m.UseCount },
-                    { "previewUrl", "https://data.pptshapes.local/" + m.Id + "/preview.png?v=" + PreviewStamp(m.Id) }
+                    { "previewUrl", "https://data.pptshapes.local/" + m.Id + "/preview.png?v=" + PreviewStamp(m.Id) },
+                    { "snapshotPage", m.SnapshotPage }
                 })
                 .ToList();
 
@@ -820,7 +829,8 @@ namespace PPTShapeLibrary
                     { "useCount", m.UseCount },
                     { "lastUsedAt", m.LastUsedAt ?? "" },
                     { "sortOrder", m.SortOrder },
-                    { "previewUrl", "https://data.pptshapes.local/" + m.Id + "/preview.png?v=" + PreviewStamp(m.Id) }
+                    { "previewUrl", "https://data.pptshapes.local/" + m.Id + "/preview.png?v=" + PreviewStamp(m.Id) },
+                    { "snapshotPage", m.SnapshotPage }
                 });
             }
 
