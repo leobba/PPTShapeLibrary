@@ -149,7 +149,6 @@ export type ListItem = {
   kind: "Shape" | "Style";
   category: string;
   group: string;
-  tags: string[];
   shapeCount?: number;
   useCount?: number;
   previewUrl: string;
@@ -161,8 +160,6 @@ export type InitData = {
   groups: string[];
   groupCounts: Record<string, number>;
   groupCategories: Record<string, string[]>;
-  tags: string[];
-  tagCounts: Record<string, number>;
   categories: string[];
   total: number;
   recentTop: ListItem[];
