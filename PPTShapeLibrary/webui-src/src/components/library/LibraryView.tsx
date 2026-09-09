@@ -585,7 +585,7 @@ export default function LibraryView() {
                   </p>
                   <p className="max-w-xs text-xs text-muted-foreground/70">
                     {lib.group !== "全部" || lib.category !== "全部" || lib.kind !== "全部" || lib.filter 
-                      ? "试试清空搜索词、切换一级分组 / 二级分类 / 类型 / 标签"
+                      ? "试试清空搜索词、切换左侧分组 / 二级分类"
                       : "在演示文稿中选中形状，点击「素材库」选项卡里的「收藏形状」/「收藏整页」/「收藏样式」等收录素材"}
                   </p>
                   {lib.group === "全部" &&
