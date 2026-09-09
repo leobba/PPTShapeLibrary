@@ -84,7 +84,7 @@ namespace PPTShapeLibrary
                 var idx = new System.Collections.Generic.List<int>();
                 for (int i = 1; i <= slide.Shapes.Count; i++)
                 {
-                    if (!IsPlaceholder(slide.Shapes[i])) idx.Add(i);
+                            if (!IsEmptyPlaceholder(slide.Shapes[i])) idx.Add(i);
                 }
                 if (idx.Count == 0)
                 {
@@ -123,7 +123,7 @@ namespace PPTShapeLibrary
                     var idx = new System.Collections.Generic.List<int>();
                     for (int i = 1; i <= slide.Shapes.Count; i++)
                     {
-                        if (!IsPlaceholder(slide.Shapes[i])) idx.Add(i);
+                            if (!IsEmptyPlaceholder(slide.Shapes[i])) idx.Add(i);
                     }
                     if (idx.Count == 0) continue;
                     var range = slide.Shapes.Range(idx.ToArray());
@@ -364,7 +364,9 @@ namespace PPTShapeLibrary
                     CreatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                     ShapeCount = range.Count,
                     SourceSlide = GetSourceInfo(),
-                    Category = "未分类",
+                    // 收藏落点 = 面板当前浏览的 组/分类（用户正打开的视图）；未明确时回落 我的/未分类
+                    Group = ShapeLibraryService.BrowseGroupForCollect,
+                    Category = ShapeLibraryService.BrowseCategoryForCollect ?? "未分类",
                     LastUsedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                     SortOrder = Environment.TickCount,
                     Width = tw,
@@ -434,7 +436,8 @@ namespace PPTShapeLibrary
                     CreatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                     ShapeCount = range.Count,
                     SourceSlide = GetSourceInfo(),
-                    Category = "未分类",
+                    Group = ShapeLibraryService.BrowseGroupForCollect,
+                    Category = ShapeLibraryService.BrowseCategoryForCollect ?? "未分类",
                     LastUsedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                     SortOrder = Environment.TickCount,
                     SourceAutoType = GetAutoType(range[1])
@@ -1488,6 +1491,39 @@ namespace PPTShapeLibrary
                 return shp.PlaceholderFormat != null;
             }
             catch { return false; }
+        }
+
+        /// <summary>占位符且完全无内容（无文字/无表格/无图表/非图片型）——即"单击此处添加…"空引导框。
+        /// 收藏整页/整稿时应跳过这类空占位，但保留含文字图片内容的占位符（那才是页面上真正的内容）。</summary>
+        private static bool IsEmptyPlaceholder(PowerPoint.Shape shp)
+        {
+            try
+            {
+                if (!IsPlaceholder(shp)) return false;
+                // 图片/图表/表格型占位：有内容载体 → 保留
+                try
+                {
+                    switch (shp.Type)
+                    {
+                        case MsoShapeType.msoPicture:
+                        case MsoShapeType.msoLinkedPicture:
+                        case MsoShapeType.msoChart:
+                        case MsoShapeType.msoTable:
+                            return false;
+                    }
+                }
+                catch { }
+                // 文字型占位：有文字则保留
+                try
+                {
+                    var tf = shp.TextFrame2;
+                    if (tf != null && tf.HasText == MsoTriState.msoTrue && tf.TextRange != null && tf.TextRange.Length > 0)
+                        return false;
+                }
+                catch { }
+                return true;   // 空占位引导框
+            }
+            catch { return true; }
         }
 
         private static int GetAutoType(PowerPoint.Shape shape)

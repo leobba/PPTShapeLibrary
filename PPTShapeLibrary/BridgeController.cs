@@ -762,6 +762,8 @@ namespace PPTShapeLibrary
             string kind = ToStr(payload, "kind");
             string group = ToStr(payload, "group");
             string sort = ToStr(payload, "sort");
+            // 登记浏览上下文：收藏形状/样式时落到当前正在浏览的 组/分类
+            ShapeLibraryService.SetBrowseContext(group, category);
             int offset = ToInt(payload, "offset");
             int limit = ToInt(payload, "limit");
             if (limit <= 0) limit = 200;

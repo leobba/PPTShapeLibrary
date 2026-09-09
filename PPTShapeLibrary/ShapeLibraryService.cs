@@ -69,6 +69,45 @@ namespace PPTShapeLibrary
     /// </summary>
     public class ShapeLibraryService
     {
+        // ---------------- 浏览上下文（收藏落点：收藏到当前正在浏览的分类） ----------------
+
+        private static readonly object BrowseSync = new object();
+        private static string _browseGroup = "我的";     // 面板当前浏览的一级组（"全部" 时收藏回落默认组）
+        private static string _browseCategory;           // 面板当前浏览的二级分类（"全部"/空 → null 回落默认）
+
+        /// <summary>前端浏览到某 组/分类 时登记（list 请求携带）。</summary>
+        public static void SetBrowseContext(string group, string category)
+        {
+            lock (BrowseSync)
+            {
+                if (!string.IsNullOrWhiteSpace(group) && group != "全部") _browseGroup = group.Trim();
+                if (string.IsNullOrWhiteSpace(category) || category == "全部") _browseCategory = null;
+                else _browseCategory = category.Trim();
+            }
+        }
+
+        /// <summary>收藏应写入的目标组（当前浏览组；未浏览/在"全部"时回落「我的」）。</summary>
+        public static string BrowseGroupForCollect
+        {
+            get { lock (BrowseSync) { return string.IsNullOrEmpty(_browseGroup) ? "我的" : _browseGroup; } }
+        }
+
+        /// <summary>收藏应写入的目标分类（当前浏览分类；未明确则 null 表示回落后由收藏方填默认）。</summary>
+        public static string BrowseCategoryForCollect
+        {
+            get { lock (BrowseSync) { return _browseCategory; } }
+        }
+
+        /// <summary>重置浏览上下文（新会话兜底）。</summary>
+        public static void ResetBrowseContext()
+        {
+            lock (BrowseSync)
+            {
+                _browseGroup = "我的";
+                _browseCategory = null;
+            }
+        }
+
         public static string RootDir
         {
             get
