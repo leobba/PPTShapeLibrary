@@ -138,7 +138,9 @@
     <None Include="ThisAddIn.Designer.xml">
       <DependentUpon>ThisAddIn.cs</DependentUpon>
     </None>
-    <Compile Include="Ribbon1.cs" />
+    <Compile Include="Ribbon1.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="ShapeLibraryService.cs" />
     <Compile Include="ShapeExporter.cs" />
     <Compile Include="ShapeStyleExtractor.cs" />
@@ -146,19 +148,29 @@
     <Compile Include="TextToolService.cs" />
     <Compile Include="FormatToolService.cs" />
     <Compile Include="AcademicToolService.cs" />
-    <Compile Include="InputDialog.cs" />
+    <Compile Include="InputDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="ILibraryPane.cs" />
-    <Compile Include="WebPaneHost.cs" />
+    <Compile Include="WebPaneHost.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
     <Compile Include="WebView2Env.cs" />
     <Compile Include="ClipboardGuard.cs" />
-    <Compile Include="ToolPopupHostForm.cs" />
+    <Compile Include="ToolPopupHostForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="BridgeController.cs" />
     <Compile Include="Log.cs" />
     <Compile Include="StylePreset.cs" />
     <Compile Include="Settings.cs" />
-    <Compile Include="ToolsHubForm.cs" />
+    <Compile Include="ToolsHubForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="RibbonIconFactory.cs" />
-    <Compile Include="FallbackPane.cs" />
+    <Compile Include="FallbackPane.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
@@ -198,13 +210,7 @@
     Release 不注册，Debug 保持原行为（F5 调试需要注册）。
   -->
   <Target Name="RegisterOfficeAddin" Condition="'$(VSTO_ProjectType)' == 'Application' and '$(Configuration)' != 'Release'">
-    <SetOffice2007AddInRegistration
-        Url="$(AbsolutePathToTheDeploymentManifest)"
-        AddInName="$(TargetName)"
-        OfficeApplication="$(OfficeApplication)"
-        FriendlyName="$(FriendlyName)"
-        Description="$(OfficeApplicationDescription)"
-        LoadBehavior="$(LoadBehavior)" />
+    <SetOffice2007AddInRegistration Url="$(AbsolutePathToTheDeploymentManifest)" AddInName="$(TargetName)" OfficeApplication="$(OfficeApplication)" FriendlyName="$(FriendlyName)" Description="$(OfficeApplicationDescription)" LoadBehavior="$(LoadBehavior)" />
   </Target>
   <ProjectExtensions>
     <VisualStudio>
