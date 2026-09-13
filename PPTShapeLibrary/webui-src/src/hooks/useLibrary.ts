@@ -138,9 +138,14 @@ export function useLibrary() {
     };
   }, [filter, category, kind, group, sort, unusedOnly, colorFilter, reload]);
 
-  // 下行 refresh（C# 数据变化：收藏/删除/移动等）：刷新元数据 + 重载当前列表，
-  // 使刚收藏的形状/样式卡片立即出现（切组/搜索等筛选态保持）。
+  // 下行 refresh（C# 数据变化：收藏/删除/移动等）：刷新元数据 + 重载当前列表。
+  // 关键：监听只注册一次并用 reloadRef 取"最新"的 reload——否则每次筛选变化都会累积一个
+  // 监听器，旧监听器闭包里的陈旧筛选(如初次 group="全部")会把列表打回全部（历史 bug）。
   const refreshInFlight = useRef(false);
+  const reloadRef = useRef(reload);
+  useEffect(() => {
+    reloadRef.current = reload;
+  }, [reload]);
   useEffect(() => {
     const fn = () => {
       if (refreshInFlight.current) return;   // 防抖合并连续下行
@@ -149,8 +154,8 @@ export function useLibrary() {
         .init()
         .then((d) => {
           setInit(d);
-          // 重载当前视图（列表数据变）
-          if (didInitialLoad.current) reload(true);
+          // 用最新筛选重载当前视图
+          if (didInitialLoad.current) reloadRef.current(true);
         })
         .catch(() => {})
         .finally(() => {
@@ -159,12 +164,13 @@ export function useLibrary() {
           }, 400);
         });
     };
-    bridge.on("refresh", fn);
-    bridge.on("settingsChanged", (s) => setInit((prev) => (prev ? { ...prev, ...s } : prev)));
+    const offRefresh = bridge.on("refresh", fn);
+    const offSettings = bridge.on("settingsChanged", (s) => setInit((prev) => (prev ? { ...prev, ...s } : prev)));
     return () => {
-      // bridge.on 无退订 API：保留监听（面板生命周期=页面生命周期，可接受）
+      offRefresh();
+      offSettings();
     };
-  }, [reload]);
+  }, []);
   // 注意：首次 init 到达后由上方"防抖 effect（依赖 init）"触发首次列表加载，无需单独 effect，避免重复请求
 
   const toggleSelect = useCallback((id: string) => {

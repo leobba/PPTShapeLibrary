@@ -40,8 +40,15 @@ function send(type: string, payload: any = {}, timeoutMs: number = TIMEOUT): Pro
   });
 }
 
-function on(type: string, fn: (payload: any) => void) {
+/** 订阅下行消息；返回退订函数（务必在 effect 清理时调用，避免监听器累积导致陈旧闭包覆盖当前筛选）。 */
+function on(type: string, fn: (payload: any) => void): () => void {
   (listeners[type] = listeners[type] || []).push(fn);
+  return () => {
+    const arr = listeners[type];
+    if (!arr) return;
+    const i = arr.indexOf(fn);
+    if (i >= 0) arr.splice(i, 1);
+  };
 }
 
 const wv = (window as any).chrome?.webview;
