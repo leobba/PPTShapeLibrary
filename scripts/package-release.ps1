@@ -73,11 +73,18 @@ PPTShapeLibrary 安装说明（版本 $Version）
 $offlineNote = @"
 把官方离线安装包放到本文件夹，安装器会自动识别并显示「安装本地包」按钮：
 
-  ndp48-x86-x64-allos-enu.exe      下载： https://go.microsoft.com/fwlink/?linkid=2088631
-  vstor_redist.exe                 下载： https://www.microsoft.com/download/details.aspx?id=48217
-  MicrosoftEdgeWebview2Setup.exe   下载： https://go.microsoft.com/fwlink/p/?LinkId=2124703
+  ndp48-x86-x64-allos-enu.exe      .NET Framework 4.8
+      官方页： https://dotnet.microsoft.com/download/dotnet-framework/net48
 
-不放也可以：安装器会打开官方下载页引导安装（需要联网）。
+  vstor_redist.exe                 VSTO Runtime 4.0（Office 加载项运行时）
+      官方页： https://learn.microsoft.com/visualstudio/vsto/how-to-install-the-visual-studio-tools-for-office-runtime-redistributable
+
+  MicrosoftEdgeWebview2Setup.exe   WebView2 Runtime
+      官方页： https://developer.microsoft.com/microsoft-edge/webview2/#download
+
+说明：
+  · 微软下载中心的直链（fwlink / details.aspx）会不定期调整或下线，若链接失效请直接在上述官方页面里下载；
+  · 只要把文件放进本文件夹，安装器就完全不依赖网络（推荐给内网/离线环境）。
 "@
 [System.IO.File]::WriteAllText("$dist\离线安装包\说明.txt", $offlineNote, (New-Object System.Text.UTF8Encoding($true)))
 

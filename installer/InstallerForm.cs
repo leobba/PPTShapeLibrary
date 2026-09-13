@@ -49,28 +49,28 @@ namespace PPTShapeLibraryInstaller
                 {
                     Key = "ppt", Title = "Microsoft PowerPoint", Required = true,
                     Detail = "需要 PowerPoint 2016 / 2019 / 2021 / Microsoft 365（桌面版）",
-                    DownloadUrl = "https://www.microsoft.com/microsoft-365/powerpoint",
+                    DownloadUrl = "https://www.microsoft.com/microsoft-365",
                     LocalPattern = null, InstallArgs = null
                 },
                 new ReqItem
                 {
                     Key = "net48", Title = ".NET Framework 4.8", Required = true,
                     Detail = "插件运行库（Windows 10 1809+ / Windows 11 通常已内置）",
-                    DownloadUrl = "https://go.microsoft.com/fwlink/?linkid=2088631",
+                    DownloadUrl = "https://dotnet.microsoft.com/download/dotnet-framework/net48",
                     LocalPattern = "ndp48*.exe", InstallArgs = "/q /norestart"
                 },
                 new ReqItem
                 {
                     Key = "vsto", Title = "Visual Studio 2010 Tools for Office Runtime (VSTO 4.0)", Required = true,
                     Detail = "Office 加载项运行时；缺失时 PowerPoint 里不会出现本插件",
-                    DownloadUrl = "https://www.microsoft.com/download/details.aspx?id=48217",
+                    DownloadUrl = "https://learn.microsoft.com/visualstudio/vsto/how-to-install-the-visual-studio-tools-for-office-runtime-redistributable",
                     LocalPattern = "vstor*.exe", InstallArgs = "/quiet /norestart"
                 },
                 new ReqItem
                 {
                     Key = "webview2", Title = "Microsoft Edge WebView2 Runtime", Required = false,
                     Detail = "插件界面渲染组件；缺失时插件仍可安装，但面板会显示降级提示页",
-                    DownloadUrl = "https://go.microsoft.com/fwlink/p/?LinkId=2124703",
+                    DownloadUrl = "https://developer.microsoft.com/microsoft-edge/webview2/#download",
                     LocalPattern = "MicrosoftEdgeWebview2Setup.exe", InstallArgs = "/silent /install"
                 },
             };
@@ -440,8 +440,12 @@ namespace PPTShapeLibraryInstaller
                 Log("打开下载页面：" + it.DownloadUrl);
                 Process.Start(new ProcessStartInfo(it.DownloadUrl) { UseShellExecute = true });
                 MessageBox.Show(
-                    "已打开官方下载页面，请下载并安装：" + it.Title + "\r\n\r\n安装完成后回到本窗口，点击「重新检测」。\r\n" +
-                    "（若想离线安装：把官方安装包放到本程序同目录的「离线安装包」文件夹，本窗口会自动识别并改为「安装本地包」）",
+                    "已打开官方页面，请下载并安装：" + it.Title + "\r\n\r\n" +
+                    "安装完成后回到本窗口，点击「重新检测」。\r\n\r\n" +
+                    "· 若页面上的下载链接已变化或无法下载（微软下载中心会调整），请改用离线方式：\r\n" +
+                    "  把官方安装包放到本程序同目录的「离线安装包」文件夹，" + Environment.NewLine +
+                    "  本窗口会自动识别并把按钮变为「安装本地包」：\r\n" +
+                    "    ndp48-x86-x64-allos-enu.exe / vstor_redist.exe / MicrosoftEdgeWebview2Setup.exe",
                     "请安装 " + it.Title, MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
