@@ -154,13 +154,11 @@ namespace PPTShapeLibrary
                         if (!removed) break;
                     }
 
-                    // 去掉未被使用的版式：存档显著变小（实测 1.5MB→数百 KB），另存更快、后续插入打开也更快
-                    try
-                    {
-                        int rm = CleanUnusedLayouts(tempPres);
-                        if (rm > 0) Log.Write("page snapshot: removed " + rm + " unused layouts");
-                    }
-                    catch { }
+                    // 注意：**不要**在这里删除"未使用版式"。
+                    // 曾用 CleanUnusedLayouts 精简档（1.5MB→数百 KB），但其"哪些版式被使用"的判断
+                    // （按 版式名+设计名 匹配）不可靠，会把本页真正使用的版式删掉，PowerPoint 随即把
+                    // 这一页重绑到另一个带占位符的版式 → 占位符继承到线条，用户看到"形状自身明明是无
+                    // 线条，却渲染出边框"。保真优先：保留源文件全部版式/母版。
 
                     // 设计/母版/版式改唯一名：避免插入时被目标文稿"按名字复用版式"而导致外观走样（多出边框/颜色变化）
                     try { MakeDesignUniqueForLibrary(tempPres, id); } catch { }
@@ -475,13 +473,13 @@ namespace PPTShapeLibrary
                 // 免剪贴板：直接从库文件把第 1 页插到该位置（保留背景/版式/主题）
                 pres.Slides.InsertFromFile(shapePath, insertAt, 1, 1);
 
+                // 注意：这里**不再**执行"清理未使用版式"。
+                // CleanUnusedLayouts 的"哪些版式被使用"判断不可靠，会删掉仍在使用的版式、导致幻灯片被
+                // 重绑到带占位符的版式（外观走样：多出边框、颜色变化）。保真与安全优先，该设置暂时忽略。
                 try
                 {
                     if (ShapeLibraryService.LoadSettings().CleanLayoutsOnInsertPage)
-                    {
-                        int rm = CleanUnusedLayouts(pres);
-                        if (rm > 0) Log.Write("cleaned unused layouts: " + rm);
-                    }
+                        Log.Write("cleanLayoutsOnInsertPage=on 但已停用（会改坏版式绑定），本次跳过");
                 }
                 catch { }
                 ShapeLibraryService.TouchUsed(id);
