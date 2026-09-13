@@ -78,16 +78,22 @@ namespace PPTShapeLibrary
         private static readonly object BrowseSync = new object();
         private static string _browseGroup = "全部";     // 面板当前浏览的一级组（可能为"全部"）
         private static string _browseCategory;           // 面板当前浏览的二级分类（"全部"/空 → null）
+        private static string _browseKind = "全部";      // 类型（全部/Shape/Style）
+        private static string _browseFilter = "";        // 搜索词
+        private static string _browseSort = "最新";      // 排序
         private static bool _browseSet;                  // 是否浏览过（未浏览过则 init 不强制恢复）
 
-        /// <summary>前端浏览到某 组/分类 时登记（list 请求携带）。</summary>
-        public static void SetBrowseContext(string group, string category)
+        /// <summary>前端浏览到某 组/分类/类型/搜索/排序 时登记（list 请求携带）。</summary>
+        public static void SetBrowseContext(string group, string category, string kind, string filter, string sort)
         {
             lock (BrowseSync)
             {
                 _browseSet = true;
                 _browseGroup = string.IsNullOrWhiteSpace(group) ? "全部" : group.Trim();
                 _browseCategory = (string.IsNullOrWhiteSpace(category) || category == "全部") ? null : category.Trim();
+                _browseKind = string.IsNullOrWhiteSpace(kind) ? "全部" : kind.Trim();
+                _browseFilter = filter ?? "";
+                _browseSort = string.IsNullOrWhiteSpace(sort) ? "最新" : sort.Trim();
             }
         }
 
@@ -127,6 +133,21 @@ namespace PPTShapeLibrary
             get { lock (BrowseSync) { return _browseCategory; } }
         }
 
+        public static string BrowseKindForRestore
+        {
+            get { lock (BrowseSync) { return string.IsNullOrWhiteSpace(_browseKind) ? "全部" : _browseKind; } }
+        }
+
+        public static string BrowseFilterForRestore
+        {
+            get { lock (BrowseSync) { return _browseFilter ?? ""; } }
+        }
+
+        public static string BrowseSortForRestore
+        {
+            get { lock (BrowseSync) { return string.IsNullOrWhiteSpace(_browseSort) ? "最新" : _browseSort; } }
+        }
+
         /// <summary>重置浏览上下文（新会话兜底）。</summary>
         public static void ResetBrowseContext()
         {
@@ -134,6 +155,9 @@ namespace PPTShapeLibrary
             {
                 _browseGroup = "全部";
                 _browseCategory = null;
+                _browseKind = "全部";
+                _browseFilter = "";
+                _browseSort = "最新";
                 _browseSet = false;
             }
         }

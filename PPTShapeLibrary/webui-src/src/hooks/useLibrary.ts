@@ -100,13 +100,20 @@ export function useLibrary() {
     if (!init) return;
     if (!didInitialLoad.current) {
       didInitialLoad.current = true;
-      // 页面重载/窗口迁移重建后，恢复上次浏览的 组/分类（避免跳回"全部"）
-      const lg = (init as any)?.lastGroup as string | undefined;
-      const lc = (init as any)?.lastCategory as string | undefined;
-      if (lg && lg !== "全部" && lg !== group) {
-        // setGroup 后由"防抖搜索 effect"(依赖 group) 自动 reload
-        setGroup(lg);
-        setCategory(lc && lc !== "全部" ? lc : "全部");
+      // 页面重载/窗口迁移重建后，恢复上次浏览的 组/分类/类型/搜索/排序（避免跳回"全部"）
+      const lg = ((init as any)?.lastGroup as string | undefined) || "";
+      const lc = ((init as any)?.lastCategory as string | undefined) || "";
+      const lk = ((init as any)?.lastKind as string | undefined) || "";
+      const lf = ((init as any)?.lastFilter as string | undefined) || "";
+      const ls = ((init as any)?.lastSort as string | undefined) || "";
+      let changed = false;
+      if (lg && lg !== group) { setGroup(lg); changed = true; }
+      if (lc && lc !== "全部" && lc !== category) { setCategory(lc); changed = true; }
+      if (lk && lk !== "全部" && lk !== kind) { setKind(lk); changed = true; }
+      if (lf && lf !== filter) { setFilter(lf); changed = true; }
+      if (ls && ls !== sort) { setSort(ls as SortMode); changed = true; }
+      if (changed) {
+        // 状态变化后由"防抖搜索 effect"(依赖这些字段) 自动 reload
         return;
       }
       reload(true);

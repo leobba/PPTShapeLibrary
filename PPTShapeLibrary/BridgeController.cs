@@ -743,6 +743,9 @@ namespace PPTShapeLibrary
             {
                 d["lastGroup"] = ShapeLibraryService.BrowseGroupForRestore;
                 d["lastCategory"] = ShapeLibraryService.BrowseCategoryForRestore ?? "全部";
+                d["lastKind"] = ShapeLibraryService.BrowseKindForRestore;
+                d["lastFilter"] = ShapeLibraryService.BrowseFilterForRestore;
+                d["lastSort"] = ShapeLibraryService.BrowseSortForRestore;
             }
 
             // 分类计数（前端胶囊徽标）
@@ -794,8 +797,8 @@ namespace PPTShapeLibrary
             string kind = ToStr(payload, "kind");
             string group = ToStr(payload, "group");
             string sort = ToStr(payload, "sort");
-            // 登记浏览上下文：收藏形状/样式时落到当前正在浏览的 组/分类
-            ShapeLibraryService.SetBrowseContext(group, category);
+            // 登记浏览上下文：收藏落点 + 重载后视图恢复（组/分类/类型/搜索/排序）
+            ShapeLibraryService.SetBrowseContext(group, category, kind, filter, sort);
             int offset = ToInt(payload, "offset");
             int limit = ToInt(payload, "limit");
             if (limit <= 0) limit = 200;
