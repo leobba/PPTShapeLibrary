@@ -177,8 +177,9 @@ namespace PPTShapeLibrary
                     var pasted = tempPres.Slides.Paste();   // SlideRange
                     if (pasted == null) throw new Exception("页面复制失败");
 
-                    // 主题色固化：按源页实际显示的颜色写成显式 RGB，避免收藏后颜色随主题变化（A→B）
-                    try { BakeSlideColors(slide, tempPres.Slides[tempPres.Slides.Count]); } catch { }
+                    // 颜色一致性由 CopyThemeColors（主题色表复制）保证，不再逐形状刷颜色
+                    // 设计/母版/版式改唯一名：插入时迫使目标文稿导入我们文件里的设计（否则按名复用目标设计→颜色/外观走样）
+                    try { MakeDesignUniqueForLibrary(tempPres, id); } catch { }
                     // 主题色表复制：整页里的版式/母版/分 Run 文字的主题色引用也跟随源主题
                     try { CopyThemeColors(slide.Design != null ? slide.Design.SlideMaster : null, tempPres); } catch { }
 
@@ -293,133 +294,64 @@ namespace PPTShapeLibrary
             return removed;
         }
 
-        // ---------------- 主题色固化（修"收藏后颜色 A→B"） ----------------
-        // PowerPoint 中颜色多是主题色（Accent 1 等）。把形状/整页粘进新建的空白文稿时，PowerPoint 会按
-        // 主题名匹配到空白文稿的默认 Office 主题，主题色被重新解析 → 颜色变了（素材库预览与插入都变）。
-        // 收藏时按"源形状当前实际显示的颜色"把颜色固化成显式 RGB，之后预览与插入到任何文稿都保持原色。
-        // 【边界】本步骤只写颜色，不改采集/插入流程、不碰剪贴板、不改线条可见性。
-
-        private static void BakeRangeColors(PowerPoint.ShapeRange src, PowerPoint.ShapeRange dst)
+        // ---------------- 设计/母版/版式唯一改名（保证"插入时导入我们自己的主题"） ----------------
+        // PowerPoint 把幻灯片插进别的文稿时，会按【设计/版式名字】匹配目标文稿已有的设计，同名就直接
+        // 复用目标的设计/主题 → 这一页的主题色、默认形状样式(spDef)全按目标文稿解析（颜色跟着变、
+        // 本没有轮廓的形状被目标的默认轮廓画出边框）。把收藏文件里的设计/母版/版式改成唯一名字后，
+        // 目标文稿匹配不到同名设计，只能导入我们文件里的设计 → 外观与源文稿一致。
+        private static void MakeDesignUniqueForLibrary(PowerPoint.Presentation pres, string id)
         {
             try
             {
-                int n = Math.Min(src.Count, dst.Count);
-                for (int i = 1; i <= n; i++)
+                string tag = "Lib" + id;
+                for (int d = 1; d <= pres.Designs.Count; d++)
                 {
-                    try { BakeShapeColors(src[i], dst[i]); } catch { }
+                    PowerPoint.Design design = null;
+                    try { design = pres.Designs[d]; } catch { continue; }
+                    if (design == null) continue;
+                    try { design.Name = tag + "-D" + d; } catch { }
+                    PowerPoint.Master master = null;
+                    try { master = design.SlideMaster; } catch { }
+                    if (master == null) continue;
+                    try { master.Name = tag + "-M" + d; } catch { }
+                    try
+                    {
+                        for (int li = 1; li <= master.CustomLayouts.Count; li++)
+                        {
+                            try { master.CustomLayouts[li].Name = tag + "-L" + d + "-" + li; } catch { }
+                        }
+                    }
+                    catch { }
                 }
             }
             catch { }
         }
 
+        // ---------------- 颜色一致性：主题色表复制（唯一采用的做法） ----------------
+        // 【走过的弯路，勿重复】曾尝试"逐形状把颜色刷成显式 RGB"，结果踩两个坑：
+        //   ①源里"无填充"的形状（PowerPoint 用 <a14:hiddenFill> 记录隐藏填充）会被 COM 误报为实心填充，
+        //     被刷成实心色块（用户看到"收藏/插入后多出边框"）；
+        //   ②渐变线条（<a:ln><a:gradFill>，常为渐隐到透明）被压成实线，凭空出现边框。
+        // 正确做法：把源母版的 12 个主题色整体复制到工作文稿的主题上。文件里保留原有的主题色引用不动，
+        // 但解析结果与源文稿一致 → 预览与插入都不变色，也不会改变任何形状的填充/线条形态。
+
+        private static void BakeRangeColors(PowerPoint.ShapeRange src, PowerPoint.ShapeRange dst)
+        {
+            // 已弃用（保留空实现以防旧调用）：逐形状刷颜色会踩两个坑——
+            // ①无填充形状（<a14:hiddenFill> 写法）被误判为"有实心填充"，被刷成实心块；
+            // ②渐变线条被压成实线，凭空多出边框。
+            // 颜色问题改用 CopyThemeColors（主题色表复制）从根上解决。
+        }
+
+        // 已弃用（保留空实现以防旧调用）：逐形状刷填充/背景会踩坑——
+        // 源里"无填充"的形状（<a14:hiddenFill>）会被 COM 误报为实心填充，被刷成实心块，看起来像多了边框。
         private static void BakeSlideColors(PowerPoint.Slide src, PowerPoint.Slide dst)
         {
-            try
-            {
-                int n = Math.Min(src.Shapes.Count, dst.Shapes.Count);
-                for (int i = 1; i <= n; i++)
-                {
-                    try { BakeShapeColors(src.Shapes[i], dst.Shapes[i]); } catch { }
-                }
-            }
-            catch { }
-
-            // 背景：来源是"纯色背景"时，把当前生效的背景色固化为显式纯色（渐变/图片背景不动）
-            try
-            {
-                var sFill = src.Background.Fill;
-                if (sFill != null && sFill.Visible == MsoTriState.msoTrue && (int)sFill.Type == 1)
-                {
-                    int rgb = sFill.ForeColor.RGB;
-                    dst.FollowMasterBackground = MsoTriState.msoFalse;
-                    dst.Background.Fill.Solid();
-                    dst.Background.Fill.ForeColor.RGB = rgb;
-                }
-            }
-            catch { }
         }
 
         private static void BakeShapeColors(PowerPoint.Shape src, PowerPoint.Shape dst)
         {
-            // 组合：按顺序递归子形状
-            try
-            {
-                if (src.Type == MsoShapeType.msoGroup && dst.Type == MsoShapeType.msoGroup)
-                {
-                    int n = Math.Min(src.GroupItems.Count, dst.GroupItems.Count);
-                    for (int i = 1; i <= n; i++)
-                    {
-                        try { BakeShapeColors(src.GroupItems[i], dst.GroupItems[i]); } catch { }
-                    }
-                }
-            }
-            catch { }
-
-            // 填充：纯色 / 渐变（含各停靠点）。仅当源形状"确实有填充"时才写，避免给无填充形状加上填充
-            bool fillVisible = false;
-            try { fillVisible = src.Fill.Visible == MsoTriState.msoTrue; } catch { }
-            if (fillVisible)
-            {
-                try
-                {
-                    int st = (int)src.Fill.Type;
-                    if (st == 1)                    // msoFillSolid
-                    {
-                        dst.Fill.Solid();
-                        dst.Fill.ForeColor.RGB = src.Fill.ForeColor.RGB;
-                    }
-                    else if (st == 3)               // msoFillGradient
-                    {
-                        try { dst.Fill.ForeColor.RGB = src.Fill.ForeColor.RGB; } catch { }
-                        try { dst.Fill.BackColor.RGB = src.Fill.BackColor.RGB; } catch { }
-                        try
-                        {
-                            var ss = src.Fill.GradientStops;
-                            var ds = dst.Fill.GradientStops;
-                            int k = Math.Min(ss.Count, ds.Count);
-                            for (int i = 1; i <= k; i++)
-                            {
-                                try { ds[i].Color.RGB = ss[i].Color.RGB; } catch { }
-                            }
-                        }
-                        catch { }
-                    }
-                    else if (st == 4 || st == 5)    // 纹理 / 背景填充
-                    {
-                        try { dst.Fill.ForeColor.RGB = src.Fill.ForeColor.RGB; } catch { }
-                    }
-                }
-                catch { }
-            }
-
-            // 线条【可见性】固化：源形状线条不可见时，显式写死 noFill。
-            // 形状若没有自带 <a:ln>，其线条由主题默认形状样式(spDef)/版式决定：插入到别人的文稿时，
-            // 若目标主题定义了默认轮廓，就会凭空出现边框（用户现象：库里无边框、插入后那一页有边框）。
-            // 注意：这里只写"不可见"，**绝不写线条颜色/宽度**——写颜色会把源里的渐变线条压成实线，
-            // 反而制造边框（这是上一版踩过的坑）。
-            try
-            {
-                if (src.Line.Visible == MsoTriState.msoFalse)
-                    dst.Line.Visible = MsoTriState.msoFalse;
-            }
-            catch { }
-
-            // 文字颜色（整段）
-            try
-            {
-                var stf = src.TextFrame2;
-                var dtf = dst.TextFrame2;
-                if (stf != null && dtf != null && stf.HasText == MsoTriState.msoTrue && dtf.HasText == MsoTriState.msoTrue)
-                {
-                    try { dtf.TextRange.Font.Fill.ForeColor.RGB = stf.TextRange.Font.Fill.ForeColor.RGB; } catch { }
-                }
-            }
-            catch { }
-
-            // 阴影 / 三维
-            try { dst.Shadow.ForeColor.RGB = src.Shadow.ForeColor.RGB; } catch { }
-            try { dst.ThreeD.ExtrusionColor.RGB = src.ThreeD.ExtrusionColor.RGB; } catch { }
-            try { dst.ThreeD.ContourColor.RGB = src.ThreeD.ContourColor.RGB; } catch { }
+            // 已弃用：见 BakeRangeColors / BakeSlideColors 的说明。逐形状刷颜色会破坏无填充形状与渐变线条。
         }
 
         // ---------------- 主题色表复制（从根上解决"颜色跟着主题走"） ----------------
@@ -757,8 +689,9 @@ namespace PPTShapeLibrary
                 {
                     ClipboardGuard.Restore(clip);
                 }
-                // 主题色固化：按源形状实际显示的颜色写成显式 RGB，避免收藏后颜色随主题变化（A→B）
-                try { BakeRangeColors(range, pasted); } catch { }
+                // 颜色一致性由 CopyThemeColors（主题色表复制）保证，不再逐形状刷颜色（会破坏无填充形状/渐变线条）
+                // 设计唯一改名：插入时迫使目标文稿导入我们文件的设计，避免按名复用目标设计
+                try { MakeDesignUniqueForLibrary(tempPres, id); } catch { }
                 // 主题色表复制：把源主题色复制到工作文稿，覆盖"残留的主题色引用"（分 Run 文字色/样式引用等）
                 try { CopyThemeColors(CurrentMaster(), tempPres); } catch { }
                 // 归一化：把整组移动到 (0,0)，保证插入时坐标可控
