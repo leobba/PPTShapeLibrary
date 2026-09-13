@@ -64,6 +64,37 @@ PowerPoint 按 **设计/主题名字** 匹配（源模板与空白文稿都叫�
 - **不要**删除"未使用版式"（`CleanUnusedLayouts`）：其"哪些版式被使用"的判断不可靠，
   会删掉本页真正使用的版式 → PowerPoint 重绑到别的版式 → 外观走样。该设置项现已停用。
 
+### 9. 「插件在 PPT 里消失」：PowerPoint 的加载项子系统初始化失败 ⚠️（2026-09-13 实战）
+现象：**功能区没有「素材库」**，`app.log` 里连 `Startup begin` 都没有（代码一行没跑）；
+但注册项、清单文件哈希、VSTO 信任项、禁用项列表全部正常。
+
+**判定方法（可复现）**：用 VBScript 附加到正常启动的 PowerPoint 读加载项集合
+（PowerShell 7 没有 `Marshal.GetActiveObject`，用 `cscript` + `GetObject(, "PowerPoint.Application")`）：
+```
+Application.COMAddIns : Invalid request.  Office AddInsX is not initialized.
+```
+→ 说明 **PowerPoint 的加载项子系统根本没初始化**（此时任何加载项都不加载，连系统自带的 OneNote 也不加载）。
+对照实验：同样的探测在 **Word** 里返回 `COMAddIns.Count = 4`（正常）→ **PowerPoint 侧问题**。
+再对照：**把我们的注册项整个删掉后依然报同样错误** → 与我们的插件无关。
+
+**根因与修复**：注册项只写在**版本化路径**时会出现该问题：
+```
+HKCU\Software\Microsoft\Office\16.0\PowerPoint\Addins\PPTShapeLibrary   ← 只写这里 → AddInsX 未初始化
+```
+把注册项补写到**版本无关路径**（Office 文档记载的每用户 COM 加载项目录，系统自带 OneNote 加载项就在这里）后，
+加载项子系统**立刻恢复**（`COMAddIns.Count` 由报错变为 `1`），插件正常加载（日志出现 `Startup begin`）：
+```
+HKCU\Software\Microsoft\Office\PowerPoint\Addins\PPTShapeLibrary        ← 关键，必须有
+```
+→ `scripts\dev-register.ps1` 现在**两处都写**；注销时两处一起删。
+
+**顺带排除的干扰项**（查过、都不是原因）：
+- `HKLM\SOFTWARE\Policies\Microsoft\Office\16.0\OSM\preventedsolutiontypes`（`comaddins=1` 等）：
+  8 月 14 日写入、非域策略，且插件当天白天仍能加载 → 属遥测范围，**不是**加载拦截。
+- 程序集未强名称签名（`PublicKeyToken=null`）而清单声明了 token：项目从无强名称签名设置，之前同样能加载 → 无关。
+- `HKCU\...\16.0\PowerPoint\AddInLoadTimes` 缓存、空的 `Resiliency` 键：删除后无效 → 无关。
+- 任务管理器里的加载项禁用列表（`Resiliency\DisabledItems`）：为空 → 无关。
+
 ## 三、排查套路（推荐复用）
 
 1. **别猜机制，读文件**：收藏条目是 `%APPDATA%\PPTShapeLibrary\items\<id>\shape.pptx`（本质是 zip）。
