@@ -162,6 +162,9 @@ namespace PPTShapeLibrary
                     }
                     catch { }
 
+                    // 设计/母版/版式改唯一名：避免插入时被目标文稿"按名字复用版式"而导致外观走样（多出边框/颜色变化）
+                    try { MakeDesignUniqueForLibrary(tempPres, id); } catch { }
+
                     // 缩略图：按页面真实宽高比导出（避免拉伸变形）
                     string previewPath = System.IO.Path.Combine(ShapeLibraryService.ItemsDir, id + "_tmp.png");
                     try
@@ -386,6 +389,39 @@ namespace PPTShapeLibrary
             try { dst.Shadow.ForeColor.RGB = src.Shadow.ForeColor.RGB; } catch { }
             try { dst.ThreeD.ExtrusionColor.RGB = src.ThreeD.ExtrusionColor.RGB; } catch { }
             try { dst.ThreeD.ContourColor.RGB = src.ThreeD.ContourColor.RGB; } catch { }
+        }
+
+        // ---------------- 设计/版式改名（修"插入后外观走样"） ----------------
+        // PowerPoint 在把幻灯片插入到别的文稿时，会按 **设计/版式名字** 去匹配目标文稿里已有的版式；
+        // 名字相同就直接复用目标版式 → 占位符的线条/填充/字体/颜色随目标版式变化（用户看到"多了边框"、
+        // "颜色变了"）。收藏时把本条目携带的设计/母版/版式改成唯一名字，即可迫使目标文稿导入我们自己的
+        // 设计，从而保持原样。
+        private static void MakeDesignUniqueForLibrary(PowerPoint.Presentation pres, string id)
+        {
+            try
+            {
+                string tag = "Lib" + id;
+                for (int d = 1; d <= pres.Designs.Count; d++)
+                {
+                    PowerPoint.Design design = null;
+                    try { design = pres.Designs[d]; } catch { continue; }
+                    if (design == null) continue;
+                    try { design.Name = tag + "-D" + d; } catch { }
+                    PowerPoint.Master master = null;
+                    try { master = design.SlideMaster; } catch { }
+                    if (master == null) continue;
+                    try { master.Name = tag + "-M" + d; } catch { }
+                    try
+                    {
+                        for (int li = 1; li <= master.CustomLayouts.Count; li++)
+                        {
+                            try { master.CustomLayouts[li].Name = tag + "-L" + d + "-" + li; } catch { }
+                        }
+                    }
+                    catch { }
+                }
+            }
+            catch { }
         }
 
         /// <summary>插入整页快照：以幻灯片级复制粘贴还原整页（保留背景/版式）。
