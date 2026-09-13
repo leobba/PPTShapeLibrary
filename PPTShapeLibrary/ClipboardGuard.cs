@@ -37,14 +37,18 @@ namespace PPTShapeLibrary
                 foreach (var f in formats)
                 {
                     if (string.IsNullOrEmpty(f)) continue;
+                    object data;
+                    try { data = src.GetData(f, true); }   // true = 允许自动转换/强制渲染
+                    catch { continue; }
+                    // 只保留"纯托管/自包含"的数据：COM/OLE/图元句柄类数据若被塞进 DataObject 再回放，
+                    // 会在封送时损坏堆（FatalExecutionEngineError 0xc0000005），因此一律不带入快照。
+                    if (!IsSafeClipboardData(data)) continue;
                     try
                     {
-                        object data = src.GetData(f, true);   // true = 允许自动转换/强制渲染
-                        if (data == null) continue;
                         copy.SetData(f, data);
                         any = true;
                     }
-                    catch { /* 个别格式无法实体化：跳过该格式 */ }
+                    catch { /* 个别格式无法写回：跳过 */ }
                 }
                 return any ? (IDataObject)copy : null;
             }
@@ -52,6 +56,18 @@ namespace PPTShapeLibrary
             {
                 return null;
             }
+        }
+
+        /// <summary>剪贴板数据是否可安全回放（纯托管类型）。</summary>
+        private static bool IsSafeClipboardData(object data)
+        {
+            if (data == null) return false;
+            if (data is string) return true;
+            if (data is string[]) return true;
+            if (data is byte[]) return true;
+            if (data is System.IO.Stream) return true;          // 含 MemoryStream（PowerPoint Shapedata 等序列化数据）
+            if (data is System.Drawing.Image) return true;
+            return false;
         }
 
         /// <summary>恢复剪贴板为快照内容（尽力而为，失败静默）。</summary>

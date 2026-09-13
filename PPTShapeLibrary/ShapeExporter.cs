@@ -321,16 +321,20 @@ namespace PPTShapeLibrary
             }
             catch { }
 
-            // 背景：仅当来源是"纯色背景"时固化为显式纯色（渐变/图片背景不动，避免破坏观感）
+            // 背景：仅当来源页"显式设置了背景"（不跟随母版）且为纯色时才固化到本页；
+            // 跟随母版时不动（改它会连带影响母版，且这类跨对象操作风险高）
             try
             {
-                var sFill = src.Background.Fill;
-                if ((int)sFill.Type == 1)
+                if (src.FollowMasterBackground == MsoTriState.msoFalse)
                 {
-                    int rgb = sFill.ForeColor.RGB;
-                    dst.FollowMasterBackground = MsoTriState.msoFalse;
-                    dst.Background.Fill.Solid();
-                    dst.Background.Fill.ForeColor.RGB = rgb;
+                    var sFill = src.Background.Fill;
+                    if ((int)sFill.Type == 1)
+                    {
+                        int rgb = sFill.ForeColor.RGB;
+                        dst.FollowMasterBackground = MsoTriState.msoFalse;
+                        dst.Background.Fill.Solid();
+                        dst.Background.Fill.ForeColor.RGB = rgb;
+                    }
                 }
             }
             catch { }
@@ -493,6 +497,7 @@ namespace PPTShapeLibrary
             catch (Exception ex)
             {
                 error = "插入整页失败：" + ex.Message;
+                try { SweepLibPresPool(true, 0); } catch { }
                 return false;
             }
         }
@@ -992,6 +997,7 @@ namespace PPTShapeLibrary
             catch (Exception ex)
             {
                 error = "插入失败：" + ex.Message;
+                try { SweepLibPresPool(true, 0); } catch { }   // 出错即丢弃句柄池，避免复用到失效句柄
                 try
                 {
                     string viewInfo = "";
