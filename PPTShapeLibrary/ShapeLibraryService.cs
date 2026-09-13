@@ -933,6 +933,31 @@ namespace PPTShapeLibrary
             }
         }
 
+        /// <summary>自动备份：当日尚未备份时把整库打包到 backups/backup-yyyyMMdd.zip，并只保留最近 7 份。
+        /// 失败静默（记日志由调用方处理），不阻塞启动。</summary>
+        public static void AutoBackupIfNeeded(int keep = 7)
+        {
+            try
+            {
+                string dir = Path.Combine(RootDir, "backups");
+                Directory.CreateDirectory(dir);
+                string today = DateTime.Now.ToString("yyyyMMdd");
+                string target = Path.Combine(dir, "backup-" + today + ".zip");
+                if (!File.Exists(target))
+                {
+                    if (!BackupTo(target)) return;
+                }
+                // 轮转：仅保留最近 keep 份
+                var files = new DirectoryInfo(dir).GetFiles("backup-*.zip")
+                    .OrderByDescending(f => f.Name).ToList();
+                for (int i = keep; i < files.Count; i++)
+                {
+                    try { files[i].Delete(); } catch { }
+                }
+            }
+            catch { }
+        }
+
         /// <summary>从 .zip 备份恢复收藏库（覆盖现有 items 内容）。两阶段：先安全解压到临时目录并校验，
         /// 成功后再替换，避免 zip 损坏/恶意路径导致现有收藏丢失或路径穿越。</summary>
         public static bool RestoreFrom(string zipPath)

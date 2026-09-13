@@ -52,6 +52,8 @@ namespace PPTShapeLibrary
                     catch (Exception ex) { Log.Error(ex, "EnsureGroupAssignments"); }
                     try { int orphans = ShapeLibraryService.CollectOrphanDirs(); if (orphans > 0) Log.Write("Orphan dirs cleaned: " + orphans); }
                     catch (Exception ex) { Log.Error(ex, "CollectOrphanDirs"); }
+                    try { ShapeLibraryService.AutoBackupIfNeeded(); Log.Write("Auto backup checked"); }
+                    catch (Exception ex) { Log.Error(ex, "AutoBackupIfNeeded"); }
                 };
                 timer.Start();
                 Log.Write("Startup done");
