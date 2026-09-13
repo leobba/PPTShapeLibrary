@@ -96,15 +96,19 @@ namespace PPTShapeLibrary
                             sw.Stop();
                             if (sw.ElapsedMilliseconds > 1000)
                                 Log.Write("insert slow: " + sw.ElapsedMilliseconds + "ms id=" + id + " ok=" + ok);
-                            Result(reqId, ok, ok ? new Dictionary<string, object> { { "kind", KindOf(id) } } : null,
+                            Result(reqId, ok, ok ? new Dictionary<string, object> { { "kind", KindOf(id) }, { "elapsedMs", sw.ElapsedMilliseconds } } : null,
                                    ok ? null : insErr);
                             break;
                         }
                     case "insertPage":
                         {
                             string id = ToStr(payload, "id");
+                            var swp = System.Diagnostics.Stopwatch.StartNew();
                             bool ok = ShapeExporter.InsertPageSnapshot(id, out string pgErr);
-                            Result(reqId, ok, ok ? new Dictionary<string, object> { { "kind", "Page" } } : null,
+                            swp.Stop();
+                            if (swp.ElapsedMilliseconds > 1000)
+                                Log.Write("insertPage slow: " + swp.ElapsedMilliseconds + "ms id=" + id + " ok=" + ok);
+                            Result(reqId, ok, ok ? new Dictionary<string, object> { { "kind", "Page" }, { "elapsedMs", swp.ElapsedMilliseconds } } : null,
                                    ok ? null : pgErr);
                             break;
                         }

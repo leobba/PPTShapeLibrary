@@ -134,11 +134,13 @@ export default function LibraryView() {
       return;
     }
     insertingRef.current = true;
+    showToast("正在插入…");
     bridge
       .insert(id)
-      .then(() => {
+      .then((d: any) => {
         insertingRef.current = false;
-        showToast("✓ 已插入到当前页");
+        const ms = d?.elapsedMs || 0;
+        showToast(ms > 1200 ? `✓ 已插入到当前页（用时 ${ms} ms）` : "✓ 已插入到当前页");
         showAdjustBar();
         lib.reload(true);
       })
@@ -157,11 +159,13 @@ export default function LibraryView() {
       return;
     }
     insertingRef.current = true;
+    showToast("正在插入整页…");
     bridge
       .insertPage(id)
-      .then(() => {
+      .then((d: any) => {
         insertingRef.current = false;
-        showToast("✓ 整页已插入当前页之后");
+        const ms = d?.elapsedMs || 0;
+        showToast(ms > 1200 ? `✓ 整页已插入当前页之后（用时 ${ms} ms）` : "✓ 整页已插入当前页之后");
         lib.reload(true);
       })
       .catch((e: Error) => {
