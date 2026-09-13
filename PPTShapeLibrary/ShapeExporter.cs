@@ -177,6 +177,9 @@ namespace PPTShapeLibrary
                     var pasted = tempPres.Slides.Paste();   // SlideRange
                     if (pasted == null) throw new Exception("页面复制失败");
 
+                    // 主题色固化：按源页实际显示的颜色写成显式 RGB，避免收藏后颜色随主题变化（A→B）
+                    try { BakeSlideColors(slide, tempPres.Slides[tempPres.Slides.Count]); } catch { }
+
                     // 去掉未被使用的版式：存档显著变小（实测 1.5MB→数百 KB），另存更快、后续插入打开也更快
                     try
                     {
@@ -286,6 +289,126 @@ namespace PPTShapeLibrary
             }
             catch { }
             return removed;
+        }
+
+        // ---------------- 主题色固化（修"收藏后颜色 A→B"） ----------------
+        // PowerPoint 中颜色多是主题色（Accent 1 等）。把形状/整页粘进新建的空白文稿时，PowerPoint 会按
+        // 主题名匹配到空白文稿的默认 Office 主题，主题色被重新解析 → 颜色变了（素材库预览与插入都变）。
+        // 收藏时按"源形状当前实际显示的颜色"把颜色固化成显式 RGB，之后预览与插入到任何文稿都保持原色。
+        // 【边界】本步骤只写颜色，不改采集/插入流程、不碰剪贴板、不改线条可见性。
+
+        private static void BakeRangeColors(PowerPoint.ShapeRange src, PowerPoint.ShapeRange dst)
+        {
+            try
+            {
+                int n = Math.Min(src.Count, dst.Count);
+                for (int i = 1; i <= n; i++)
+                {
+                    try { BakeShapeColors(src[i], dst[i]); } catch { }
+                }
+            }
+            catch { }
+        }
+
+        private static void BakeSlideColors(PowerPoint.Slide src, PowerPoint.Slide dst)
+        {
+            try
+            {
+                int n = Math.Min(src.Shapes.Count, dst.Shapes.Count);
+                for (int i = 1; i <= n; i++)
+                {
+                    try { BakeShapeColors(src.Shapes[i], dst.Shapes[i]); } catch { }
+                }
+            }
+            catch { }
+
+            // 背景：来源是"纯色背景"时，把当前生效的背景色固化为显式纯色（渐变/图片背景不动）
+            try
+            {
+                var sFill = src.Background.Fill;
+                if ((int)sFill.Type == 1)
+                {
+                    int rgb = sFill.ForeColor.RGB;
+                    dst.FollowMasterBackground = MsoTriState.msoFalse;
+                    dst.Background.Fill.Solid();
+                    dst.Background.Fill.ForeColor.RGB = rgb;
+                }
+            }
+            catch { }
+        }
+
+        private static void BakeShapeColors(PowerPoint.Shape src, PowerPoint.Shape dst)
+        {
+            // 组合：按顺序递归子形状
+            try
+            {
+                if (src.Type == MsoShapeType.msoGroup && dst.Type == MsoShapeType.msoGroup)
+                {
+                    int n = Math.Min(src.GroupItems.Count, dst.GroupItems.Count);
+                    for (int i = 1; i <= n; i++)
+                    {
+                        try { BakeShapeColors(src.GroupItems[i], dst.GroupItems[i]); } catch { }
+                    }
+                }
+            }
+            catch { }
+
+            // 填充：纯色 / 渐变（含各停靠点）
+            try
+            {
+                int st = (int)src.Fill.Type;
+                if (st == 1)                    // msoFillSolid
+                {
+                    dst.Fill.Solid();
+                    dst.Fill.ForeColor.RGB = src.Fill.ForeColor.RGB;
+                }
+                else if (st == 3)               // msoFillGradient
+                {
+                    try { dst.Fill.ForeColor.RGB = src.Fill.ForeColor.RGB; } catch { }
+                    try { dst.Fill.BackColor.RGB = src.Fill.BackColor.RGB; } catch { }
+                    try
+                    {
+                        var ss = src.Fill.GradientStops;
+                        var ds = dst.Fill.GradientStops;
+                        int k = Math.Min(ss.Count, ds.Count);
+                        for (int i = 1; i <= k; i++)
+                        {
+                            try { ds[i].Color.RGB = ss[i].Color.RGB; } catch { }
+                        }
+                    }
+                    catch { }
+                }
+                else if (st == 4 || st == 5)    // 纹理 / 背景填充
+                {
+                    try { dst.Fill.ForeColor.RGB = src.Fill.ForeColor.RGB; } catch { }
+                }
+            }
+            catch { }
+
+            // 线条：**只固化颜色**（可见性不动，避免改变有没有边框的观感）
+            try
+            {
+                if (src.Line.Visible == MsoTriState.msoTrue)
+                    dst.Line.ForeColor.RGB = src.Line.ForeColor.RGB;
+            }
+            catch { }
+
+            // 文字颜色（整段）
+            try
+            {
+                var stf = src.TextFrame2;
+                var dtf = dst.TextFrame2;
+                if (stf != null && dtf != null && stf.HasText == MsoTriState.msoTrue && dtf.HasText == MsoTriState.msoTrue)
+                {
+                    try { dtf.TextRange.Font.Fill.ForeColor.RGB = stf.TextRange.Font.Fill.ForeColor.RGB; } catch { }
+                }
+            }
+            catch { }
+
+            // 阴影 / 三维
+            try { dst.Shadow.ForeColor.RGB = src.Shadow.ForeColor.RGB; } catch { }
+            try { dst.ThreeD.ExtrusionColor.RGB = src.ThreeD.ExtrusionColor.RGB; } catch { }
+            try { dst.ThreeD.ContourColor.RGB = src.ThreeD.ContourColor.RGB; } catch { }
         }
 
         /// <summary>插入整页快照：以幻灯片级复制粘贴还原整页（保留背景/版式）。
@@ -578,6 +701,8 @@ namespace PPTShapeLibrary
                 {
                     ClipboardGuard.Restore(clip);
                 }
+                // 主题色固化：按源形状实际显示的颜色写成显式 RGB，避免收藏后颜色随主题变化（A→B）
+                try { BakeRangeColors(range, pasted); } catch { }
                 // 归一化：把整组移动到 (0,0)，保证插入时坐标可控
                 float minLeft = float.MaxValue, minTop = float.MaxValue;
                 foreach (PowerPoint.Shape s in pasted)
