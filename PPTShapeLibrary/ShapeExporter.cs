@@ -110,33 +110,18 @@ namespace PPTShapeLibrary
                     }
                     catch { }
 
-                    bool usedFileCopy = false;
-                    // 首选：源文稿已存盘 → 用 InsertFromFile 从文件插入该页（**完全不使用剪贴板**，
-                    // 且只带这一页所需的媒体/版式，库文件更小、也不会覆盖用户剪贴板）
-                    try
+                    // 用"复制幻灯片 → 粘贴到临时文稿"（剪贴板）收藏：只有这条路径会把该页的
+                    // **设计/版式绑定**一起带过来，收藏后的缩略图才与源页一致。
+                    // 曾改用 Slides.InsertFromFile（免剪贴板），但它不带源页的版式绑定，PowerPoint 会把
+                    // 插入页重绑到临时文稿的默认版式 → 占位符继承到线条，缩略图/插入结果就出现边框（已回退）。
+                    slide.Copy();
+                    System.Threading.Thread.Sleep(60);
                     {
-                        string srcPath = null;
-                        try { srcPath = pres.Path; } catch { }
-                        if (!string.IsNullOrEmpty(srcPath) && System.IO.File.Exists(srcPath))
-                        {
-                            int srcIndex = App.ActiveWindow.View.Slide.SlideIndex;
-                            int before = tempPres.Slides.Count;
-                            tempPres.Slides.InsertFromFile(srcPath, before + 1, srcIndex, srcIndex);
-                            if (tempPres.Slides.Count > before) usedFileCopy = true;
-                        }
-                    }
-                    catch { usedFileCopy = false; }
-
-                    if (!usedFileCopy)
-                    {
-                        // 回退：源文稿未保存（无文件路径）→ 只能走剪贴板复制
-                        slide.Copy();
-                        System.Threading.Thread.Sleep(60);
                         var pr = tempPres.Slides.Paste();
                         if (pr == null || pr.Count == 0) throw new Exception("页面复制失败");
-                        // 主题色固化：把整页里各形状的颜色按源页实际显示固化为显式 RGB，避免 A→B
-                        try { BakeSlideColors(slide, tempPres.Slides[tempPres.Slides.Count]); } catch { }
                     }
+                    // 主题色固化：把整页里各形状的颜色按源页实际显示固化为显式 RGB，避免 A→B
+                    try { BakeSlideColors(slide, tempPres.Slides[tempPres.Slides.Count]); } catch { }
 
                     // 删除新建文稿自带的空白页（InsertFromFile 路径下会残留一页）
                     while (tempPres.Slides.Count > 1)
@@ -451,41 +436,56 @@ namespace PPTShapeLibrary
                 }
 
                 var swPage = System.Diagnostics.Stopwatch.StartNew();
-
-                if (newDoc)
-                {
-                    // 新建演示文稿并插入该页（免剪贴板：直接从库文件 InsertFromFile）
-                    var np = App.Presentations.Add(MsoTriState.msoTrue);
-                    int before = np.Slides.Count;
-                    np.Slides.InsertFromFile(shapePath, before + 1, 1, 1);
-                    for (int i = before; i >= 1; i--) { try { np.Slides[i].Delete(); } catch { } }   // 删除新建文稿自带的空白页
-                    ShapeLibraryService.TouchUsed(id);
-                    swPage.Stop();
-                    Log.Write("insert page timing: total=" + swPage.ElapsedMilliseconds + "ms pos=newDoc (InsertFromFile)");
-                    return true;
-                }
-
-                var pres = App.ActivePresentation;
-                int insertAt = pos == "end" ? pres.Slides.Count + 1 : App.ActiveWindow.View.Slide.SlideIndex + 1;
-                if (insertAt > pres.Slides.Count + 1) insertAt = pres.Slides.Count + 1;
-                if (insertAt < 1) insertAt = 1;
-
-                // 免剪贴板：直接从库文件把第 1 页插到该位置（保留背景/版式/主题）
-                pres.Slides.InsertFromFile(shapePath, insertAt, 1, 1);
-
-                // 注意：这里**不再**执行"清理未使用版式"。
-                // CleanUnusedLayouts 的"哪些版式被使用"判断不可靠，会删掉仍在使用的版式、导致幻灯片被
-                // 重绑到带占位符的版式（外观走样：多出边框、颜色变化）。保真与安全优先，该设置暂时忽略。
+                // 打开库文件 → 复制该页（幻灯片级）→ 粘贴到目标位置。
+                // 只有"复制幻灯片"这条路径会把该页的**设计/版式绑定**一起带到目标文稿；
+                // 曾改用 Slides.InsertFromFile（免剪贴板），但它不带版式绑定，PowerPoint 会把插入页重绑到
+                // 目标文稿的默认版式 → 占位符继承线条/颜色，插入后多出边框（已回退）。
+                PowerPoint.Presentation libPres = null;
+                var clip = ClipboardGuard.Snapshot();
                 try
                 {
-                    if (ShapeLibraryService.LoadSettings().CleanLayoutsOnInsertPage)
-                        Log.Write("cleanLayoutsOnInsertPage=on 但已停用（会改坏版式绑定），本次跳过");
+                    libPres = App.Presentations.Open(shapePath, MsoTriState.msoTrue, MsoTriState.msoFalse, MsoTriState.msoFalse);
+                    if (libPres.Slides.Count == 0) { error = "整页内容为空。"; return false; }
+                    libPres.Slides[1].Copy();
+                    System.Threading.Thread.Sleep(60);
+
+                    if (newDoc)
+                    {
+                        var np = App.Presentations.Add(MsoTriState.msoTrue);
+                        var pastedNew = np.Slides.Paste();
+                        if (pastedNew == null || pastedNew.Count == 0) { error = "新建文稿粘贴失败。"; return false; }
+                        ShapeLibraryService.TouchUsed(id);
+                        swPage.Stop();
+                        Log.Write("insert page timing: total=" + swPage.ElapsedMilliseconds + "ms pos=newDoc");
+                        return true;
+                    }
+
+                    var pres = App.ActivePresentation;
+                    int insertAt = pos == "end" ? pres.Slides.Count + 1 : App.ActiveWindow.View.Slide.SlideIndex + 1;
+                    if (insertAt > pres.Slides.Count + 1) insertAt = pres.Slides.Count + 1;
+                    if (insertAt < 1) insertAt = 1;
+
+                    var inserted = pres.Slides.Paste(insertAt);
+                    if (inserted == null || inserted.Count == 0) { error = "整页粘贴失败。"; return false; }
+
+                    // 注意：这里**不再**执行"清理未使用版式"（判断不可靠，会改坏版式绑定）。
+                    try
+                    {
+                        if (ShapeLibraryService.LoadSettings().CleanLayoutsOnInsertPage)
+                            Log.Write("cleanLayoutsOnInsertPage=on 但已停用（会改坏版式绑定），本次跳过");
+                    }
+                    catch { }
+
+                    ShapeLibraryService.TouchUsed(id);
+                    swPage.Stop();
+                    Log.Write("insert page timing: total=" + swPage.ElapsedMilliseconds + "ms pos=" + pos);
+                    return true;
                 }
-                catch { }
-                ShapeLibraryService.TouchUsed(id);
-                swPage.Stop();
-                Log.Write("insert page timing: total=" + swPage.ElapsedMilliseconds + "ms pos=" + pos + " (InsertFromFile)");
-                return true;
+                finally
+                {
+                    ClipboardGuard.Restore(clip);
+                    if (libPres != null) { try { libPres.Close(); } catch { } }
+                }
             }
             catch (Exception ex)
             {
