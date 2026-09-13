@@ -328,7 +328,7 @@ namespace PPTShapeLibrary
             try
             {
                 var sFill = src.Background.Fill;
-                if ((int)sFill.Type == 1)
+                if (sFill != null && sFill.Visible == MsoTriState.msoTrue && (int)sFill.Type == 1)
                 {
                     int rgb = sFill.ForeColor.RGB;
                     dst.FollowMasterBackground = MsoTriState.msoFalse;
@@ -355,45 +355,46 @@ namespace PPTShapeLibrary
             }
             catch { }
 
-            // 填充：纯色 / 渐变（含各停靠点）
-            try
+            // 填充：纯色 / 渐变（含各停靠点）。仅当源形状"确实有填充"时才写，避免给无填充形状加上填充
+            bool fillVisible = false;
+            try { fillVisible = src.Fill.Visible == MsoTriState.msoTrue; } catch { }
+            if (fillVisible)
             {
-                int st = (int)src.Fill.Type;
-                if (st == 1)                    // msoFillSolid
+                try
                 {
-                    dst.Fill.Solid();
-                    dst.Fill.ForeColor.RGB = src.Fill.ForeColor.RGB;
-                }
-                else if (st == 3)               // msoFillGradient
-                {
-                    try { dst.Fill.ForeColor.RGB = src.Fill.ForeColor.RGB; } catch { }
-                    try { dst.Fill.BackColor.RGB = src.Fill.BackColor.RGB; } catch { }
-                    try
+                    int st = (int)src.Fill.Type;
+                    if (st == 1)                    // msoFillSolid
                     {
-                        var ss = src.Fill.GradientStops;
-                        var ds = dst.Fill.GradientStops;
-                        int k = Math.Min(ss.Count, ds.Count);
-                        for (int i = 1; i <= k; i++)
-                        {
-                            try { ds[i].Color.RGB = ss[i].Color.RGB; } catch { }
-                        }
+                        dst.Fill.Solid();
+                        dst.Fill.ForeColor.RGB = src.Fill.ForeColor.RGB;
                     }
-                    catch { }
+                    else if (st == 3)               // msoFillGradient
+                    {
+                        try { dst.Fill.ForeColor.RGB = src.Fill.ForeColor.RGB; } catch { }
+                        try { dst.Fill.BackColor.RGB = src.Fill.BackColor.RGB; } catch { }
+                        try
+                        {
+                            var ss = src.Fill.GradientStops;
+                            var ds = dst.Fill.GradientStops;
+                            int k = Math.Min(ss.Count, ds.Count);
+                            for (int i = 1; i <= k; i++)
+                            {
+                                try { ds[i].Color.RGB = ss[i].Color.RGB; } catch { }
+                            }
+                        }
+                        catch { }
+                    }
+                    else if (st == 4 || st == 5)    // 纹理 / 背景填充
+                    {
+                        try { dst.Fill.ForeColor.RGB = src.Fill.ForeColor.RGB; } catch { }
+                    }
                 }
-                else if (st == 4 || st == 5)    // 纹理 / 背景填充
-                {
-                    try { dst.Fill.ForeColor.RGB = src.Fill.ForeColor.RGB; } catch { }
-                }
+                catch { }
             }
-            catch { }
 
-            // 线条：**只固化颜色**（可见性不动，避免改变有没有边框的观感）
-            try
-            {
-                if (src.Line.Visible == MsoTriState.msoTrue)
-                    dst.Line.ForeColor.RGB = src.Line.ForeColor.RGB;
-            }
-            catch { }
+            // 【不要碰线条】。曾按"线条可见就写线条颜色"，结果：源里是"渐变线条"（常为渐隐到透明，
+            // 视觉上等于没有边框）的形状，被写成纯色 → 渐变线被压成实线，用户看到"收藏后多出边框"。
+            // 线条上的主题色引用已由 CopyThemeColors（主题色表复制）保证与源文稿一致，无需再逐形状刷。
 
             // 文字颜色（整段）
             try
