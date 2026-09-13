@@ -21,7 +21,8 @@ namespace PPTShapeLibrary
         /// 之前的实现会 materialize 全部格式再回放，其中 EnhancedMetafile/Object Descriptor/Office 私有
         /// 数据取回来是 COM 对象或图元句柄，塞进托管 DataObject 回放时会在封送阶段损坏堆，
         /// 触发 FatalExecutionEngineError(0xc0000005) 且无法被 try/catch 捕获。
-        /// 整页/形状的复制粘贴路径已尽量改为免剪贴板（Slides.InsertFromFile），此保护仅作为兜底。
+        /// 整页/形状的收藏与插入都必须走"复制→粘贴"（幻灯片/形状级），因此本保护只在剪贴板里
+        /// 有文本/图片/文件时生效，避免用户这些内容被内部复制冲掉。
         /// </summary>
         public static IDataObject Snapshot()
         {

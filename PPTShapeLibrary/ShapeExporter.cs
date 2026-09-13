@@ -123,7 +123,7 @@ namespace PPTShapeLibrary
                     // 主题色固化：把整页里各形状的颜色按源页实际显示固化为显式 RGB，避免 A→B
                     try { BakeSlideColors(slide, tempPres.Slides[tempPres.Slides.Count]); } catch { }
 
-                    // 删除新建文稿自带的空白页（InsertFromFile 路径下会残留一页）
+                    // 防御：粘贴后若临时文稿还残留空白页（不同 PowerPoint 版本新建文稿的默认页数不同），删掉它，保证存档只有一页
                     while (tempPres.Slides.Count > 1)
                     {
                         bool removed = false;
