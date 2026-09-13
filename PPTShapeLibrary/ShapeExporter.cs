@@ -148,6 +148,52 @@ namespace PPTShapeLibrary
             }
         }
 
+        /// <summary>清理演示文稿中"未被任何幻灯片使用"的自定义版式（每个母版至少保留 1 个）。
+        /// 用于插入整页快照后，避免源文件版式在目标文稿里无限累积。返回删除数量。</summary>
+        private static int CleanUnusedLayouts(PowerPoint.Presentation pres)
+        {
+            int removed = 0;
+            try
+            {
+                // 已使用版式名集合（同母版内版式名唯一；跨母版以 母版名+版式名 区分）
+                var used = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                for (int i = 1; i <= pres.Slides.Count; i++)
+                {
+                    try
+                    {
+                        var layout = pres.Slides[i].CustomLayout;
+                        if (layout != null) used.Add((layout.Name ?? "") + "@" + (layout.Design != null ? layout.Design.Name : ""));
+                    }
+                    catch { }
+                }
+                for (int d = 1; d <= pres.Designs.Count; d++)
+                {
+                    PowerPoint.Design design = null;
+                    try { design = pres.Designs[d]; } catch { continue; }
+                    PowerPoint.Master master = null;
+                    try { master = design.SlideMaster; } catch { continue; }
+                    if (master == null) continue;
+                    int layoutCount = 0;
+                    try { layoutCount = master.CustomLayouts.Count; } catch { }
+                    // 倒序删除，保留第一个（默认版式）
+                    for (int li = layoutCount; li >= 2; li--)
+                    {
+                        try
+                        {
+                            var layout = master.CustomLayouts[li];
+                            string key = (layout.Name ?? "") + "@" + (design.Name ?? "");
+                            if (used.Contains(key)) continue;
+                            layout.Delete();
+                            removed++;
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch { }
+            return removed;
+        }
+
         /// <summary>插入整页快照：以幻灯片级复制粘贴还原整页（保留背景/版式）。
         /// position: "after"=当前页之后(默认) / "end"=文稿末尾 / "newDoc"=新建演示文稿打开。
         /// 失败原因写入 error（Web 桥 Toast 呈现）。</summary>
@@ -206,6 +252,16 @@ namespace PPTShapeLibrary
                     if (insertAt < 1) insertAt = 1;
                     var inserted = pres.Slides.Paste(insertAt);   // SlideRange
                     if (inserted == null || inserted.Count == 0) { error = "整页粘贴失败。"; return false; }
+                    // 可选：清理未使用版式（防源模板版式累积）
+                    try
+                    {
+                        if (ShapeLibraryService.LoadSettings().CleanLayoutsOnInsertPage)
+                        {
+                            int rm = CleanUnusedLayouts(pres);
+                            if (rm > 0) Log.Write("cleaned unused layouts: " + rm);
+                        }
+                    }
+                    catch { }
                     ShapeLibraryService.TouchUsed(id);
                     return true;
                 }

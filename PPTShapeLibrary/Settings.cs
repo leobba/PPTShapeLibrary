@@ -51,6 +51,9 @@ namespace PPTShapeLibrary
         [DataMember(Name = "showTypeRow")]
         public bool ShowTypeRow { get; set; }             // 是否显示"类型：全部/形状/样式"行
 
+        [DataMember(Name = "cleanLayoutsOnInsertPage")]
+        public bool CleanLayoutsOnInsertPage { get; set; } // 插入整页后清理未被使用的自定义版式（防源模板版式累积）
+
         public Settings()
         {
             Theme = "light";
@@ -68,6 +71,7 @@ namespace PPTShapeLibrary
             PaneHeight = 180;
             GridColumns = "2";
             ShowTypeRow = true;
+            CleanLayoutsOnInsertPage = false;
         }
     }
 }

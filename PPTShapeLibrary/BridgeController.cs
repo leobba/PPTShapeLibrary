@@ -931,6 +931,10 @@ namespace PPTShapeLibrary
                 {
                     bool b; if (bool.TryParse(patch["showTypeRow"].ToString(), out b)) s.ShowTypeRow = b;
                 }
+                if (patch.ContainsKey("cleanLayoutsOnInsertPage"))
+                {
+                    bool b; if (bool.TryParse(patch["cleanLayoutsOnInsertPage"].ToString(), out b)) s.CleanLayoutsOnInsertPage = b;
+                }
                 if (patch.ContainsKey("paneDock"))
                 {
                     string v = patch["paneDock"]?.ToString() ?? "";
@@ -1125,7 +1129,8 @@ namespace PPTShapeLibrary
                 { "paneDock", s.PaneDock ?? "left" },
                 { "paneHeight", s.PaneHeight },
                 { "gridColumns", s.GridColumns ?? "2" },
-                { "showTypeRow", s.ShowTypeRow }
+                { "showTypeRow", s.ShowTypeRow },
+                { "cleanLayoutsOnInsertPage", s.CleanLayoutsOnInsertPage }
             };
         }
 

@@ -909,6 +909,12 @@ function SettingsForm() {
           onChecked={(v) => set("showTypeRow", !!v)}
           hint="关闭后左侧选组即看该组全部；样式卡仍可通过右键/双击「应用到形状」使用"
         />
+        <CheckRow
+          label="插入整页后清理未使用的版式"
+          checked={!!s.cleanLayoutsOnInsertPage}
+          onChecked={(v) => set("cleanLayoutsOnInsertPage", !!v)}
+          hint="整页快照会带入源文件版式；开启后自动删除目标文稿中未被使用的自定义版式（每个母版至少保留 1 个）"
+        />
         <Row label="素材作者署名（导出素材包时写入）">
           <Input
             className="h-8 w-56"
