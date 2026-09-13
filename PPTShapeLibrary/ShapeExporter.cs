@@ -179,6 +179,8 @@ namespace PPTShapeLibrary
 
                     // 主题色固化：按源页实际显示的颜色写成显式 RGB，避免收藏后颜色随主题变化（A→B）
                     try { BakeSlideColors(slide, tempPres.Slides[tempPres.Slides.Count]); } catch { }
+                    // 主题色表复制：整页里的版式/母版/分 Run 文字的主题色引用也跟随源主题
+                    try { CopyThemeColors(slide.Design != null ? slide.Design.SlideMaster : null, tempPres); } catch { }
 
                     // 去掉未被使用的版式：存档显著变小（实测 1.5MB→数百 KB），另存更快、后续插入打开也更快
                     try
@@ -409,6 +411,51 @@ namespace PPTShapeLibrary
             try { dst.Shadow.ForeColor.RGB = src.Shadow.ForeColor.RGB; } catch { }
             try { dst.ThreeD.ExtrusionColor.RGB = src.ThreeD.ExtrusionColor.RGB; } catch { }
             try { dst.ThreeD.ContourColor.RGB = src.ThreeD.ContourColor.RGB; } catch { }
+        }
+
+        // ---------------- 主题色表复制（从根上解决"颜色跟着主题走"） ----------------
+        // 只把显式颜色写死（BakeShapeColors）会漏掉"分 Run 的文字色、形状样式引用、版式/母版里的
+        // 主题色引用"（实测残留 21 处 schemeClr）。这里把源母版的 12 个主题色整体复制到工作文稿的主题上：
+        // 文件里即使还留着主题色引用，解析结果也与源文稿一致 → 插入到任何主题的文稿都不会变色。
+        private static void CopyThemeColors(PowerPoint.Master srcMaster, PowerPoint.Presentation dst)
+        {
+            if (srcMaster == null || dst == null) return;
+            try
+            {
+                Microsoft.Office.Core.ThemeColorScheme srcScheme = null;
+                try { srcScheme = srcMaster.Theme.ThemeColorScheme; } catch { }
+                if (srcScheme == null) return;
+
+                for (int d = 1; d <= dst.Designs.Count; d++)
+                {
+                    try
+                    {
+                        var dstScheme = dst.Designs[d].SlideMaster.Theme.ThemeColorScheme;
+                        if (dstScheme == null) continue;
+                        // 1..12 = Dark1/Light1/Dark2/Light2/Accent1..6/Hyperlink/FollowedHyperlink
+                        for (int i = 1; i <= 12; i++)
+                        {
+                            try
+                            {
+                                var idx = (Microsoft.Office.Core.MsoThemeColorSchemeIndex)i;
+                                int rgb = srcScheme.Colors(idx).RGB;
+                                dstScheme.Colors(idx).RGB = rgb;
+                            }
+                            catch { }
+                        }
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>取当前活动页所用设计（母版）——用于读取源主题色表。</summary>
+        private static PowerPoint.Master CurrentMaster()
+        {
+            try { return App.ActiveWindow.View.Slide.Design.SlideMaster; } catch { }
+            try { return App.ActivePresentation.SlideMaster; } catch { }
+            return null;
         }
 
         /// <summary>插入整页快照：以幻灯片级复制粘贴还原整页（保留背景/版式）。
@@ -703,6 +750,8 @@ namespace PPTShapeLibrary
                 }
                 // 主题色固化：按源形状实际显示的颜色写成显式 RGB，避免收藏后颜色随主题变化（A→B）
                 try { BakeRangeColors(range, pasted); } catch { }
+                // 主题色表复制：把源主题色复制到工作文稿，覆盖"残留的主题色引用"（分 Run 文字色/样式引用等）
+                try { CopyThemeColors(CurrentMaster(), tempPres); } catch { }
                 // 归一化：把整组移动到 (0,0)，保证插入时坐标可控
                 float minLeft = float.MaxValue, minTop = float.MaxValue;
                 foreach (PowerPoint.Shape s in pasted)

@@ -353,11 +353,35 @@ namespace PPTShapeLibrary
             EnsurePaneForWindow(null);
         }
 
+        /// <summary>窗格是否仍然有效。演示文稿窗口关闭/迁移后 PowerPoint 会删除窗格对象，
+        /// 而 _taskPane 字段仍指向它，之后任何访问都抛 0x800A01A8
+        /// （用户现象：点「素材库」按钮打不开、日志里反复报"该任务窗格已被删除"）。
+        /// 这里探活，失效即清空字段，交给 EnsureTaskPaneCreated 重建。</summary>
+        private bool PaneIsAlive()
+        {
+            if (_taskPane == null) return false;
+            try
+            {
+                bool v = _taskPane.Visible;   // 已删除的窗格：此访问即抛
+                GC.KeepAlive(v);
+                return true;
+            }
+            catch
+            {
+                _taskPane = null;
+                return false;
+            }
+        }
+
         /// <summary>首次打开时创建任务窗格（Startup 不建，避免无活动窗口时绑定幽灵窗口导致永不显示）。</summary>
         private void EnsureTaskPaneCreated()
         {
             try
             {
+                if (_taskPane != null && !PaneIsAlive())
+                {
+                    Log.Write("Task pane stale (deleted by PowerPoint) -> recreate");
+                }
                 if (_taskPane != null) return;
                 if (_paneHost == null) return;
                 PowerPoint.DocumentWindow win = null;
