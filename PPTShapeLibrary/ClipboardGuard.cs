@@ -16,23 +16,37 @@ namespace PPTShapeLibrary
     public static class ClipboardGuard
     {
         /// <summary>
-        /// 抓取当前剪贴板快照。仅当剪贴板内容"可被可靠回放"时才保护：
-        /// 纯 PowerPoint 形状数据属延迟渲染且源即本进程，恢复不可靠且用户多半在 PPT 内操作，跳过。
+        /// 抓取当前剪贴板快照。
+        /// 关键：逐个格式 <c>GetData(format, autoConvert:true)</c> **立即实体化**（延迟渲染的 Office 数据
+        /// 也一并取成内存数据）再放进独立的 DataObject。这样即使随后我们自己的 Copy 覆盖了剪贴板
+        /// （其原始 owner 的数据被释放），之后仍能把用户的剪贴板内容原样放回。
+        /// 之前"遇到 PowerPoint 形状数据就跳过保护"的做法会让用户复制的内容被我们的操作冲掉。
         /// </summary>
         public static IDataObject Snapshot()
         {
             try
             {
-                bool hasText = Clipboard.ContainsText();
-                bool hasImage = Clipboard.ContainsImage();
-                bool hasFiles = Clipboard.ContainsFileDropList();
-                bool hasPpt = Clipboard.ContainsData("PowerPoint Shapedata");
-                if (!hasText && !hasImage && !hasFiles)
+                var src = Clipboard.GetDataObject();
+                if (src == null) return null;
+                string[] formats;
+                try { formats = src.GetFormats(); } catch { return null; }
+                if (formats == null || formats.Length == 0) return null;   // 空剪贴板：无需保护
+
+                var copy = new DataObject();
+                bool any = false;
+                foreach (var f in formats)
                 {
-                    return null;   // 只有 Office 专有/空剪贴板——无需（无法可靠）保护
+                    if (string.IsNullOrEmpty(f)) continue;
+                    try
+                    {
+                        object data = src.GetData(f, true);   // true = 允许自动转换/强制渲染
+                        if (data == null) continue;
+                        copy.SetData(f, data);
+                        any = true;
+                    }
+                    catch { /* 个别格式无法实体化：跳过该格式 */ }
                 }
-                // 文本/图片/文件为主：可回放，抓快照
-                return Clipboard.GetDataObject();
+                return any ? (IDataObject)copy : null;
             }
             catch
             {
@@ -44,14 +58,18 @@ namespace PPTShapeLibrary
         public static void Restore(IDataObject snapshot)
         {
             if (snapshot == null) return;
-            try
+            for (int attempt = 1; attempt <= 2; attempt++)
             {
-                // 延迟到操作后一小段时间执行，避免与 PowerPoint 内部剪贴板处理竞争
-                Clipboard.SetDataObject(snapshot, true);
-            }
-            catch
-            {
-                // 恢复失败静默——用户仍可手动 Ctrl+V 原内容（若源仍在）
+                try
+                {
+                    Clipboard.SetDataObject(snapshot, true);
+                    return;
+                }
+                catch
+                {
+                    // 偶发占用（剪贴板被其他进程短暂锁定）：稍后重试一次，仍失败则静默放弃
+                    try { System.Threading.Thread.Sleep(60); } catch { }
+                }
             }
         }
 
