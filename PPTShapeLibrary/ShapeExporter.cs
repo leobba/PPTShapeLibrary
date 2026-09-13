@@ -148,14 +148,17 @@ namespace PPTShapeLibrary
             }
         }
 
-        /// <summary>插入整页快照：打开库内整页，以幻灯片级复制粘贴到当前文稿（保留背景/版式）。
-        /// 插入位置：当前页之后。失败原因写入 error（Web 桥 Toast 呈现）。</summary>
-        public static bool InsertPageSnapshot(string id, out string error)
+        /// <summary>插入整页快照：以幻灯片级复制粘贴还原整页（保留背景/版式）。
+        /// position: "after"=当前页之后(默认) / "end"=文稿末尾 / "newDoc"=新建演示文稿打开。
+        /// 失败原因写入 error（Web 桥 Toast 呈现）。</summary>
+        public static bool InsertPageSnapshot(string id, string position, out string error)
         {
             error = null;
             try
             {
-                if (App.Presentations.Count == 0)
+                string pos = string.IsNullOrWhiteSpace(position) ? "after" : position;
+                bool newDoc = pos == "newDoc";
+                if (!newDoc && App.Presentations.Count == 0)
                 {
                     error = "请先新建或打开演示文稿，再插入整页。";
                     return false;
@@ -173,7 +176,6 @@ namespace PPTShapeLibrary
                     return false;
                 }
 
-                var pres = App.ActivePresentation;
                 PowerPoint.Presentation libPres = null;
                 var clip = ClipboardGuard.Snapshot();
                 try
@@ -182,8 +184,26 @@ namespace PPTShapeLibrary
                     if (libPres.Slides.Count == 0) { error = "整页内容为空。"; return false; }
                     libPres.Slides[1].Copy();
                     System.Threading.Thread.Sleep(200);
-                    int insertAt = App.ActiveWindow.View.Slide.SlideIndex + 1;   // 当前页之后
+
+                    if (newDoc)
+                    {
+                        // 新建演示文稿并粘入该页（作为独立文稿打开）
+                        var np = App.Presentations.Add(MsoTriState.msoTrue);
+                        var pastedNew = np.Slides.Paste();   // 新文稿第 1 页
+                        if (pastedNew == null || pastedNew.Count == 0) { error = "新建文稿粘贴失败。"; return false; }
+                        ShapeLibraryService.TouchUsed(id);
+                        return true;
+                    }
+
+                    var pres = App.ActivePresentation;
+                    int insertAt;
+                    if (pos == "end") insertAt = pres.Slides.Count + 1;
+                    else
+                    {
+                        insertAt = App.ActiveWindow.View.Slide.SlideIndex + 1;   // 当前页之后
+                    }
                     if (insertAt > pres.Slides.Count + 1) insertAt = pres.Slides.Count + 1;
+                    if (insertAt < 1) insertAt = 1;
                     var inserted = pres.Slides.Paste(insertAt);   // SlideRange
                     if (inserted == null || inserted.Count == 0) { error = "整页粘贴失败。"; return false; }
                     ShapeLibraryService.TouchUsed(id);

@@ -103,8 +103,9 @@ namespace PPTShapeLibrary
                     case "insertPage":
                         {
                             string id = ToStr(payload, "id");
+                            string position = ToStr(payload, "position");
                             var swp = System.Diagnostics.Stopwatch.StartNew();
-                            bool ok = ShapeExporter.InsertPageSnapshot(id, out string pgErr);
+                            bool ok = ShapeExporter.InsertPageSnapshot(id, position, out string pgErr);
                             swp.Stop();
                             if (swp.ElapsedMilliseconds > 1000)
                                 Log.Write("insertPage slow: " + swp.ElapsedMilliseconds + "ms id=" + id + " ok=" + ok);

@@ -89,7 +89,7 @@ export const bridge = {
   list: (filter: string, category: string, kind: string, group: string, sort: string, offset: number, limit: number, unusedOnly?: boolean, colorLike?: string) =>
     send("list", { filter, category, kind, group, sort, offset, limit, unusedOnly: !!unusedOnly, colorLike: colorLike || "" }),
   insert: (id: string) => send("insert", { id }),
-  insertPage: (id: string) => send("insertPage", { id }),
+  insertPage: (id: string, position?: string) => send("insertPage", { id, position: position || "after" }),
   applyStyle: (id: string) => send("applyStyle", { id }),
   applyStyleSameType: (id: string) => send("applyStyleSameType", { id }),
   applyStyleSameTypeAllSlides: (id: string) => send("applyStyleSameTypeAllSlides", { id }),

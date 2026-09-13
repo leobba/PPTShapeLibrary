@@ -152,20 +152,26 @@ export default function LibraryView() {
         showToast(msg);
       });
   };
-  // 整页快照走页级插入（含背景/版式，插入当前页之后）
-  const insertPageItem = (id: string) => {
+  // 整页快照走页级插入（含背景/版式）；position: after(默认)/end/newDoc
+  const insertPageItem = (id: string, position: string = "after") => {
     if (insertingRef.current) {
       showToast("正在插入，请稍候…");
       return;
     }
     insertingRef.current = true;
-    showToast("正在插入整页…");
+    showToast(position === "newDoc" ? "正在新建文稿并插入整页…" : "正在插入整页…");
+    const doneText =
+      position === "newDoc"
+        ? "✓ 已新建演示文稿并插入该页"
+        : position === "end"
+        ? "✓ 整页已插入文稿末尾"
+        : "✓ 整页已插入当前页之后";
     bridge
-      .insertPage(id)
+      .insertPage(id, position)
       .then((d: any) => {
         insertingRef.current = false;
         const ms = d?.elapsedMs || 0;
-        showToast(ms > 1200 ? `✓ 整页已插入当前页之后（用时 ${ms} ms）` : "✓ 整页已插入当前页之后");
+        showToast(ms > 1200 ? `${doneText}（用时 ${ms} ms）` : doneText);
         lib.reload(true);
       })
       .catch((e: Error) => {
@@ -735,6 +741,7 @@ export default function LibraryView() {
                       onPreview={() => setPreview(item)}
                       onHover={setHoverImg}
                       onInsert={() => insertAny(item)}
+                      onInsertPage={(pos: string) => insertPageItem(item.id, pos)}
                       onApplyStyle={() => applyStyleWithFeedback(item.id)}
                       onChanged={() => {
                         lib.refreshMeta(); // 刷新侧栏组计数/元数据
@@ -928,14 +935,34 @@ export default function LibraryView() {
             </div>
             <div className="flex justify-end gap-2">
               {(preview as any).snapshotPage ? (
-                <Button
-                  onClick={() => {
-                    setPreview(null);
-                    insertPageItem(preview.id);
-                  }}
-                >
-                  插入整页（追加到当前页后）
-                </Button>
+                <>
+                  <Button
+                    onClick={() => {
+                      setPreview(null);
+                      insertPageItem(preview.id, "after");
+                    }}
+                  >
+                    插入当前页之后
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setPreview(null);
+                      insertPageItem(preview.id, "end");
+                    }}
+                  >
+                    插入文稿末尾
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setPreview(null);
+                      insertPageItem(preview.id, "newDoc");
+                    }}
+                  >
+                    新建文稿打开
+                  </Button>
+                </>
               ) : preview.kind !== "Style" ? (
                 <Button
                   onClick={() => {
@@ -1050,6 +1077,7 @@ function ItemCard({
   dragEnabled,
   onDropCard,
   clickToInsert,
+  onInsertPage,
 }: {
   item: ListItem;
   selected: boolean;
@@ -1057,6 +1085,8 @@ function ItemCard({
   onPreview: () => void;
   onHover: (v: { url: string; kind: string; page?: boolean } | null) => void;
   onInsert: () => void;
+  /** 整页快照：按位置插入（after/end/newDoc） */
+  onInsertPage?: (position: string) => void;
   onApplyStyle: () => void;
   onChanged: () => void;
   dragEnabled?: boolean;
@@ -1160,9 +1190,15 @@ function ItemCard({
         </ContextMenuLabel>
         <ContextMenuSeparator />
         {!isStyle ? (
-          <ContextMenuItem onSelect={onInsert}>
-            {item.snapshotPage ? "插入整页（追加到当前页后）" : "插入到当前页"}
-          </ContextMenuItem>
+          item.snapshotPage ? (
+            <>
+              <ContextMenuItem onSelect={() => onInsertPage?.("after")}>整页：插入当前页之后</ContextMenuItem>
+              <ContextMenuItem onSelect={() => onInsertPage?.("end")}>整页：插入文稿末尾</ContextMenuItem>
+              <ContextMenuItem onSelect={() => onInsertPage?.("newDoc")}>整页：打开为新演示文稿</ContextMenuItem>
+            </>
+          ) : (
+            <ContextMenuItem onSelect={onInsert}>插入到当前页</ContextMenuItem>
+          )
         ) : (
           <>
             <ContextMenuItem onSelect={() => bridge.applyStyle(item.id)}>应用样式到选中形状</ContextMenuItem>
