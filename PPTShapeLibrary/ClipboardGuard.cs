@@ -16,58 +16,30 @@ namespace PPTShapeLibrary
     public static class ClipboardGuard
     {
         /// <summary>
-        /// 抓取当前剪贴板快照。
-        /// 关键：逐个格式 <c>GetData(format, autoConvert:true)</c> **立即实体化**（延迟渲染的 Office 数据
-        /// 也一并取成内存数据）再放进独立的 DataObject。这样即使随后我们自己的 Copy 覆盖了剪贴板
-        /// （其原始 owner 的数据被释放），之后仍能把用户的剪贴板内容原样放回。
-        /// 之前"遇到 PowerPoint 形状数据就跳过保护"的做法会让用户复制的内容被我们的操作冲掉。
+        /// 抓取当前剪贴板快照（保守策略）。
+        /// 【重要】只保护"文本 / 图片 / 文件"这类可被可靠回放的内容；**不碰 Office/OLE 专有格式**：
+        /// 之前的实现会 materialize 全部格式再回放，其中 EnhancedMetafile/Object Descriptor/Office 私有
+        /// 数据取回来是 COM 对象或图元句柄，塞进托管 DataObject 回放时会在封送阶段损坏堆，
+        /// 触发 FatalExecutionEngineError(0xc0000005) 且无法被 try/catch 捕获。
+        /// 整页/形状的复制粘贴路径已尽量改为免剪贴板（Slides.InsertFromFile），此保护仅作为兜底。
         /// </summary>
         public static IDataObject Snapshot()
         {
             try
             {
-                var src = Clipboard.GetDataObject();
-                if (src == null) return null;
-                string[] formats;
-                try { formats = src.GetFormats(); } catch { return null; }
-                if (formats == null || formats.Length == 0) return null;   // 空剪贴板：无需保护
-
-                var copy = new DataObject();
-                bool any = false;
-                foreach (var f in formats)
+                bool hasText = Clipboard.ContainsText();
+                bool hasImage = Clipboard.ContainsImage();
+                bool hasFiles = Clipboard.ContainsFileDropList();
+                if (!hasText && !hasImage && !hasFiles)
                 {
-                    if (string.IsNullOrEmpty(f)) continue;
-                    object data;
-                    try { data = src.GetData(f, true); }   // true = 允许自动转换/强制渲染
-                    catch { continue; }
-                    // 只保留"纯托管/自包含"的数据：COM/OLE/图元句柄类数据若被塞进 DataObject 再回放，
-                    // 会在封送时损坏堆（FatalExecutionEngineError 0xc0000005），因此一律不带入快照。
-                    if (!IsSafeClipboardData(data)) continue;
-                    try
-                    {
-                        copy.SetData(f, data);
-                        any = true;
-                    }
-                    catch { /* 个别格式无法写回：跳过 */ }
+                    return null;   // 空剪贴板或仅 Office 专有数据：不做保护（也不去触碰它）
                 }
-                return any ? (IDataObject)copy : null;
+                return Clipboard.GetDataObject();
             }
             catch
             {
                 return null;
             }
-        }
-
-        /// <summary>剪贴板数据是否可安全回放（纯托管类型）。</summary>
-        private static bool IsSafeClipboardData(object data)
-        {
-            if (data == null) return false;
-            if (data is string) return true;
-            if (data is string[]) return true;
-            if (data is byte[]) return true;
-            if (data is System.IO.Stream) return true;          // 含 MemoryStream（PowerPoint Shapedata 等序列化数据）
-            if (data is System.Drawing.Image) return true;
-            return false;
         }
 
         /// <summary>恢复剪贴板为快照内容（尽力而为，失败静默）。</summary>

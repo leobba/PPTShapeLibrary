@@ -14,72 +14,10 @@ namespace PPTShapeLibrary
             get { return Globals.ThisAddIn.Application; }
         }
 
-        // ---------------- 库文稿句柄池 ----------------
-        // 实测：Presentations.Open 一次约 700ms，是"插入慢"的主因（插入总耗时约 1.2~1.7s）。
-        // 这里把最近打开的库文稿留在内存中复用（连续插入明显变快）；空闲数秒后自动关闭以释放文件占用，
-        // 库发生删除/移动等变更前也会强制关闭，避免"文件被占用导致删除失败"。
+        // 说明（重要）：曾尝试"库文稿句柄池"（复用已打开的库 pptx 以省去每次约 700ms 的 Open），
+        // 但跨多次操作的 Presentation 句柄复用出现 FatalExecutionEngineError(0xc0000005) 致命崩溃，
+        // 故已移除：恢复为"每次打开→用→关闭"，优先保证稳定。
 
-        private class LibPresEntry
-        {
-            public string Path;
-            public PowerPoint.Presentation Pres;
-            public DateTime LastUse;
-        }
-
-        private static readonly System.Collections.Generic.List<LibPresEntry> _libPresPool =
-            new System.Collections.Generic.List<LibPresEntry>();
-        private const int LibPresPoolMax = 4;
-        private static DateTime _libPresSweep = DateTime.MinValue;
-
-        /// <summary>打开（或复用已打开的）库文稿。调用方不得 Close，由池统一管理。</summary>
-        private static PowerPoint.Presentation OpenLibraryPresentation(string path)
-        {
-            SweepLibPresPool(false);
-            foreach (var e in _libPresPool)
-            {
-                if (!string.Equals(e.Path, path, StringComparison.OrdinalIgnoreCase)) continue;
-                try
-                {
-                    int probe = e.Pres.Slides.Count;   // 探活：已关闭会抛
-                    e.LastUse = DateTime.Now;
-                    return e.Pres;
-                }
-                catch
-                {
-                    try { e.Pres.Close(); } catch { }
-                    _libPresPool.Remove(e);
-                    break;
-                }
-            }
-            var pres = App.Presentations.Open(path, MsoTriState.msoTrue, MsoTriState.msoFalse, MsoTriState.msoFalse);
-            _libPresPool.Add(new LibPresEntry { Path = path, Pres = pres, LastUse = DateTime.Now });
-            while (_libPresPool.Count > LibPresPoolMax)
-            {
-                var oldest = _libPresPool[0];
-                foreach (var e in _libPresPool) { if (e.LastUse < oldest.LastUse) oldest = e; }
-                try { oldest.Pres.Close(); } catch { }
-                _libPresPool.Remove(oldest);
-            }
-            return pres;
-        }
-
-        /// <summary>关闭空闲的库文稿句柄；force=true 立即全部关闭（库变更前 / 插件退出时调用）。</summary>
-        public static void SweepLibPresPool(bool force, int idleSeconds = 5)
-        {
-            try
-            {
-                if (!force && (DateTime.Now - _libPresSweep).TotalSeconds < 1) return;
-                _libPresSweep = DateTime.Now;
-                for (int i = _libPresPool.Count - 1; i >= 0; i--)
-                {
-                    var e = _libPresPool[i];
-                    if (!force && (DateTime.Now - e.LastUse).TotalSeconds < idleSeconds) continue;
-                    try { e.Pres.Close(); } catch { }
-                    _libPresPool.RemoveAt(i);
-                }
-            }
-            catch { }
-        }
 
         // ---------------- 收藏 ----------------
 
@@ -157,13 +95,10 @@ namespace PPTShapeLibrary
                 string id = ShapeLibraryService.NewId();
                 ShapeLibraryService.CreateItemDir(id);
                 PowerPoint.Presentation tempPres = null;
-                var clip = ClipboardGuard.Snapshot();
+                var clip = ClipboardGuard.Snapshot();   // 兜底保护（仅在走剪贴板回退路径时才真正被覆盖）
                 var swAll = System.Diagnostics.Stopwatch.StartNew();
                 try
                 {
-                    // 幻灯片级复制 → 保留背景与版式
-                    slide.Copy();
-                    System.Threading.Thread.Sleep(60);
                     tempPres = App.Presentations.Add(MsoTriState.msoFalse);
                     // 关键：沿用源页面的尺寸与宽高比。此前固定 ppSlideSizeOnScreen(4:3) 会把 16:9 模板
                     // 压成 4:3 存档，插回原文稿时页面变形、看起来"只是形状"。
@@ -174,11 +109,50 @@ namespace PPTShapeLibrary
                         tempPres.PageSetup.SlideHeight = pres.PageSetup.SlideHeight;
                     }
                     catch { }
-                    var pasted = tempPres.Slides.Paste();   // SlideRange
-                    if (pasted == null) throw new Exception("页面复制失败");
 
-                    // 主题色固化：把整页里各形状的颜色按源页实际显示固化为显式 RGB，避免 A→B
-                    try { BakeSlideColors(slide, tempPres.Slides[1]); } catch { }
+                    bool usedFileCopy = false;
+                    // 首选：源文稿已存盘 → 用 InsertFromFile 从文件插入该页（**完全不使用剪贴板**，
+                    // 且只带这一页所需的媒体/版式，库文件更小、也不会覆盖用户剪贴板）
+                    try
+                    {
+                        string srcPath = null;
+                        try { srcPath = pres.Path; } catch { }
+                        if (!string.IsNullOrEmpty(srcPath) && System.IO.File.Exists(srcPath))
+                        {
+                            int srcIndex = App.ActiveWindow.View.Slide.SlideIndex;
+                            int before = tempPres.Slides.Count;
+                            tempPres.Slides.InsertFromFile(srcPath, before + 1, srcIndex, srcIndex);
+                            if (tempPres.Slides.Count > before) usedFileCopy = true;
+                        }
+                    }
+                    catch { usedFileCopy = false; }
+
+                    if (!usedFileCopy)
+                    {
+                        // 回退：源文稿未保存（无文件路径）→ 只能走剪贴板复制
+                        slide.Copy();
+                        System.Threading.Thread.Sleep(60);
+                        var pr = tempPres.Slides.Paste();
+                        if (pr == null || pr.Count == 0) throw new Exception("页面复制失败");
+                        // 主题色固化：把整页里各形状的颜色按源页实际显示固化为显式 RGB，避免 A→B
+                        try { BakeSlideColors(slide, tempPres.Slides[tempPres.Slides.Count]); } catch { }
+                    }
+
+                    // 删除新建文稿自带的空白页（InsertFromFile 路径下会残留一页）
+                    while (tempPres.Slides.Count > 1)
+                    {
+                        bool removed = false;
+                        for (int i = 1; i < tempPres.Slides.Count; i++)
+                        {
+                            try
+                            {
+                                // 删掉"没有内容且不是我们插入的那页"的空白页（新建文稿默认页）
+                                if (tempPres.Slides[i].Shapes.Count == 0) { tempPres.Slides[i].Delete(); removed = true; break; }
+                            }
+                            catch { }
+                        }
+                        if (!removed) break;
+                    }
 
                     // 去掉未被使用的版式：存档显著变小（实测 1.5MB→数百 KB），另存更快、后续插入打开也更快
                     try
@@ -195,7 +169,7 @@ namespace PPTShapeLibrary
                         int pw = 960;
                         int ph = (int)Math.Round(960.0 * pres.PageSetup.SlideHeight / Math.Max(1.0, pres.PageSetup.SlideWidth));
                         if (ph <= 0) ph = 540;
-                        pasted.Export(previewPath, "PNG", pw, ph);
+                        tempPres.Slides[tempPres.Slides.Count].Export(previewPath, "PNG", pw, ph);
                         if (System.IO.File.Exists(previewPath))
                             ShapeLibraryService.SavePreviewImage(id, System.IO.File.ReadAllBytes(previewPath));
                     }
@@ -442,62 +416,46 @@ namespace PPTShapeLibrary
                     return false;
                 }
 
-                PowerPoint.Presentation libPres = null;
-                var clip = ClipboardGuard.Snapshot();
                 var swPage = System.Diagnostics.Stopwatch.StartNew();
-                try
+
+                if (newDoc)
                 {
-                    libPres = OpenLibraryPresentation(shapePath);   // 复用句柄池，省去约 700ms 的 Open
-                    if (libPres.Slides.Count == 0) { error = "整页内容为空。"; return false; }
-                    libPres.Slides[1].Copy();
-                    System.Threading.Thread.Sleep(60);
-
-                    if (newDoc)
-                    {
-                        // 新建演示文稿并粘入该页（作为独立文稿打开）
-                        var np = App.Presentations.Add(MsoTriState.msoTrue);
-                        var pastedNew = np.Slides.Paste();   // 新文稿第 1 页
-                        if (pastedNew == null || pastedNew.Count == 0) { error = "新建文稿粘贴失败。"; return false; }
-                        ShapeLibraryService.TouchUsed(id);
-                        return true;
-                    }
-
-                    var pres = App.ActivePresentation;
-                    int insertAt;
-                    if (pos == "end") insertAt = pres.Slides.Count + 1;
-                    else
-                    {
-                        insertAt = App.ActiveWindow.View.Slide.SlideIndex + 1;   // 当前页之后
-                    }
-                    if (insertAt > pres.Slides.Count + 1) insertAt = pres.Slides.Count + 1;
-                    if (insertAt < 1) insertAt = 1;
-                    var inserted = pres.Slides.Paste(insertAt);   // SlideRange
-                    if (inserted == null || inserted.Count == 0) { error = "整页粘贴失败。"; return false; }
-                    // 可选：清理未使用版式（防源模板版式累积）
-                    try
-                    {
-                        if (ShapeLibraryService.LoadSettings().CleanLayoutsOnInsertPage)
-                        {
-                            int rm = CleanUnusedLayouts(pres);
-                            if (rm > 0) Log.Write("cleaned unused layouts: " + rm);
-                        }
-                    }
-                    catch { }
+                    // 新建演示文稿并插入该页（免剪贴板：直接从库文件 InsertFromFile）
+                    var np = App.Presentations.Add(MsoTriState.msoTrue);
+                    int before = np.Slides.Count;
+                    np.Slides.InsertFromFile(shapePath, before + 1, 1, 1);
+                    for (int i = before; i >= 1; i--) { try { np.Slides[i].Delete(); } catch { } }   // 删除新建文稿自带的空白页
                     ShapeLibraryService.TouchUsed(id);
                     swPage.Stop();
-                    Log.Write("insert page timing: total=" + swPage.ElapsedMilliseconds + "ms pos=" + pos + " (pooled)");
+                    Log.Write("insert page timing: total=" + swPage.ElapsedMilliseconds + "ms pos=newDoc (InsertFromFile)");
                     return true;
                 }
-                finally
+
+                var pres = App.ActivePresentation;
+                int insertAt = pos == "end" ? pres.Slides.Count + 1 : App.ActiveWindow.View.Slide.SlideIndex + 1;
+                if (insertAt > pres.Slides.Count + 1) insertAt = pres.Slides.Count + 1;
+                if (insertAt < 1) insertAt = 1;
+
+                // 免剪贴板：直接从库文件把第 1 页插到该位置（保留背景/版式/主题）
+                pres.Slides.InsertFromFile(shapePath, insertAt, 1, 1);
+
+                try
                 {
-                    ClipboardGuard.Restore(clip);
-                    // 不 Close：库文稿由句柄池管理（空闲自动关闭 / 库变更前关闭）
+                    if (ShapeLibraryService.LoadSettings().CleanLayoutsOnInsertPage)
+                    {
+                        int rm = CleanUnusedLayouts(pres);
+                        if (rm > 0) Log.Write("cleaned unused layouts: " + rm);
+                    }
                 }
+                catch { }
+                ShapeLibraryService.TouchUsed(id);
+                swPage.Stop();
+                Log.Write("insert page timing: total=" + swPage.ElapsedMilliseconds + "ms pos=" + pos + " (InsertFromFile)");
+                return true;
             }
             catch (Exception ex)
             {
                 error = "插入整页失败：" + ex.Message;
-                try { SweepLibPresPool(true, 0); } catch { }
                 return false;
             }
         }
@@ -903,7 +861,7 @@ namespace PPTShapeLibrary
             try
             {
                 var swIns = System.Diagnostics.Stopwatch.StartNew();
-                libPres = OpenLibraryPresentation(path);   // 复用句柄池：连续插入省去约 700ms 的 Open
+                libPres = App.Presentations.Open(path, MsoTriState.msoTrue, MsoTriState.msoFalse, MsoTriState.msoFalse);
 
                 var slide = libPres.Slides[1];
                 if (slide.Shapes.Count == 0)
@@ -991,13 +949,12 @@ namespace PPTShapeLibrary
                 try { pasted.Select(); } catch { }
                 swIns.Stop();
                 if (swIns.ElapsedMilliseconds > 300)
-                    Log.Write("insert timing: total=" + swIns.ElapsedMilliseconds + "ms shapes=" + slide.Shapes.Count + " (pooled)");
+                    Log.Write("insert timing: total=" + swIns.ElapsedMilliseconds + "ms shapes=" + slide.Shapes.Count);
                 return true;
             }
             catch (Exception ex)
             {
                 error = "插入失败：" + ex.Message;
-                try { SweepLibPresPool(true, 0); } catch { }   // 出错即丢弃句柄池，避免复用到失效句柄
                 try
                 {
                     string viewInfo = "";
@@ -1013,7 +970,10 @@ namespace PPTShapeLibrary
                 if (showError) System.Windows.Forms.MessageBox.Show(error, "素材库");
                 return false;
             }
-            // 注意：不在此处 Close —— libPres 由句柄池统一管理与回收（空闲自动关闭 / 库变更前关闭）
+            finally
+            {
+                if (libPres != null) { try { libPres.Close(); } catch { } }
+            }
         }
 
         /// <summary>把库中样式应用到当前选中形状。失败弹框提示。</summary>

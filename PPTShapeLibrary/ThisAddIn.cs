@@ -27,7 +27,6 @@ namespace PPTShapeLibrary
                 Log.Write("Startup begin");
                 HookAppEvents();
                 BridgeController.SettingsSaved += OnSettingsSaved;
-                ShapeLibraryService.LibraryWillMutate += () => ShapeExporter.SweepLibPresPool(true, 0);   // 库变更前释放库文稿占用
                 CreatePane();
                 Log.Write("TaskPane created");
                 // 注意：不在 Startup 立即 Add 任务窗格——此时可能无活动文档窗口，
@@ -72,7 +71,6 @@ namespace PPTShapeLibrary
             {
                 UnhookAppEvents();
                 BridgeController.SettingsSaved -= OnSettingsSaved;
-                try { ShapeExporter.SweepLibPresPool(true, 0); } catch { }   // 释放库文稿句柄池（避免残留打开的文件）
                 if (_refreshDebounce != null) { _refreshDebounce.Stop(); _refreshDebounce.Dispose(); _refreshDebounce = null; }
                 // 释放宿主（WebView2 底层进程与 userData 锁随之释放，避免残留实例占用 profile）
                 var host = _paneControl as WebPaneHost;
@@ -353,11 +351,30 @@ namespace PPTShapeLibrary
             EnsurePaneForWindow(null);
         }
 
+        /// <summary>窗格是否仍然有效。演示文稿窗口被关闭后 PowerPoint 会删除窗格，而 _taskPane 字段
+        /// 仍指向失效对象（后续任何访问都抛 0x800A01A8）。此处探活并在失效时清空字段以便重建。</summary>
+        private bool PaneIsAlive()
+        {
+            if (_taskPane == null) return false;
+            try
+            {
+                bool v = _taskPane.Visible;   // 已删除的窗格：此访问即抛 0x800A01A8
+                GC.KeepAlive(v);
+                return true;
+            }
+            catch
+            {
+                _taskPane = null;
+                return false;
+            }
+        }
+
         /// <summary>首次打开时创建任务窗格（Startup 不建，避免无活动窗口时绑定幽灵窗口导致永不显示）。</summary>
         private void EnsureTaskPaneCreated()
         {
             try
             {
+                if (_taskPane != null && !PaneIsAlive()) { /* 已失效→字段已清空，继续重建 */ }
                 if (_taskPane != null) return;
                 if (_paneHost == null) return;
                 PowerPoint.DocumentWindow win = null;

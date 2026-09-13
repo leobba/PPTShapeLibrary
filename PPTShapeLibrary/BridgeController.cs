@@ -110,6 +110,7 @@ namespace PPTShapeLibrary
                             swp.Stop();
                             if (swp.ElapsedMilliseconds > 1000)
                                 Log.Write("insertPage slow: " + swp.ElapsedMilliseconds + "ms id=" + id + " ok=" + ok);
+                            if (!ok) Log.Write("insertPage failed id=" + id + " pos=" + position + " :: " + (pgErr ?? ""));
                             Result(reqId, ok, ok ? new Dictionary<string, object> { { "kind", "Page" }, { "elapsedMs", swp.ElapsedMilliseconds } } : null,
                                    ok ? null : pgErr);
                             break;
