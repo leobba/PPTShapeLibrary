@@ -94,82 +94,102 @@ namespace PPTShapeLibrary
 
                 string id = ShapeLibraryService.NewId();
                 ShapeLibraryService.CreateItemDir(id);
-                PowerPoint.Presentation tempPres = null;
-                var clip = ClipboardGuard.Snapshot();   // 兜底保护（仅在走剪贴板回退路径时才真正被覆盖）
+                PowerPoint.Presentation work = null;      // 工作文稿：优先"源文件副本"，否则临时空白文稿
+                string tmpPath = null;
+                var clip = ClipboardGuard.Snapshot();     // 兜底保护（仅回退路径会真正用到剪贴板）
                 var swAll = System.Diagnostics.Stopwatch.StartNew();
                 try
                 {
-                    tempPres = App.Presentations.Add(MsoTriState.msoFalse);
-                    // 关键：沿用源页面的尺寸与宽高比。此前固定 ppSlideSizeOnScreen(4:3) 会把 16:9 模板
-                    // 压成 4:3 存档，插回原文稿时页面变形、看起来"只是形状"。
-                    try
-                    {
-                        tempPres.PageSetup.SlideSize = PowerPoint.PpSlideSizeType.ppSlideSizeCustom;
-                        tempPres.PageSetup.SlideWidth = pres.PageSetup.SlideWidth;
-                        tempPres.PageSetup.SlideHeight = pres.PageSetup.SlideHeight;
-                    }
-                    catch { }
+                    int srcIndex = App.ActiveWindow.View.Slide.SlideIndex;
+                    string srcPath = null;
+                    try { srcPath = pres.Path; } catch { }
 
-                    // 用"复制幻灯片 → 粘贴到临时文稿"（剪贴板）收藏：只有这条路径会把该页的
-                    // **设计/版式绑定**一起带过来，收藏后的缩略图才与源页一致。
-                    // 曾改用 Slides.InsertFromFile（免剪贴板），但它不带源页的版式绑定，PowerPoint 会把
-                    // 插入页重绑到临时文稿的默认版式 → 占位符继承到线条，缩略图/插入结果就出现边框（已回退）。
-                    slide.Copy();
-                    System.Threading.Thread.Sleep(60);
+                    // —— 保真策略：复制源文件 → 只留下目标页 ——
+                    // 不走"粘贴到空白文稿"：PowerPoint 会按【设计/主题名】匹配（源模板与空白文稿都叫 Office 主题），
+                    // 直接复用空白文稿的默认主题/母版/版式 → 本页被重绑到默认版式，占位符继承线条（多出边框）、
+                    // 主题色被重新解析（颜色 A→B）。复制源文件后删掉其它页，主题/母版/版式/绑定全部原样保留。
+                    if (!string.IsNullOrEmpty(srcPath) && System.IO.File.Exists(srcPath))
                     {
-                        var pr = tempPres.Slides.Paste();
-                        if (pr == null || pr.Count == 0) throw new Exception("页面复制失败");
-                    }
-                    // 主题色固化：把整页里各形状的颜色按源页实际显示固化为显式 RGB，避免 A→B
-                    try { BakeSlideColors(slide, tempPres.Slides[tempPres.Slides.Count]); } catch { }
-
-                    // 防御：粘贴后若临时文稿还残留空白页（不同 PowerPoint 版本新建文稿的默认页数不同），删掉它，保证存档只有一页
-                    while (tempPres.Slides.Count > 1)
-                    {
-                        bool removed = false;
-                        for (int i = 1; i < tempPres.Slides.Count; i++)
+                        try
                         {
-                            try
+                            tmpPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                                "pptsl_" + Guid.NewGuid().ToString("N") + ".pptx");
+                            pres.SaveCopyAs(tmpPath, PowerPoint.PpSaveAsFileType.ppSaveAsOpenXMLPresentation);
+                            work = App.Presentations.Open(tmpPath, MsoTriState.msoFalse, MsoTriState.msoFalse, MsoTriState.msoFalse);
+                            for (int i = work.Slides.Count; i >= 1; i--)
                             {
-                                // 删掉"没有内容且不是我们插入的那页"的空白页（新建文稿默认页）
-                                if (tempPres.Slides[i].Shapes.Count == 0) { tempPres.Slides[i].Delete(); removed = true; break; }
+                                if (i == srcIndex) continue;      // 目标页保留
+                                try { work.Slides[i].Delete(); } catch { }
                             }
-                            catch { }
+                            if (work.Slides.Count != 1)
+                            {
+                                try { work.Close(); } catch { }
+                                work = null;   // 删除没能收敛到 1 页：退回粘贴方案
+                            }
                         }
-                        if (!removed) break;
+                        catch
+                        {
+                            if (work != null) { try { work.Close(); } catch { } }
+                            work = null;
+                        }
                     }
 
-                    // 注意：**不要**在这里删除"未使用版式"。
-                    // 曾用 CleanUnusedLayouts 精简档（1.5MB→数百 KB），但其"哪些版式被使用"的判断
-                    // （按 版式名+设计名 匹配）不可靠，会把本页真正使用的版式删掉，PowerPoint 随即把
-                    // 这一页重绑到另一个带占位符的版式 → 占位符继承到线条，用户看到"形状自身明明是无
-                    // 线条，却渲染出边框"。保真优先：保留源文件全部版式/母版。
+                    // 回退路径（源文稿尚未存盘，无法复制文件）：粘贴到临时文稿 + 主题色固化兜底
+                    if (work == null)
+                    {
+                        work = App.Presentations.Add(MsoTriState.msoFalse);
+                        try
+                        {
+                            work.PageSetup.SlideSize = PowerPoint.PpSlideSizeType.ppSlideSizeCustom;
+                            work.PageSetup.SlideWidth = pres.PageSetup.SlideWidth;
+                            work.PageSetup.SlideHeight = pres.PageSetup.SlideHeight;
+                        }
+                        catch { }
+                        slide.Copy();
+                        System.Threading.Thread.Sleep(60);
+                        var pr = work.Slides.Paste();
+                        if (pr == null || pr.Count == 0) throw new Exception("页面复制失败");
+                        try { BakeSlideColors(slide, work.Slides[work.Slides.Count]); } catch { }
+                        while (work.Slides.Count > 1)
+                        {
+                            bool removed = false;
+                            for (int i = 1; i < work.Slides.Count; i++)
+                            {
+                                try
+                                {
+                                    if (work.Slides[i].Shapes.Count == 0) { work.Slides[i].Delete(); removed = true; break; }
+                                }
+                                catch { }
+                            }
+                            if (!removed) break;
+                        }
+                    }
 
-                    // 设计/母版/版式改唯一名：避免插入时被目标文稿"按名字复用版式"而导致外观走样（多出边框/颜色变化）
-                    try { MakeDesignUniqueForLibrary(tempPres, id); } catch { }
+                    // 设计/母版/版式改唯一名：插入到别的文稿时，避免目标文稿"按名字复用它的版式"而外观走样
+                    try { MakeDesignUniqueForLibrary(work, id); } catch { }
 
                     // 缩略图：按页面真实宽高比导出（避免拉伸变形）
                     string previewPath = System.IO.Path.Combine(ShapeLibraryService.ItemsDir, id + "_tmp.png");
                     try
                     {
                         int pw = 960;
-                        int ph = (int)Math.Round(960.0 * pres.PageSetup.SlideHeight / Math.Max(1.0, pres.PageSetup.SlideWidth));
+                        int ph = (int)Math.Round(960.0 * work.PageSetup.SlideHeight / Math.Max(1.0, work.PageSetup.SlideWidth));
                         if (ph <= 0) ph = 540;
-                        tempPres.Slides[tempPres.Slides.Count].Export(previewPath, "PNG", pw, ph);
+                        work.Slides[work.Slides.Count].Export(previewPath, "PNG", pw, ph);
                         if (System.IO.File.Exists(previewPath))
                             ShapeLibraryService.SavePreviewImage(id, System.IO.File.ReadAllBytes(previewPath));
                     }
                     catch { }
                     finally { TryDelete(previewPath); }
 
-                    // 保存库文件（单页含背景/版式）
+                    // 保存库文件（单页，主题/母版/版式与源文件保持一致）
                     string savePath = ShapeLibraryService.ShapeFile(id);
-                    tempPres.SaveAs(savePath, PowerPoint.PpSaveAsFileType.ppSaveAsOpenXMLPresentation);
+                    work.SaveAs(savePath, PowerPoint.PpSaveAsFileType.ppSaveAsOpenXMLPresentation);
                     swAll.Stop();
                     try
                     {
                         long kb = System.IO.File.Exists(savePath) ? new System.IO.FileInfo(savePath).Length / 1024 : 0;
-                        Log.Write("collect page timing: total=" + swAll.ElapsedMilliseconds + "ms file=" + kb + "KB");
+                        Log.Write("collect page timing: total=" + swAll.ElapsedMilliseconds + "ms file=" + kb + "KB via=" + (string.IsNullOrEmpty(srcPath) ? "clipboard-fallback" : "source-copy"));
                     }
                     catch { }
 
@@ -195,7 +215,11 @@ namespace PPTShapeLibrary
                 finally
                 {
                     ClipboardGuard.Restore(clip);
-                    if (tempPres != null) { try { tempPres.Close(); } catch { } }
+                    if (work != null) { try { work.Close(); } catch { } }          // 关闭工作文稿（副本）
+                    if (!string.IsNullOrEmpty(tmpPath))
+                    {
+                        try { if (System.IO.File.Exists(tmpPath)) System.IO.File.Delete(tmpPath); } catch { }
+                    }
                 }
             }
             catch (Exception ex)
@@ -348,11 +372,22 @@ namespace PPTShapeLibrary
             }
             catch { }
 
-            // 线条
+            // 线条：显式固化"有/无线条"。
+            // 形状若没有自带的 <a:ln>，其线条由主题/版式默认值决定；粘进别的文稿后可能被渲染出边框
+            // （用户现象："形状格式里显示无线条，画面却有边框"）。这里按源形状的实际可见性写死。
             try
             {
                 if (src.Line.Visible == MsoTriState.msoTrue)
+                {
+                    dst.Line.Visible = MsoTriState.msoTrue;
                     dst.Line.ForeColor.RGB = src.Line.ForeColor.RGB;
+                    try { dst.Line.Weight = src.Line.Weight; } catch { }
+                    try { dst.Line.DashStyle = src.Line.DashStyle; } catch { }
+                }
+                else
+                {
+                    dst.Line.Visible = MsoTriState.msoFalse;
+                }
             }
             catch { }
 
