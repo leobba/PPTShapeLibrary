@@ -1,0 +1,86 @@
+# 一键打包正式版：发布 ClickOnce → 编译安装器 → 组装 dist 分发包
+# 用法（PowerShell）：  cd E:\code\PPTShapeLibrary ;  .\scripts\package-release.ps1
+param(
+    [string]$Version = "1.0.1.0",
+    [string]$Root = "E:\code\PPTShapeLibrary"
+)
+
+$ErrorActionPreference = "Stop"
+$msb = "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe"
+$bootPath = "C:\Program Files (x86)\Microsoft SDKs\ClickOnce Bootstrapper\"
+
+Write-Host "== 1/4 发布 ClickOnce（插件本体）==" -ForegroundColor Cyan
+& $msb "$Root\PPTShapeLibrary\PPTShapeLibrary.csproj" /t:Publish /p:Configuration=Release `
+    /p:ApplicationVersion=$Version `
+    "/p:PublishUrl=$Root\publish" "/p:InstallUrl=file:///$($Root.Replace('\','/'))/publish/" `
+    /p:IsWebBootstrapper=true "/p:GenerateBootstrapperSdkPath=$bootPath" `
+    /nologo /v:m
+if ($LASTEXITCODE -ne 0) { throw "ClickOnce 发布失败" }
+
+$appPublish = "$Root\PPTShapeLibrary\bin\Release\app.publish"
+$publish = "$Root\publish"
+if (Test-Path $publish) { Remove-Item $publish -Recurse -Force }
+Copy-Item $appPublish $publish -Recurse -Force
+Write-Host "   产物 → $publish"
+
+Write-Host "== 2/4 编译安装器（环境检测）==" -ForegroundColor Cyan
+& $msb "$Root\installer\PPTShapeLibraryInstaller.csproj" /t:Rebuild /p:Configuration=Release /nologo /v:m
+if ($LASTEXITCODE -ne 0) { throw "安装器编译失败" }
+
+Write-Host "== 3/4 组装 dist 分发包 ==" -ForegroundColor Cyan
+$dist = "$Root\dist"
+if (Test-Path $dist) { Remove-Item $dist -Recurse -Force }
+New-Item -ItemType Directory -Path $dist | Out-Null
+New-Item -ItemType Directory -Path "$dist\ClickOnce" | Out-Null
+New-Item -ItemType Directory -Path "$dist\离线安装包" | Out-Null
+Copy-Item "$Root\installer\bin\Release\安装 PPTShapeLibrary.exe" $dist -Force
+Copy-Item "$publish\*" "$dist\ClickOnce" -Recurse -Force
+
+Write-Host "== 4/4 生成说明文件 ==" -ForegroundColor Cyan
+$readme = @"
+PPTShapeLibrary 安装说明（版本 $Version）
+================================================
+
+【怎么装】
+1. 关闭 PowerPoint；
+2. 双击「安装 PPTShapeLibrary.exe」；
+3. 安装器会先检测运行环境（PowerPoint / .NET Framework 4.8 / VSTO Runtime / WebView2）：
+   - 全部满足 → 点「开始安装」即可；
+   - 缺少组件 → 点该项右侧「下载安装」按提示安装，装完回到窗口点「重新检测」；
+   - 若「离线安装包」文件夹里放了官方安装包，按钮会变成「安装本地包」，可直接静默安装（需同意 UAC）。
+4. 安装完成后打开 PowerPoint → 功能区出现「素材库」选项卡即成功。
+
+【目录说明】
+  安装 PPTShapeLibrary.exe   环境检测 + 安装引导程序
+  ClickOnce\                 插件本体（setup.exe 与程序文件，请勿单独删改）
+  离线安装包\                可选：放入官方离线安装包后可离线安装
+                             · ndp48-x86-x64-allos-enu.exe        (.NET Framework 4.8)
+                             · vstor_redist.exe                   (VSTO Runtime 4.0)
+                             · MicrosoftEdgeWebview2Setup.exe     (WebView2 Runtime)
+
+【卸载】
+  控制面板 → 程序和功能 → 卸载「PPTShapeLibrary」
+  数据（素材库/设置/备份/日志）位于 %APPDATA%\PPTShapeLibrary，卸载不会删除。
+
+【常见问题】
+  · 装了但 PowerPoint 里没有「素材库」：确认已装 VSTO Runtime；再到
+    文件 → 选项 → 加载项 → 管理「COM 加载项」勾选 PPTShapeLibrary，重启 PowerPoint。
+  · 面板空白/提示缺少 WebView2：安装 Microsoft Edge WebView2 Runtime。
+  · 安装时提示"未知发布者"：当前使用临时证书签名，属正常，继续安装即可。
+"@
+[System.IO.File]::WriteAllText("$dist\安装说明.txt", $readme, (New-Object System.Text.UTF8Encoding($true)))
+
+$offlineNote = @"
+把官方离线安装包放到本文件夹，安装器会自动识别并显示「安装本地包」按钮：
+
+  ndp48-x86-x64-allos-enu.exe      下载： https://go.microsoft.com/fwlink/?linkid=2088631
+  vstor_redist.exe                 下载： https://www.microsoft.com/download/details.aspx?id=48217
+  MicrosoftEdgeWebview2Setup.exe   下载： https://go.microsoft.com/fwlink/p/?LinkId=2124703
+
+不放也可以：安装器会打开官方下载页引导安装（需要联网）。
+"@
+[System.IO.File]::WriteAllText("$dist\离线安装包\说明.txt", $offlineNote, (New-Object System.Text.UTF8Encoding($true)))
+
+$size = [math]::Round(((Get-ChildItem $dist -Recurse -File | Measure-Object Length -Sum).Sum / 1MB), 2)
+Write-Host "完成：$dist（$size MB）" -ForegroundColor Green
+Get-ChildItem $dist | Select-Object Name
