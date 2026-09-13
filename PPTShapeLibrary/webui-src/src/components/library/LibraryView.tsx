@@ -203,6 +203,17 @@ export default function LibraryView() {
       : `repeat(${gridCols === "3" ? 3 : gridCols === "4" ? 4 : 2}, minmax(0, 1fr))`;
   const gridRef = useRef<HTMLDivElement | null>(null);
 
+  // 强调色（设置项 accentColor）→ 左栏选中样式类
+  const accentMap: Record<string, { text: string; solid: string; hover: string }> = {
+    blue: { text: "text-blue-600", solid: "bg-blue-600", hover: "group-hover:bg-blue-600/10" },
+    indigo: { text: "text-indigo-600", solid: "bg-indigo-600", hover: "group-hover:bg-indigo-600/10" },
+    violet: { text: "text-violet-600", solid: "bg-violet-600", hover: "group-hover:bg-violet-600/10" },
+    emerald: { text: "text-emerald-600", solid: "bg-emerald-600", hover: "group-hover:bg-emerald-600/10" },
+    rose: { text: "text-rose-600", solid: "bg-rose-600", hover: "group-hover:bg-rose-600/10" },
+    amber: { text: "text-amber-600", solid: "bg-amber-600", hover: "group-hover:bg-amber-600/10" },
+  };
+  const accent = accentMap[(((init as any)?.accentColor as string) || "blue")] || accentMap.blue;
+
   const groups = useMemo(() => ["全部", ...(init?.groups || [])], [init]);
 
   // 列表内容变化（插入/删除/重载后卡片可能已不存在）时清除 hover 大图，防遮罩残留
@@ -374,18 +385,18 @@ export default function LibraryView() {
                 className={
                   "group relative flex flex-col items-center gap-1 rounded-lg px-0.5 py-2 text-[11px] transition-colors " +
                   (active
-                    ? "text-blue-600"
+                    ? accent.text
                     : "text-muted-foreground hover:bg-muted hover:text-foreground")
                 }
               >
                 {/* 选中指示竖条 */}
-                {active && <span className="absolute -left-1.5 top-1/2 h-6 w-1 -translate-y-1/2 rounded-full bg-blue-600" />}
+                {active && <span className={"absolute -left-1.5 top-1/2 h-6 w-1 -translate-y-1/2 rounded-full " + accent.solid} />}
                 <span
                   className={
                     "relative flex items-center justify-center rounded-xl transition-colors " +
                     (active
-                      ? "h-9 w-9 bg-blue-600 text-white shadow-md"
-                      : "h-9 w-9 bg-transparent group-hover:bg-blue-600/10")
+                      ? "h-9 w-9 " + accent.solid + " text-white shadow-md"
+                      : "h-9 w-9 bg-transparent " + accent.hover)
                   }
                 >
                   {GROUP_ICONS[g] || <Folder className="size-4" />}

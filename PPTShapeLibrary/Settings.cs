@@ -54,6 +54,9 @@ namespace PPTShapeLibrary
         [DataMember(Name = "cleanLayoutsOnInsertPage")]
         public bool CleanLayoutsOnInsertPage { get; set; } // 插入整页后清理未被使用的自定义版式（防源模板版式累积）
 
+        [DataMember(Name = "accentColor")]
+        public string AccentColor { get; set; }            // 界面强调色（左栏选中）: blue/indigo/violet/emerald/rose/amber
+
         public Settings()
         {
             Theme = "light";
@@ -72,6 +75,7 @@ namespace PPTShapeLibrary
             GridColumns = "2";
             ShowTypeRow = true;
             CleanLayoutsOnInsertPage = false;
+            AccentColor = "blue";
         }
     }
 }

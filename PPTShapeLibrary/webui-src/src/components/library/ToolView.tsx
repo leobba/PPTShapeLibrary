@@ -888,6 +888,19 @@ function SettingsForm() {
             </SelectContent>
           </Select>
         </Row>
+        <Row label="强调色">
+          <Select value={s.accentColor || "blue"} onValueChange={(v) => set("accentColor", v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="blue">蓝</SelectItem>
+              <SelectItem value="indigo">靛蓝</SelectItem>
+              <SelectItem value="violet">紫</SelectItem>
+              <SelectItem value="emerald">绿</SelectItem>
+              <SelectItem value="rose">玫红</SelectItem>
+              <SelectItem value="amber">琥珀</SelectItem>
+            </SelectContent>
+          </Select>
+        </Row>
         <Row label="分页数量">
           <Input className="h-8 w-24" inputMode="numeric" value={s.pageSize ?? 200} onChange={(e) => set("pageSize", parseInt(e.target.value) || 200)} />
         </Row>

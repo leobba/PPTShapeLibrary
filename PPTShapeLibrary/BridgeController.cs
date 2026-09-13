@@ -935,6 +935,12 @@ namespace PPTShapeLibrary
                 {
                     bool b; if (bool.TryParse(patch["cleanLayoutsOnInsertPage"].ToString(), out b)) s.CleanLayoutsOnInsertPage = b;
                 }
+                if (patch.ContainsKey("accentColor"))
+                {
+                    string v = patch["accentColor"]?.ToString() ?? "";
+                    string[] allowed = { "blue", "indigo", "violet", "emerald", "rose", "amber" };
+                    if (Array.IndexOf(allowed, v) >= 0) s.AccentColor = v;
+                }
                 if (patch.ContainsKey("paneDock"))
                 {
                     string v = patch["paneDock"]?.ToString() ?? "";
@@ -1130,7 +1136,8 @@ namespace PPTShapeLibrary
                 { "paneHeight", s.PaneHeight },
                 { "gridColumns", s.GridColumns ?? "2" },
                 { "showTypeRow", s.ShowTypeRow },
-                { "cleanLayoutsOnInsertPage", s.CleanLayoutsOnInsertPage }
+                { "cleanLayoutsOnInsertPage", s.CleanLayoutsOnInsertPage },
+                { "accentColor", s.AccentColor ?? "blue" }
             };
         }
 
