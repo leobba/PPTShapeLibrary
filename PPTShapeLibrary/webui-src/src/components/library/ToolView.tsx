@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { bridge } from "@/lib/bridge";
 import { X, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -308,7 +308,23 @@ function useRun() {
   return { out, run, running };
 }
 
-/** tool1 文字样式 */
+/** 工具预设记忆：一次取回全部 prefs；set(key,value) 自动持久化。 */
+function usePrefs() {
+  const [prefs, setPrefs] = useState<Record<string, string>>({});
+  useEffect(() => {
+    bridge
+      .getToolPrefs()
+      .then((d: any) => setPrefs(d?.prefs || {}))
+      .catch(() => {});
+  }, []);
+  const setPref = (key: string, value: string) => {
+    setPrefs((prev) => ({ ...prev, [key]: value }));
+    bridge.setToolPref(key, value).catch(() => {});
+  };
+  const getPref = (key: string, fallback = "") => prefs[key] ?? fallback;
+  return { prefs, getPref, setPref };
+}
+
 /** tool1 文字样式 */
 function Tool1() {
   const { out, run } = useRun();
@@ -484,26 +500,36 @@ function Tool4() {
 /** tool5 导出图片 */
 function Tool5() {
   const { out, run } = useRun();
+  const { prefs, setPref } = usePrefs();
   const [dir, setDir] = useState("");
   const [fmt, setFmt] = useState("PNG");
   const [w, setW] = useState("0");
+  // 预设回填（首帧 prefs 到达后）
+  const inited = useRef(false);
+  useEffect(() => {
+    if (inited.current || !prefs || Object.keys(prefs).length === 0) return;
+    inited.current = true;
+    if (prefs.tool5_dir) setDir(prefs.tool5_dir);
+    if (prefs.tool5_fmt) setFmt(prefs.tool5_fmt);
+    if (prefs.tool5_w) setW(prefs.tool5_w);
+  }, [prefs]);
   return (
     <Shell title="导出图片" desc="把整份演示文稿逐页导出为图片">
       <Field label="导出目录">
         <div className="flex gap-1.5">
           <Input value={dir} onChange={(e) => setDir(e.target.value)} placeholder="选择目录…" />
-          <Button variant="outline" onClick={() => bridge.requestFolder("选择导出目录").then((d) => d?.path && setDir(d.path))}>浏览…</Button>
+          <Button variant="outline" onClick={() => bridge.requestFolder("选择导出目录").then((d) => { if (d?.path) { setDir(d.path); setPref("tool5_dir", d.path); } })}>浏览…</Button>
         </div>
       </Field>
       <div className="flex items-center gap-3">
         <Field label="格式">
-          <Select value={fmt} onValueChange={setFmt}>
+          <Select value={fmt} onValueChange={(v) => { setFmt(v); setPref("tool5_fmt", v); }}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent><SelectItem value="PNG">PNG</SelectItem><SelectItem value="JPG">JPG</SelectItem></SelectContent>
           </Select>
         </Field>
         <Field label="宽度">
-          <Select value={w} onValueChange={setW}>
+          <Select value={w} onValueChange={(v) => { setW(v); setPref("tool5_w", v); }}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent><SelectItem value="0">原始</SelectItem><SelectItem value="1280">1280</SelectItem><SelectItem value="1920">1920</SelectItem></SelectContent>
           </Select>
@@ -570,13 +596,22 @@ function Tool6() {
 /** tool7 统一尺寸 */
 function Tool7() {
   const { out, run } = useRun();
+  const { prefs, setPref } = usePrefs();
   const [scope, setScope] = useState("selection");
   const [w, setW] = useState("");
   const [h, setH] = useState("");
+  const inited = useRef(false);
+  useEffect(() => {
+    if (inited.current || !prefs || Object.keys(prefs).length === 0) return;
+    inited.current = true;
+    if (prefs.tool7_scope) setScope(prefs.tool7_scope);
+    if (prefs.tool7_w) setW(prefs.tool7_w);
+    if (prefs.tool7_h) setH(prefs.tool7_h);
+  }, [prefs]);
   return (
     <Shell title="统一尺寸" desc="按宽/高统一形状（可只填一项，保持比例）">
       <Field label="范围">
-        <Select value={scope} onValueChange={setScope}>
+        <Select value={scope} onValueChange={(v) => { setScope(v); setPref("tool7_scope", v); }}>
           <SelectTrigger><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="selection">选中形状</SelectItem>
@@ -586,12 +621,16 @@ function Tool7() {
         </Select>
       </Field>
       <div className="flex items-center gap-3">
-        <Field label="宽度(磅)"><Input value={w} onChange={(e) => setW(e.target.value)} inputMode="decimal" /></Field>
-        <Field label="高度(磅)"><Input value={h} onChange={(e) => setH(e.target.value)} inputMode="decimal" /></Field>
+        <Field label="宽度(磅)"><Input value={w} onChange={(e) => setW(e.target.value)} onBlur={() => setPref("tool7_w", w)} inputMode="decimal" /></Field>
+        <Field label="高度(磅)"><Input value={h} onChange={(e) => setH(e.target.value)} onBlur={() => setPref("tool7_h", h)} inputMode="decimal" /></Field>
       </div>
       <Button
         disabled={!parseFloat(w) && !parseFloat(h)}
-        onClick={() => run(() => bridge.formatResize({ scope, width: parseFloat(w) || 0, height: parseFloat(h) || 0, forceImageRatio: false }))}
+        onClick={() => {
+          setPref("tool7_w", w);
+          setPref("tool7_h", h);
+          run(() => bridge.formatResize({ scope, width: parseFloat(w) || 0, height: parseFloat(h) || 0, forceImageRatio: false }));
+        }}
       >
         应用尺寸
       </Button>
@@ -678,8 +717,18 @@ function Tool10() {
   const [name, setName] = useState("");
   const [out, setOut] = useState("");
   const [outText, setOutText] = useState("");
+  const { prefs, setPref } = usePrefs();
+  const prefInited = useRef(false);
+  useEffect(() => {
+    if (prefInited.current || !prefs || Object.keys(prefs).length === 0) return;
+    prefInited.current = true;
+    if (prefs.tool10_dir) setDir(prefs.tool10_dir);
+    if (prefs.tool10_name) setName(prefs.tool10_name);
+  }, [prefs]);
   async function go() {
     try {
+      setPref("tool10_dir", dir.trim());
+      if (!outline) setPref("tool10_name", name.trim());
       const d = await (mode === "pdf"
         ? bridge.academicExportPdf({ dir: dir.trim(), name: name.trim(), style: 0, perPage: 1 })
         : bridge.academicExportOutline({ dir: dir.trim(), name: name.trim() }));
@@ -702,7 +751,7 @@ function Tool10() {
       <Field label={outline ? "保存目录（可选，留空则直接预览）" : "保存目录"}>
         <div className="flex gap-1.5">
           <Input value={dir} onChange={(e) => setDir(e.target.value)} placeholder="选择目录…" />
-          <Button variant="outline" onClick={() => bridge.requestFolder("选择保存目录").then((d) => d?.path && setDir(d.path))}>浏览…</Button>
+          <Button variant="outline" onClick={() => bridge.requestFolder("选择保存目录").then((d) => { if (d?.path) { setDir(d.path); setPref("tool10_dir", d.path); } })}>浏览…</Button>
         </div>
       </Field>
       {!outline && <Field label="文件名（可留空，自动命名）"><Input value={name} onChange={(e) => setName(e.target.value)} /></Field>}

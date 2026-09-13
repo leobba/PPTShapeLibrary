@@ -1019,5 +1019,57 @@ namespace PPTShapeLibrary
                 try { if (tmp != null && Directory.Exists(tmp)) Directory.Delete(tmp, true); } catch { }
             }
         }
+
+        // ---------------- 工具预设记忆（键值对，持久化 toolprefs.json） ----------------
+
+        private static string ToolPrefsFile
+        {
+            get { return Path.Combine(RootDir, "toolprefs.json"); }
+        }
+        private static Dictionary<string, string> _toolPrefs;
+
+        private static Dictionary<string, string> LoadToolPrefs()
+        {
+            if (_toolPrefs != null) return _toolPrefs;
+            _toolPrefs = new Dictionary<string, string>();
+            try
+            {
+                if (File.Exists(ToolPrefsFile))
+                {
+                    var ser = new System.Web.Script.Serialization.JavaScriptSerializer();
+                    var raw = ser.Deserialize<Dictionary<string, object>>(File.ReadAllText(ToolPrefsFile));
+                    if (raw != null)
+                    {
+                        foreach (var kv in raw)
+                        {
+                            if (kv.Value != null) _toolPrefs[kv.Key] = kv.Value.ToString();
+                        }
+                    }
+                }
+            }
+            catch { }
+            return _toolPrefs;
+        }
+
+        /// <summary>读取全部工具预设（前端一次取回回填）。</summary>
+        public static Dictionary<string, string> GetToolPrefs()
+        {
+            return new Dictionary<string, string>(LoadToolPrefs());
+        }
+
+        /// <summary>写入/更新一个工具预设键。</summary>
+        public static void SetToolPref(string key, string value)
+        {
+            if (string.IsNullOrWhiteSpace(key)) return;
+            try
+            {
+                var d = LoadToolPrefs();
+                if (value == null) d.Remove(key);
+                else d[key] = value;
+                var ser = new System.Web.Script.Serialization.JavaScriptSerializer();
+                File.WriteAllText(ToolPrefsFile, ser.Serialize(d));
+            }
+            catch { }
+        }
     }
 }

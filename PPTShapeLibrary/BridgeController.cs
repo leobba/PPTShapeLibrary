@@ -317,6 +317,18 @@ namespace PPTShapeLibrary
                             BroadcastRefresh();
                             break;
                         }
+                    case "getToolPrefs":
+                        {
+                            var prefs = ShapeLibraryService.GetToolPrefs();
+                            Ok(reqId, new Dictionary<string, object> { { "prefs", prefs } });
+                            break;
+                        }
+                    case "setToolPref":
+                        {
+                            ShapeLibraryService.SetToolPref(ToStr(payload, "key"), ToStr(payload, "value"));
+                            Ok(reqId, new Dictionary<string, object>());
+                            break;
+                        }
                     // ---------------- PPT 工具（Web 工具页） ----------------
                     case "toolGetFonts":
                         {
