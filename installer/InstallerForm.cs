@@ -634,13 +634,17 @@ namespace PPTShapeLibraryInstaller
         {
             try
             {
+                // 优先用部署清单(.vsto)安装：其 codebase 是相对路径(Application Files\...)，
+                // 因此安装源就是本目录，拷到任何机器/路径都能装；
+                // 而 setup.exe 里烤入了发布时的绝对 URL，不适用于分发。
+                string manifest = FindDeploymentManifest();
                 string setup = FindClickOnceSetup();
-                if (setup == null)
+                if (manifest == null && setup == null)
                 {
                     MessageBox.Show(
-                        "未找到安装包（setup.exe）。\r\n请确认本程序与「ClickOnce」文件夹在同一目录下（完整分发目录应包含：安装程序、ClickOnce\\setup.exe、离线安装包\\）。",
+                        "未找到安装包。\r\n完整分发目录应包含：安装程序、App\\PPTShapeLibrary.vsto、App\\Application Files\\、离线安装包\\。",
                         "缺少安装包", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    Log("✗ 未找到 ClickOnce\\setup.exe");
+                    Log("✗ 未找到 App\\PPTShapeLibrary.vsto 或 setup.exe");
                     return;
                 }
 
@@ -669,22 +673,87 @@ namespace PPTShapeLibraryInstaller
                     }
                 }
 
-                Log("开始安装插件：" + setup);
-                var p = Process.Start(new ProcessStartInfo(setup) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(setup) });
-                p.WaitForExit();
-                Log("安装程序已退出（ExitCode=" + p.ExitCode + "）。");
+                bool installed = false;
+                if (manifest != null)
+                {
+                    string url = new Uri(manifest).AbsoluteUri;   // file:///...（按本目录实际位置生成，可移植）
+                    string vstoInstaller = FindVstoInstaller();
+                    Log("安装源（部署清单）：" + url);
+                    if (vstoInstaller != null)
+                    {
+                        Log("调用 VSTOInstaller /Install …");
+                        var p = Process.Start(new ProcessStartInfo(vstoInstaller, "/Install \"" + url + "\"") { UseShellExecute = false });
+                        if (p != null) p.WaitForExit();
+                        int code = p == null ? -1 : p.ExitCode;
+                        Log("VSTOInstaller 退出码：" + code);
+                        // 以"是否真的出现安装记录"为准，而不是仅看退出码
+                        DetectExistingInstall();
+                        installed = !string.IsNullOrEmpty(_existingUninstallString);
+                        if (!installed) Log("未检测到安装记录，改用系统关联方式重试…");
+                    }
+                    if (!installed)
+                    {
+                        // 回退：等同双击 .vsto，由系统关联的安装程序弹出向导
+                        Log("改用系统关联方式安装 .vsto（会弹出安装向导，请按提示完成）…");
+                        var p2 = Process.Start(new ProcessStartInfo(manifest) { UseShellExecute = true });
+                        if (p2 != null) p2.WaitForExit();
+                        DetectExistingInstall();
+                        installed = !string.IsNullOrEmpty(_existingUninstallString);
+                    }
+                }
+                else
+                {
+                    Log("开始安装插件（setup.exe 回退路径）：" + setup);
+                    var p = Process.Start(new ProcessStartInfo(setup) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(setup) });
+                    if (p != null) p.WaitForExit();
+                    installed = true;
+                }
+
                 DetectExistingInstall();
                 UpdateExistingUi();
                 MessageBox.Show(
-                    "安装流程已结束。\r\n\r\n请打开 PowerPoint，在功能区应出现「素材库」选项卡。\r\n" +
+                    (installed ? "安装流程已结束。\r\n\r\n" : "安装未确认成功（可能被取消）。\r\n\r\n") +
+                    "请打开 PowerPoint，在功能区应出现「素材库」选项卡。\r\n" +
                     "若未出现：文件 → 选项 → 加载项 → 管理「COM 加载项」→ 勾选 PPTShapeLibrary，然后重启 PowerPoint。",
-                    "安装完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    "安装", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
                 Log("安装失败：" + ex.Message);
                 MessageBox.Show("安装失败：" + ex.Message, "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        /// <summary>VSTO 安装器路径（用于 /Install、/Uninstall）。</summary>
+        private static string FindVstoInstaller()
+        {
+            string[] candidates =
+            {
+                @"C:\Program Files\Common Files\Microsoft Shared\VSTO\10.0\VSTOInstaller.exe",
+                @"C:\Program Files (x86)\Common Files\Microsoft Shared\VSTO\10.0\VSTOInstaller.exe",
+            };
+            foreach (var c in candidates)
+            {
+                if (File.Exists(c)) return c;
+            }
+            return null;
+        }
+
+        /// <summary>部署清单(.vsto)：优先 App\（可移植），兼容 ClickOnce\ 与根目录。</summary>
+        private static string FindDeploymentManifest()
+        {
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            string[] candidates =
+            {
+                Path.Combine(baseDir, "App", "PPTShapeLibrary.vsto"),
+                Path.Combine(baseDir, "ClickOnce", "PPTShapeLibrary.vsto"),
+                Path.Combine(baseDir, "PPTShapeLibrary.vsto"),
+            };
+            foreach (var c in candidates)
+            {
+                if (File.Exists(c)) return c;
+            }
+            return null;
         }
 
         private static string FindClickOnceSetup()

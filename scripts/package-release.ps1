@@ -45,10 +45,21 @@ Write-Host "== 3/4 组装 dist 分发包 ==" -ForegroundColor Cyan
 $dist = "$Root\dist"
 if (Test-Path $dist) { Remove-Item $dist -Recurse -Force }
 New-Item -ItemType Directory -Path $dist | Out-Null
-New-Item -ItemType Directory -Path "$dist\ClickOnce" | Out-Null
+New-Item -ItemType Directory -Path "$dist\App" | Out-Null
 New-Item -ItemType Directory -Path "$dist\离线安装包" | Out-Null
 Copy-Item "$Root\installer\bin\Release\安装 PPTShapeLibrary.exe" $dist -Force
-Copy-Item "$publish\*" "$dist\ClickOnce" -Recurse -Force
+# 只放"部署清单 + 应用文件"：.vsto 的 codebase 是相对路径，安装源即本目录 → 拷到任何机器都能装。
+# 不放 setup.exe（其中烤入了发布机上的绝对 URL，换机/换目录后不可用）。
+Copy-Item "$publish\PPTShapeLibrary.vsto" "$dist\App" -Force
+Copy-Item "$publish\Application Files" "$dist\App" -Recurse -Force
+
+# 拆掉"陷阱"：构建产物 bin\Release\PPTShapeLibrary.vsto 一旦被双击，会把加载项注册成
+# …\bin\Release\…|vstolocal（开发式），与正式安装抢注册表并导致"已安装另一版本"报错。
+$trapVsto = "$Root\PPTShapeLibrary\bin\Release\PPTShapeLibrary.vsto"
+if (Test-Path $trapVsto) {
+    Remove-Item $trapVsto -Force -ErrorAction SilentlyContinue
+    Write-Host "   已移除构建产物 bin\Release\PPTShapeLibrary.vsto（避免误双击造成注册冲突）" -ForegroundColor Yellow
+}
 
 Write-Host "== 4/4 生成说明文件 ==" -ForegroundColor Cyan
 $readme = @"
@@ -65,15 +76,16 @@ PPTShapeLibrary 安装说明（版本 $Version）
 4. 安装完成后打开 PowerPoint → 功能区出现「素材库」选项卡即成功。
 
 【目录说明】
-  安装 PPTShapeLibrary.exe   环境检测 + 安装引导程序
-  ClickOnce\                 插件本体（setup.exe 与程序文件，请勿单独删改）
+  安装 PPTShapeLibrary.exe   环境检测 + 安装引导程序（双击这个）
+  App\                       插件本体：PPTShapeLibrary.vsto + Application Files\（请勿单独删改/移动）
   离线安装包\                可选：放入官方离线安装包后可离线安装
                              · ndp48-x86-x64-allos-enu.exe        (.NET Framework 4.8)
                              · vstor_redist.exe                   (VSTO Runtime 4.0)
                              · MicrosoftEdgeWebview2Setup.exe     (WebView2 Runtime)
 
-【卸载】
-  控制面板 → 程序和功能 → 卸载「PPTShapeLibrary」
+【卸载 / 重装】
+  控制面板 → 程序和功能 → 卸载「PPTShapeLibrary」；
+  或再次运行本安装器，检测到已安装版本时点「卸载旧版本」。
   数据（素材库/设置/备份/日志）位于 %APPDATA%\PPTShapeLibrary，卸载不会删除。
 
 【常见问题】
@@ -81,6 +93,10 @@ PPTShapeLibrary 安装说明（版本 $Version）
     文件 → 选项 → 加载项 → 管理「COM 加载项」勾选 PPTShapeLibrary，重启 PowerPoint。
   · 面板空白/提示缺少 WebView2：安装 Microsoft Edge WebView2 Runtime。
   · 安装时提示"未知发布者"：当前使用临时证书签名，属正常，继续安装即可。
+  · 报错「已安装另一版本的自定义项，不能从该位置升级」：本机已装过一份且这次换了位置。
+    请在安装器里点「卸载旧版本」后重试（或控制面板卸载后重装）。
+  · 请勿双击源码目录里的 bin\Release\PPTShapeLibrary.vsto —— 那是构建产物，
+    双击会把它注册成开发式加载项、与正式安装冲突。安装只用本目录的安装器。
 "@
 [System.IO.File]::WriteAllText("$dist\安装说明.txt", $readme, (New-Object System.Text.UTF8Encoding($true)))
 
