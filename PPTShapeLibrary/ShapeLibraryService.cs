@@ -73,6 +73,16 @@ namespace PPTShapeLibrary
     /// </summary>
     public class ShapeLibraryService
     {
+        /// <summary>库结构即将变更（删除/恢复/覆盖）时触发：用于关闭"库文稿句柄池"，
+        /// 避免 PowerPoint 仍持有 shape.pptx 导致文件/目录移动删除失败。</summary>
+        public static event Action LibraryWillMutate;
+
+        internal static void RaiseWillMutate()
+        {
+            var h = LibraryWillMutate;
+            if (h == null) return;
+            try { h(); } catch { }
+        }
         // ---------------- 浏览上下文（按宿主隔离：每个面板/弹窗各自一份；收藏落点用最近活跃宿主） ----------------
 
         /// <summary>单个宿主的浏览状态。</summary>
@@ -361,6 +371,7 @@ namespace PPTShapeLibrary
         public static bool DeleteItem(string id)
         {
             if (!IsSafeId(id)) { Log.Error(new Exception("DeleteItem: unsafe id=" + (id ?? "")), "Security"); return false; }
+            RaiseWillMutate();   // 关闭库文稿句柄，避免文件被占用导致移动失败
             string dir = Path.Combine(ItemsDir, id);
             if (!Directory.Exists(dir)) return true;
             string trash = Path.Combine(TrashDir, id);
@@ -395,6 +406,7 @@ namespace PPTShapeLibrary
         public static bool RestoreTrashItem(string id)
         {
             if (!IsSafeId(id)) { Log.Error(new Exception("RestoreTrashItem: unsafe id=" + (id ?? "")), "Security"); return false; }
+            RaiseWillMutate();
             string trash = Path.Combine(TrashDir, id);
             if (!Directory.Exists(trash)) return false;
             string dest = Path.Combine(ItemsDir, id);
@@ -472,6 +484,7 @@ namespace PPTShapeLibrary
         /// <summary>清空回收站。返回清除条数。</summary>
         public static int PurgeTrash()
         {
+            RaiseWillMutate();
             int n = 0;
             if (!Directory.Exists(TrashDir)) return 0;
             foreach (var dir in Directory.GetDirectories(TrashDir))
@@ -1023,6 +1036,7 @@ namespace PPTShapeLibrary
         /// 成功后再替换，避免 zip 损坏/恶意路径导致现有收藏丢失或路径穿越。</summary>
         public static bool RestoreFrom(string zipPath)
         {
+            RaiseWillMutate();   // 覆盖 items 前先关闭库文稿句柄
             string tmp = null;
             try
             {

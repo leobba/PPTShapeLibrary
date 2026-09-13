@@ -27,6 +27,7 @@ namespace PPTShapeLibrary
                 Log.Write("Startup begin");
                 HookAppEvents();
                 BridgeController.SettingsSaved += OnSettingsSaved;
+                ShapeLibraryService.LibraryWillMutate += () => ShapeExporter.SweepLibPresPool(true, 0);   // 库变更前释放库文稿占用
                 CreatePane();
                 Log.Write("TaskPane created");
                 // 注意：不在 Startup 立即 Add 任务窗格——此时可能无活动文档窗口，
@@ -71,6 +72,7 @@ namespace PPTShapeLibrary
             {
                 UnhookAppEvents();
                 BridgeController.SettingsSaved -= OnSettingsSaved;
+                try { ShapeExporter.SweepLibPresPool(true, 0); } catch { }   // 释放库文稿句柄池（避免残留打开的文件）
                 if (_refreshDebounce != null) { _refreshDebounce.Stop(); _refreshDebounce.Dispose(); _refreshDebounce = null; }
                 // 释放宿主（WebView2 底层进程与 userData 锁随之释放，避免残留实例占用 profile）
                 var host = _paneControl as WebPaneHost;
