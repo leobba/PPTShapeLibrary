@@ -185,7 +185,12 @@ export default function LibraryView() {
     }).catch((e: Error) => showToast(e.message || "应用失败（请先选中形状）"));
   };
   // 素材网格：固定每行两个素材（卡片随面板宽度伸展）
-  const gridTemplate = "repeat(2, minmax(0, 1fr))";
+  // 网格列数按设置：2/3/4 固定列；auto=自适应(auto-fill 最小 120px)
+  const gridCols = ((init as any)?.gridColumns as string) || "2";
+  const gridTemplate =
+    gridCols === "auto"
+      ? "repeat(auto-fill, minmax(120px, 1fr))"
+      : `repeat(${gridCols === "3" ? 3 : gridCols === "4" ? 4 : 2}, minmax(0, 1fr))`;
   const gridRef = useRef<HTMLDivElement | null>(null);
 
   const groups = useMemo(() => ["全部", ...(init?.groups || [])], [init]);
@@ -402,7 +407,9 @@ export default function LibraryView() {
         {/* 主区 */}
         <div className="flex min-w-0 flex-1 flex-col">
           {/* 类型行（仅我的/模板/自定义组有 全部/形状/样式 类型区分）：显示在二级分类行之上 */}
-          {lib.group !== "全部" && !["素材", "文字", "背景", "图例"].includes(lib.group) && (
+          {((init as any)?.showTypeRow !== false) &&
+            lib.group !== "全部" &&
+            !["素材", "文字", "背景", "图例"].includes(lib.group) && (
             <div className="flex items-center gap-0.5 border-b bg-card/40 px-2 py-1.5">
               <span className="mr-1 text-[11px] text-muted-foreground">类型</span>
               {(

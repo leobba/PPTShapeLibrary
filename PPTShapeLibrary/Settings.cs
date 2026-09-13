@@ -45,6 +45,12 @@ namespace PPTShapeLibrary
         [DataMember(Name = "paneHeight")]
         public int PaneHeight { get; set; }               // 停靠 上/下 时窗格高度
 
+        [DataMember(Name = "gridColumns")]
+        public string GridColumns { get; set; }           // 素材网格列数："2"/"3"/"4"/"auto"(自适应)
+
+        [DataMember(Name = "showTypeRow")]
+        public bool ShowTypeRow { get; set; }             // 是否显示"类型：全部/形状/样式"行
+
         public Settings()
         {
             Theme = "light";
@@ -60,6 +66,8 @@ namespace PPTShapeLibrary
             CollectPlaceholderText = false;
             PaneDock = "left";
             PaneHeight = 180;
+            GridColumns = "2";
+            ShowTypeRow = true;
         }
     }
 }

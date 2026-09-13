@@ -828,6 +828,17 @@ function SettingsForm() {
             </SelectContent>
           </Select>
         </Row>
+        <Row label="每行列数">
+          <Select value={s.gridColumns || "2"} onValueChange={(v) => set("gridColumns", v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="2">2 列</SelectItem>
+              <SelectItem value="3">3 列</SelectItem>
+              <SelectItem value="4">4 列</SelectItem>
+              <SelectItem value="auto">自适应</SelectItem>
+            </SelectContent>
+          </Select>
+        </Row>
         <Row label="分页数量">
           <Input className="h-8 w-24" inputMode="numeric" value={s.pageSize ?? 200} onChange={(e) => set("pageSize", parseInt(e.target.value) || 200)} />
         </Row>
@@ -841,7 +852,13 @@ function SettingsForm() {
           label="收藏形状时把文字替换为占位提示"
           checked={!!s.collectPlaceholderText}
           onChecked={(v) => set("collectPlaceholderText", !!v)}
-          hint="开启后收藏的形状内文字会变成「在这里插入你想要输入的文字」，适合把常用版式存成模板"
+          hint="开启后收藏的形状内文字会变成「双击编辑文字」，适合把常用版式存成模板"
+        />
+        <CheckRow
+          label="显示「类型」行（全部/形状/样式）"
+          checked={s.showTypeRow !== false}
+          onChecked={(v) => set("showTypeRow", !!v)}
+          hint="关闭后左侧选组即看该组全部；样式卡仍可通过右键/双击「应用到形状」使用"
         />
         <Row label="素材作者署名（导出素材包时写入）">
           <Input

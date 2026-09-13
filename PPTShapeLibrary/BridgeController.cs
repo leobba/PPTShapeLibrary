@@ -875,6 +875,15 @@ namespace PPTShapeLibrary
                 {
                     bool b; if (bool.TryParse(patch["collectPlaceholderText"].ToString(), out b)) s.CollectPlaceholderText = b;
                 }
+                if (patch.ContainsKey("gridColumns"))
+                {
+                    string v = patch["gridColumns"]?.ToString() ?? "";
+                    if (v == "2" || v == "3" || v == "4" || v == "auto") s.GridColumns = v;
+                }
+                if (patch.ContainsKey("showTypeRow"))
+                {
+                    bool b; if (bool.TryParse(patch["showTypeRow"].ToString(), out b)) s.ShowTypeRow = b;
+                }
                 if (patch.ContainsKey("paneDock"))
                 {
                     string v = patch["paneDock"]?.ToString() ?? "";
@@ -1052,8 +1061,10 @@ namespace PPTShapeLibrary
                 { "themeAdaptStyle", s.ThemeAdaptStyle },
                 { "authorName", s.AuthorName ?? "" },
                 { "collectPlaceholderText", s.CollectPlaceholderText },
-                { "paneDock", s.PaneDock ?? "right" },
-                { "paneHeight", s.PaneHeight }
+                { "paneDock", s.PaneDock ?? "left" },
+                { "paneHeight", s.PaneHeight },
+                { "gridColumns", s.GridColumns ?? "2" },
+                { "showTypeRow", s.ShowTypeRow }
             };
         }
 
