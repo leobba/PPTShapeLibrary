@@ -48,7 +48,10 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
     <DefineConstants>$(DefineConstants);TRACE</DefineConstants>
     <WarningLevel>4</WarningLevel>
-    <RegisterForVSTO>true</RegisterForVSTO>
+    <!-- 关键：Release/发布构建不得注册本地加载项（否则会写入 ...bin\Release\PPTShapeLibrary.vsto|vstolocal，
+         与用户通过安装器/ClickOnce 安装的正式版抢注册表、并导致“已安装另一版本”冲突）。
+         仅 Debug 保留注册以便 F5 调试。 -->
+    <RegisterForVSTO>false</RegisterForVSTO>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
@@ -184,6 +187,25 @@
   </PropertyGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <Import Project="$(VSToolsPath)\OfficeTools\Microsoft.VisualStudio.Tools.Office.targets" Condition="'$(VSToolsPath)' != ''" />
+  <!--
+    关键修复：Office targets 在 PrepareForRun 阶段「无条件」把加载项注册为
+        <输出目录>\PPTShapeLibrary.vsto|vstolocal
+    （其 RegisterOfficeAddin 只判断 VSTO_ProjectType，不看 RegisterForVSTO）。
+    于是命令行打包（/t:Publish、/t:Rebuild）会把这种"开发式注册"写进注册表，
+    与用户通过安装器/ClickOnce 安装的正式版互相覆盖，并导致再次安装时抛
+    AddInAlreadyInstalledException（"已安装另一版本的自定义项，不能从该位置升级"）。
+    下面在 Office targets 导入之后重定义同名 target（后定义者生效）：
+    Release 不注册，Debug 保持原行为（F5 调试需要注册）。
+  -->
+  <Target Name="RegisterOfficeAddin" Condition="'$(VSTO_ProjectType)' == 'Application' and '$(Configuration)' != 'Release'">
+    <SetOffice2007AddInRegistration
+        Url="$(AbsolutePathToTheDeploymentManifest)"
+        AddInName="$(TargetName)"
+        OfficeApplication="$(OfficeApplication)"
+        FriendlyName="$(FriendlyName)"
+        Description="$(OfficeApplicationDescription)"
+        LoadBehavior="$(LoadBehavior)" />
+  </Target>
   <ProjectExtensions>
     <VisualStudio>
       <FlavorProperties GUID="{BAA0C2D2-18E2-41B9-852F-F413020CAA33}">

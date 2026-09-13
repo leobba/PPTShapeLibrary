@@ -23,6 +23,20 @@ if (Test-Path $publish) { Remove-Item $publish -Recurse -Force }
 Copy-Item $appPublish $publish -Recurse -Force
 Write-Host "   产物 → $publish"
 
+# 兜底自愈：构建期有可能把加载项注册成 <bin\Release>\...vsto|vstolocal（开发式注册），
+# 它会与用户通过安装器安装的正式版抢注册表，导致再次安装时报"已安装另一版本"。
+# 若发现是 vstolocal 就清掉；是正式安装（ClickOnce）则保留不动。
+$addinKey = "HKCU:\Software\Microsoft\Office\PowerPoint\Addins\PPTShapeLibrary"
+if (Test-Path $addinKey) {
+    $manifest = (Get-ItemProperty $addinKey -ErrorAction SilentlyContinue).Manifest
+    if ($manifest -like "*vstolocal*") {
+        Remove-Item $addinKey -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "   已清理构建期写入的 vstolocal 开发式注册（避免与正式安装冲突）" -ForegroundColor Yellow
+    } else {
+        Write-Host "   检测到已安装的正式版注册，保留不动：$manifest" -ForegroundColor Yellow
+    }
+}
+
 Write-Host "== 2/4 编译安装器（环境检测）==" -ForegroundColor Cyan
 & $msb "$Root\installer\PPTShapeLibraryInstaller.csproj" /t:Rebuild /p:Configuration=Release /nologo /v:m
 if ($LASTEXITCODE -ne 0) { throw "安装器编译失败" }

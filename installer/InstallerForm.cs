@@ -39,7 +39,11 @@ namespace PPTShapeLibraryInstaller
         private TextBox _log;
         private Button _reinstall;
         private Button _install;
+        private Button _uninstallOld;
         private Label _summary;
+        private Label _existingLabel;
+        private string _existingVersion;         // 已安装版本（用于冲突提示）
+        private string _existingUninstallString; // 已安装项的卸载命令
 
         public InstallerForm()
         {
@@ -85,8 +89,8 @@ namespace PPTShapeLibraryInstaller
         {
             Text = "PPTShapeLibrary 安装程序";
             StartPosition = FormStartPosition.CenterScreen;
-            ClientSize = new Size(700, 560);
-            MinimumSize = new Size(660, 520);
+            ClientSize = new Size(700, 600);
+            MinimumSize = new Size(660, 580);
             Font = new Font("Microsoft YaHei UI", 9F);
 
             var title = new Label
@@ -184,20 +188,42 @@ namespace PPTShapeLibraryInstaller
             };
             Controls.Add(_log);
 
+            // 已安装旧版本提示（ClickOnce 不允许从新位置升级已安装项，必须先卸载）
+            _existingLabel = new Label
+            {
+                Text = "",
+                Location = new Point(18, 512),
+                Size = new Size(664, 32),
+                ForeColor = Color.FromArgb(120, 80, 0),
+                Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom
+            };
+            Controls.Add(_existingLabel);
+
             _summary = new Label
             {
                 Text = "",
-                Location = new Point(18, 514),
-                Size = new Size(420, 20),
+                Location = new Point(18, 548),
+                Size = new Size(300, 20),
                 Anchor = AnchorStyles.Left | AnchorStyles.Bottom
             };
             Controls.Add(_summary);
 
-            _reinstall = new Button { Text = "重新检测", Size = new Size(90, 30), Location = new Point(452, 510), Anchor = AnchorStyles.Right | AnchorStyles.Bottom };
+            _uninstallOld = new Button
+            {
+                Text = "卸载旧版本",
+                Size = new Size(120, 30),
+                Location = new Point(330, 546),
+                Anchor = AnchorStyles.Right | AnchorStyles.Bottom,
+                Visible = false
+            };
+            _uninstallOld.Click += (s, e) => UninstallExisting();
+            Controls.Add(_uninstallOld);
+
+            _reinstall = new Button { Text = "重新检测", Size = new Size(90, 30), Location = new Point(458, 546), Anchor = AnchorStyles.Right | AnchorStyles.Bottom };
             _reinstall.Click += (s, e) => RefreshChecks();
             Controls.Add(_reinstall);
 
-            _install = new Button { Text = "开始安装", Size = new Size(130, 30), Location = new Point(552, 510), Anchor = AnchorStyles.Right | AnchorStyles.Bottom };
+            _install = new Button { Text = "开始安装", Size = new Size(126, 30), Location = new Point(556, 546), Anchor = AnchorStyles.Right | AnchorStyles.Bottom };
             _install.Click += (s, e) => StartInstall();
             Controls.Add(_install);
         }
@@ -219,7 +245,125 @@ namespace PPTShapeLibraryInstaller
                 }
                 UpdateRow(it);
             }
+            DetectExistingInstall();
+            UpdateExistingUi();
             UpdateSummary();
+        }
+
+        // ---------------- 已安装版本检测 / 卸载（解决 ClickOnce "已安装另一版本" 冲突） ----------------
+
+        private void DetectExistingInstall()
+        {
+            _existingVersion = null;
+            _existingUninstallString = null;
+            try
+            {
+                using (var root = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall"))
+                {
+                    if (root != null)
+                    {
+                        foreach (var sub in root.GetSubKeyNames())
+                        {
+                            using (var k = root.OpenSubKey(sub))
+                            {
+                                if (k == null) continue;
+                                string name = k.GetValue("DisplayName") as string;
+                                if (string.IsNullOrEmpty(name)) continue;
+                                if (name.IndexOf("PPTShapeLibrary", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                                _existingVersion = k.GetValue("DisplayVersion") as string;
+                                _existingUninstallString = k.GetValue("UninstallString") as string;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private void UpdateExistingUi()
+        {
+            if (!string.IsNullOrEmpty(_existingUninstallString))
+            {
+                _existingLabel.Text = "已检测到已安装版本 " + (_existingVersion ?? "") +
+                    "。ClickOnce 不允许从新位置直接升级，若「开始安装」报『已安装另一版本』，请先点「卸载旧版本」。";
+                _uninstallOld.Visible = true;
+                Log("！ 检测到已安装版本 " + (_existingVersion ?? ""));
+            }
+            else
+            {
+                _existingLabel.Text = "未检测到已安装的旧版本。";
+                _uninstallOld.Visible = false;
+            }
+        }
+
+        /// <summary>卸载已安装版本；并清掉构建期遗留的 |vstolocal 开发式注册（否则会与正式版抢注册表）。</summary>
+        private void UninstallExisting()
+        {
+            if (string.IsNullOrEmpty(_existingUninstallString))
+            {
+                MessageBox.Show("未检测到已安装版本。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            var r = MessageBox.Show(
+                "将卸载已安装的 PPTShapeLibrary（版本 " + (_existingVersion ?? "") + "）。\r\n\r\n" +
+                "卸载命令：\r\n" + _existingUninstallString + "\r\n\r\n是否继续？（卸载期间请勿打开 PowerPoint）",
+                "卸载旧版本", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning);
+            if (r != DialogResult.OK) return;
+
+            try
+            {
+                Log("执行卸载：" + _existingUninstallString);
+                RunCommandLine(_existingUninstallString);
+                TryRemoveStaleVstoLocalKey();
+                Log("卸载命令已执行完毕，并已清理开发式注册残留。");
+                MessageBox.Show("卸载已完成。请点「重新检测」确认，然后再点「开始安装」。",
+                    "卸载完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                DetectExistingInstall();
+                UpdateExistingUi();
+                UpdateSummary();
+            }
+            catch (Exception ex)
+            {
+                Log("卸载失败：" + ex.Message);
+                MessageBox.Show("卸载失败：" + ex.Message + "\r\n\r\n可改用：控制面板 → 程序和功能 → 卸载 PPTShapeLibrary",
+                    "卸载失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private static void RunCommandLine(string cmd)
+        {
+            int exeEnd = cmd.IndexOf(".exe", StringComparison.OrdinalIgnoreCase);
+            if (exeEnd > 0)
+            {
+                string exe = cmd.Substring(0, exeEnd + 4).Trim().Trim('"');
+                string args = cmd.Substring(exeEnd + 4).Trim();
+                var p = Process.Start(new ProcessStartInfo(exe, args) { UseShellExecute = false });
+                if (p != null) p.WaitForExit();
+            }
+            else
+            {
+                var p = Process.Start(new ProcessStartInfo("cmd.exe", "/c " + cmd) { UseShellExecute = false });
+                if (p != null) p.WaitForExit();
+            }
+        }
+
+        /// <summary>仅当注册表项是构建期写入的 |vstolocal（开发式）时才删除，避免误删正式安装的注册。</summary>
+        private static void TryRemoveStaleVstoLocalKey()
+        {
+            try
+            {
+                const string sub = @"Software\Microsoft\Office\PowerPoint\Addins\PPTShapeLibrary";
+                string manifest = null;
+                using (var k = Registry.CurrentUser.OpenSubKey(sub, false))
+                {
+                    if (k == null) return;
+                    manifest = k.GetValue("Manifest") as string;
+                }
+                if (manifest == null || manifest.IndexOf("|vstolocal", StringComparison.OrdinalIgnoreCase) < 0) return;
+                Registry.CurrentUser.DeleteSubKeyTree(sub, false);
+            }
+            catch { }
         }
 
         private void CheckPowerPoint(ReqItem it)
@@ -499,10 +643,38 @@ namespace PPTShapeLibraryInstaller
                     Log("✗ 未找到 ClickOnce\\setup.exe");
                     return;
                 }
+
+                // 已安装过其它位置的版本时，ClickOnce 会拒绝安装（"已安装另一版本"）→ 先卸载
+                DetectExistingInstall();
+                UpdateExistingUi();
+                if (!string.IsNullOrEmpty(_existingUninstallString))
+                {
+                    var ask = MessageBox.Show(
+                        "检测到已安装版本 " + (_existingVersion ?? "") + "。\r\n\r\n" +
+                        "ClickOnce 不允许从新位置直接升级，若直接安装通常会报『已安装另一版本的自定义项』。\r\n" +
+                        "是否先卸载该版本，再继续安装？",
+                        "先卸载旧版本？", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+                    if (ask == DialogResult.Cancel) return;
+                    if (ask == DialogResult.Yes)
+                    {
+                        UninstallExisting();
+                        DetectExistingInstall();
+                        UpdateExistingUi();
+                        if (!string.IsNullOrEmpty(_existingUninstallString))
+                        {
+                            MessageBox.Show("旧版本似乎仍存在，已中止安装。请手动在「控制面板 → 程序和功能」卸载后再试。",
+                                "已中止", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                            return;
+                        }
+                    }
+                }
+
                 Log("开始安装插件：" + setup);
                 var p = Process.Start(new ProcessStartInfo(setup) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(setup) });
                 p.WaitForExit();
                 Log("安装程序已退出（ExitCode=" + p.ExitCode + "）。");
+                DetectExistingInstall();
+                UpdateExistingUi();
                 MessageBox.Show(
                     "安装流程已结束。\r\n\r\n请打开 PowerPoint，在功能区应出现「素材库」选项卡。\r\n" +
                     "若未出现：文件 → 选项 → 加载项 → 管理「COM 加载项」→ 勾选 PPTShapeLibrary，然后重启 PowerPoint。",
