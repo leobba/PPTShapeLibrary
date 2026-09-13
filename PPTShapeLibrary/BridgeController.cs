@@ -21,6 +21,7 @@ namespace PPTShapeLibrary
 
         private readonly CoreWebView2 _core;
         private readonly JavaScriptSerializer _json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
+        private readonly string _hostKey = Guid.NewGuid().ToString("N");   // 每个宿主(面板/弹窗)独立浏览上下文
 
         public BridgeController(CoreWebView2 core)
         {
@@ -739,13 +740,13 @@ namespace PPTShapeLibrary
             d["categories"] = ShapeLibraryService.GetAllCategories();
             d["total"] = all.Count;
             // 浏览上下文：页面重载/窗口迁移重建后前端据此恢复上次浏览的 组/分类（避免跳回"全部"）
-            if (ShapeLibraryService.BrowseWasSet)
+            if (ShapeLibraryService.BrowseWasSet(_hostKey))
             {
-                d["lastGroup"] = ShapeLibraryService.BrowseGroupForRestore;
-                d["lastCategory"] = ShapeLibraryService.BrowseCategoryForRestore ?? "全部";
-                d["lastKind"] = ShapeLibraryService.BrowseKindForRestore;
-                d["lastFilter"] = ShapeLibraryService.BrowseFilterForRestore;
-                d["lastSort"] = ShapeLibraryService.BrowseSortForRestore;
+                d["lastGroup"] = ShapeLibraryService.BrowseGroupForRestore(_hostKey);
+                d["lastCategory"] = ShapeLibraryService.BrowseCategoryForRestore(_hostKey) ?? "全部";
+                d["lastKind"] = ShapeLibraryService.BrowseKindForRestore(_hostKey);
+                d["lastFilter"] = ShapeLibraryService.BrowseFilterForRestore(_hostKey);
+                d["lastSort"] = ShapeLibraryService.BrowseSortForRestore(_hostKey);
             }
 
             // 分类计数（前端胶囊徽标）
@@ -797,8 +798,9 @@ namespace PPTShapeLibrary
             string kind = ToStr(payload, "kind");
             string group = ToStr(payload, "group");
             string sort = ToStr(payload, "sort");
-            // 登记浏览上下文：收藏落点 + 重载后视图恢复（组/分类/类型/搜索/排序）
-            ShapeLibraryService.SetBrowseContext(group, category, kind, filter, sort);
+            // 登记浏览上下文（按宿主隔离）：收藏落点 + 本宿主重载后视图恢复
+            ShapeLibraryService.SetBrowseContext(_hostKey, group, category, kind, filter, sort);
+            Log.Write("[list] host=" + _hostKey.Substring(0, 8) + " group=[" + group + "] cat=[" + category + "] kind=[" + kind + "] filter=[" + filter + "]");
             int offset = ToInt(payload, "offset");
             int limit = ToInt(payload, "limit");
             if (limit <= 0) limit = 200;

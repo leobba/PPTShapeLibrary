@@ -73,27 +73,62 @@ namespace PPTShapeLibrary
     /// </summary>
     public class ShapeLibraryService
     {
-        // ---------------- 浏览上下文（收藏落点 + 重载后视图恢复） ----------------
+        // ---------------- 浏览上下文（按宿主隔离：每个面板/弹窗各自一份；收藏落点用最近活跃宿主） ----------------
+
+        /// <summary>单个宿主的浏览状态。</summary>
+        public class BrowseState
+        {
+            public string Group = "全部";
+            public string Category;        // null=未选分类
+            public string Kind = "全部";
+            public string Filter = "";
+            public string Sort = "最新";
+            public bool Set;               // 是否浏览过（未浏览过则 init 不强制恢复）
+        }
 
         private static readonly object BrowseSync = new object();
-        private static string _browseGroup = "全部";     // 面板当前浏览的一级组（可能为"全部"）
-        private static string _browseCategory;           // 面板当前浏览的二级分类（"全部"/空 → null）
-        private static string _browseKind = "全部";      // 类型（全部/Shape/Style）
-        private static string _browseFilter = "";        // 搜索词
-        private static string _browseSort = "最新";      // 排序
-        private static bool _browseSet;                  // 是否浏览过（未浏览过则 init 不强制恢复）
+        private static readonly Dictionary<string, BrowseState> _browseByHost = new Dictionary<string, BrowseState>();
+        private static string _activeHostKey;   // 最近与用户交互的宿主（收藏落点取它的上下文）
 
-        /// <summary>前端浏览到某 组/分类/类型/搜索/排序 时登记（list 请求携带）。</summary>
-        public static void SetBrowseContext(string group, string category, string kind, string filter, string sort)
+        /// <summary>前端浏览到某 组/分类/类型/搜索/排序 时登记（list 请求携带；按宿主隔离避免多面板互相覆盖）。</summary>
+        public static void SetBrowseContext(string hostKey, string group, string category, string kind, string filter, string sort)
+        {
+            if (string.IsNullOrEmpty(hostKey)) hostKey = "default";
+            lock (BrowseSync)
+            {
+                BrowseState st;
+                if (!_browseByHost.TryGetValue(hostKey, out st))
+                {
+                    st = new BrowseState();
+                    _browseByHost[hostKey] = st;
+                }
+                st.Set = true;
+                st.Group = string.IsNullOrWhiteSpace(group) ? "全部" : group.Trim();
+                st.Category = (string.IsNullOrWhiteSpace(category) || category == "全部") ? null : category.Trim();
+                st.Kind = string.IsNullOrWhiteSpace(kind) ? "全部" : kind.Trim();
+                st.Filter = filter ?? "";
+                st.Sort = string.IsNullOrWhiteSpace(sort) ? "最新" : sort.Trim();
+                _activeHostKey = hostKey;
+            }
+        }
+
+        private static BrowseState ActiveState()
         {
             lock (BrowseSync)
             {
-                _browseSet = true;
-                _browseGroup = string.IsNullOrWhiteSpace(group) ? "全部" : group.Trim();
-                _browseCategory = (string.IsNullOrWhiteSpace(category) || category == "全部") ? null : category.Trim();
-                _browseKind = string.IsNullOrWhiteSpace(kind) ? "全部" : kind.Trim();
-                _browseFilter = filter ?? "";
-                _browseSort = string.IsNullOrWhiteSpace(sort) ? "最新" : sort.Trim();
+                BrowseState st;
+                if (_activeHostKey != null && _browseByHost.TryGetValue(_activeHostKey, out st)) return st;
+                return null;
+            }
+        }
+
+        private static BrowseState StateOf(string hostKey)
+        {
+            lock (BrowseSync)
+            {
+                BrowseState st;
+                if (hostKey != null && _browseByHost.TryGetValue(hostKey, out st)) return st;
+                return null;
             }
         }
 
@@ -102,50 +137,54 @@ namespace PPTShapeLibrary
         {
             get
             {
-                lock (BrowseSync)
-                {
-                    if (!_browseSet || string.IsNullOrWhiteSpace(_browseGroup) || _browseGroup == "全部") return "我的";
-                    return _browseGroup;
-                }
+                var st = ActiveState();
+                if (st == null || !st.Set || string.IsNullOrWhiteSpace(st.Group) || st.Group == "全部") return "我的";
+                return st.Group;
             }
         }
 
         /// <summary>收藏应写入的目标分类（当前浏览分类；未明确则 null 回落后由收藏方填默认）。</summary>
         public static string BrowseCategoryForCollect
         {
-            get { lock (BrowseSync) { return _browseCategory; } }
+            get { var st = ActiveState(); return st != null ? st.Category : null; }
         }
 
-        /// <summary>页面重载后恢复浏览：是否已浏览过(否则保持前端默认"全部")。</summary>
-        public static bool BrowseWasSet
+        /// <summary>指定宿主页面重载后恢复：是否已浏览过。</summary>
+        public static bool BrowseWasSet(string hostKey)
         {
-            get { lock (BrowseSync) { return _browseSet; } }
+            var st = StateOf(hostKey);
+            return st != null && st.Set;
         }
 
-        /// <summary>页面重载后应恢复到的组（原样，可能"全部"）。</summary>
-        public static string BrowseGroupForRestore
+        /// <summary>指定宿主重载后应恢复到的组（原样，可能"全部"）。</summary>
+        public static string BrowseGroupForRestore(string hostKey)
         {
-            get { lock (BrowseSync) { return string.IsNullOrWhiteSpace(_browseGroup) ? "全部" : _browseGroup; } }
+            var st = StateOf(hostKey);
+            return (st == null || string.IsNullOrWhiteSpace(st.Group)) ? "全部" : st.Group;
         }
 
-        public static string BrowseCategoryForRestore
+        public static string BrowseCategoryForRestore(string hostKey)
         {
-            get { lock (BrowseSync) { return _browseCategory; } }
+            var st = StateOf(hostKey);
+            return st != null ? st.Category : null;
         }
 
-        public static string BrowseKindForRestore
+        public static string BrowseKindForRestore(string hostKey)
         {
-            get { lock (BrowseSync) { return string.IsNullOrWhiteSpace(_browseKind) ? "全部" : _browseKind; } }
+            var st = StateOf(hostKey);
+            return (st == null || string.IsNullOrWhiteSpace(st.Kind)) ? "全部" : st.Kind;
         }
 
-        public static string BrowseFilterForRestore
+        public static string BrowseFilterForRestore(string hostKey)
         {
-            get { lock (BrowseSync) { return _browseFilter ?? ""; } }
+            var st = StateOf(hostKey);
+            return st != null ? (st.Filter ?? "") : "";
         }
 
-        public static string BrowseSortForRestore
+        public static string BrowseSortForRestore(string hostKey)
         {
-            get { lock (BrowseSync) { return string.IsNullOrWhiteSpace(_browseSort) ? "最新" : _browseSort; } }
+            var st = StateOf(hostKey);
+            return (st == null || string.IsNullOrWhiteSpace(st.Sort)) ? "最新" : st.Sort;
         }
 
         /// <summary>重置浏览上下文（新会话兜底）。</summary>
@@ -153,12 +192,8 @@ namespace PPTShapeLibrary
         {
             lock (BrowseSync)
             {
-                _browseGroup = "全部";
-                _browseCategory = null;
-                _browseKind = "全部";
-                _browseFilter = "";
-                _browseSort = "最新";
-                _browseSet = false;
+                _browseByHost.Clear();
+                _activeHostKey = null;
             }
         }
 
