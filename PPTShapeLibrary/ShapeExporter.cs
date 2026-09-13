@@ -465,6 +465,7 @@ namespace PPTShapeLibrary
                     // 收藏落点 = 面板当前浏览的 组/分类（用户正打开的视图）；未明确时回落 我的/未分类
                     Group = ShapeLibraryService.BrowseGroupForCollect,
                     Category = ShapeLibraryService.BrowseCategoryForCollect ?? "未分类",
+                    ColorHex = GetPrimaryColorHex(range),
                     LastUsedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                     SortOrder = Environment.TickCount,
                     Width = tw,
@@ -536,6 +537,7 @@ namespace PPTShapeLibrary
                     SourceSlide = GetSourceInfo(),
                     Group = ShapeLibraryService.BrowseGroupForCollect,
                     Category = ShapeLibraryService.BrowseCategoryForCollect ?? "未分类",
+                    ColorHex = GetPrimaryColorHex(range),
                     LastUsedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                     SortOrder = Environment.TickCount,
                     SourceAutoType = GetAutoType(range[1])
@@ -1589,6 +1591,39 @@ namespace PPTShapeLibrary
                 return shp.PlaceholderFormat != null;
             }
             catch { return false; }
+        }
+
+        /// <summary>取形状主色（"RRGGBB"）：优先纯色填充，其次渐变首色，再次线条色；取不到返回 null。</summary>
+        private static string GetPrimaryColorHex(PowerPoint.ShapeRange range)
+        {
+            try
+            {
+                if (range == null || range.Count == 0) return null;
+                var shp = range[1];
+                try
+                {
+                    int ft = (int)shp.Fill.Type;
+                    if (ft == 1)   // msoFillSolid
+                    {
+                        return ShapeStyleExtractor.RgbToHex(shp.Fill.ForeColor.RGB);
+                    }
+                    if (ft == 3)   // msoFillGradient
+                    {
+                        var stops = shp.Fill.GradientStops;
+                        if (stops != null && stops.Count > 0)
+                            return ShapeStyleExtractor.RgbToHex(stops[1].Color.RGB);
+                    }
+                }
+                catch { }
+                try
+                {
+                    if (shp.Line.Visible == MsoTriState.msoTrue)
+                        return ShapeStyleExtractor.RgbToHex(shp.Line.ForeColor.RGB);
+                }
+                catch { }
+            }
+            catch { }
+            return null;
         }
 
         /// <summary>占位符且完全无内容（无文字/无表格/无图表/非图片型）——即"单击此处添加…"空引导框。

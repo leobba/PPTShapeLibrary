@@ -499,6 +499,53 @@ export default function LibraryView() {
                 <Plus className="size-3" /> 新建分类
               </button>
             )}
+            {/* 筛选：仅未使用 + 按主色 */}
+            <span className="ml-auto flex items-center gap-1.5 pl-2">
+              <button
+                onClick={() => lib.setUnusedOnly(!lib.unusedOnly)}
+                className={
+                  "shrink-0 rounded-full px-2 py-0.5 text-[11px] transition-colors " +
+                  (lib.unusedOnly
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground")
+                }
+                title="只看还没用过的素材"
+              >
+                未使用
+              </button>
+              <span className="flex shrink-0 items-center gap-0.5" title="按主色筛选">
+                {[
+                  ["E23B3B", "红"],
+                  ["F08C2E", "橙"],
+                  ["E8C63A", "黄"],
+                  ["3FA45B", "绿"],
+                  ["2F6FD0", "蓝"],
+                  ["7A4FBF", "紫"],
+                  ["333333", "黑"],
+                  ["FFFFFF", "白"],
+                ].map(([hex, name]) => (
+                  <button
+                    key={hex}
+                    title={name}
+                    onClick={() => lib.setColorFilter(lib.colorFilter === hex ? "" : hex)}
+                    className={
+                      "size-4 rounded-full border transition-transform hover:scale-110 " +
+                      (lib.colorFilter === hex ? "ring-2 ring-primary ring-offset-1" : "")
+                    }
+                    style={{ backgroundColor: "#" + hex }}
+                  />
+                ))}
+                {lib.colorFilter && (
+                  <button
+                    className="ml-0.5 text-[10px] text-muted-foreground hover:text-foreground"
+                    onClick={() => lib.setColorFilter("")}
+                    title="清除颜色筛选"
+                  >
+                    清除
+                  </button>
+                )}
+              </span>
+            </span>
           </div>
 
           {/* 状态行 */}

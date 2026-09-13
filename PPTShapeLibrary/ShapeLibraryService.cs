@@ -48,6 +48,8 @@ namespace PPTShapeLibrary
         public int SourceAutoType { get; set; }
         [DataMember(Name = "snapshotPage", EmitDefaultValue = false)]
         public bool SnapshotPage { get; set; }       // true=整页快照（含背景/版式的整页复制，以页为单位插入）
+        [DataMember(Name = "colorHex", EmitDefaultValue = false)]
+        public string ColorHex { get; set; }         // 主色 "RRGGBB"（收藏时取填充/渐变首色，供颜色筛选）
 
         public string GetCategory()
         {

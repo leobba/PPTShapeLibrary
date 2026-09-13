@@ -805,6 +805,32 @@ namespace PPTShapeLibrary
                 string g = group;
                 items = items.Where(m => m.GetGroup() == g);
             }
+            // 仅未使用（UseCount==0）
+            if (ToBool(payload, "unusedOnly"))
+            {
+                items = items.Where(m => m.UseCount <= 0);
+            }
+            // 按主色近似筛选（RGB 曼哈顿距离阈值）
+            string colorLike = ToStr(payload, "colorLike");
+            if (!string.IsNullOrWhiteSpace(colorLike) && colorLike.Length >= 6)
+            {
+                int tr = Convert.ToInt32(colorLike.Substring(0, 2), 16);
+                int tg = Convert.ToInt32(colorLike.Substring(2, 2), 16);
+                int tb = Convert.ToInt32(colorLike.Substring(4, 2), 16);
+                items = items.Where(m =>
+                {
+                    string hex = m.ColorHex;
+                    if (string.IsNullOrWhiteSpace(hex) || hex.Length < 6) return false;
+                    try
+                    {
+                        int r = Convert.ToInt32(hex.Substring(0, 2), 16);
+                        int g2 = Convert.ToInt32(hex.Substring(2, 2), 16);
+                        int b = Convert.ToInt32(hex.Substring(4, 2), 16);
+                        return Math.Abs(r - tr) + Math.Abs(g2 - tg) + Math.Abs(b - tb) <= 90;
+                    }
+                    catch { return false; }
+                });
+            }
 
             int filteredTotal = items.Count();
             switch (sort)
@@ -836,7 +862,8 @@ namespace PPTShapeLibrary
                     { "lastUsedAt", m.LastUsedAt ?? "" },
                     { "sortOrder", m.SortOrder },
                     { "previewUrl", "https://data.pptshapes.local/" + m.Id + "/preview.png?v=" + PreviewStamp(m.Id) },
-                    { "snapshotPage", m.SnapshotPage }
+                    { "snapshotPage", m.SnapshotPage },
+                    { "colorHex", m.ColorHex ?? "" }
                 });
             }
 
@@ -1011,6 +1038,20 @@ namespace PPTShapeLibrary
                 try { return Convert.ToInt32(Convert.ToDouble(d[key])); } catch { }
             }
             return 0;
+        }
+
+        private static bool ToBool(Dictionary<string, object> d, string key)
+        {
+            if (d.ContainsKey(key) && d[key] != null)
+            {
+                try
+                {
+                    if (d[key] is bool b) return b;
+                    return bool.TryParse(d[key].ToString(), out bool r) && r;
+                }
+                catch { }
+            }
+            return false;
         }
 
         private static float? ToFloatNullable(Dictionary<string, object> d, string key)

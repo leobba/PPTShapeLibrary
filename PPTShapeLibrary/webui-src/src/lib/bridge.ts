@@ -86,8 +86,8 @@ export const bridge = {
   send,
   on,
   init: () => send("init"),
-  list: (filter: string, category: string, kind: string, group: string, sort: string, offset: number, limit: number) =>
-    send("list", { filter, category, kind, group, sort, offset, limit }),
+  list: (filter: string, category: string, kind: string, group: string, sort: string, offset: number, limit: number, unusedOnly?: boolean, colorLike?: string) =>
+    send("list", { filter, category, kind, group, sort, offset, limit, unusedOnly: !!unusedOnly, colorLike: colorLike || "" }),
   insert: (id: string) => send("insert", { id }),
   insertPage: (id: string) => send("insertPage", { id }),
   applyStyle: (id: string) => send("applyStyle", { id }),
@@ -155,6 +155,8 @@ export type ListItem = {
   previewUrl: string;
   /** true=整页快照（含背景版式，插入以整页为单位） */
   snapshotPage?: boolean;
+  /** 主色 "RRGGBB"（收藏时提取，用于按颜色筛选） */
+  colorHex?: string;
 };
 
 export type InitData = {
