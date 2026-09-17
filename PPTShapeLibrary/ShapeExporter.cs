@@ -432,51 +432,79 @@ namespace PPTShapeLibrary
                 var swPage = System.Diagnostics.Stopwatch.StartNew();
                 try
                 {
-                    libPres = OpenLibraryPresentation(shapePath);   // 复用句柄池，省去约 700ms 的 Open
-                    if (libPres.Slides.Count == 0) { error = "整页内容为空。"; return false; }
-                    libPres.Slides[1].Copy();
-                    System.Threading.Thread.Sleep(60);
-
-                    if (newDoc)
-                    {
-                        // 新建演示文稿并粘入该页（作为独立文稿打开）
-                        var np = App.Presentations.Add(MsoTriState.msoTrue);
-                        var pastedNew = np.Slides.Paste();   // 新文稿第 1 页
-                        if (pastedNew == null || pastedNew.Count == 0) { error = "新建文稿粘贴失败。"; return false; }
-                        ShapeLibraryService.TouchUsed(id);
-                        return true;
-                    }
-
-                    var pres = App.ActivePresentation;
-                    int insertAt;
-                    if (pos == "end") insertAt = pres.Slides.Count + 1;
-                    else
-                    {
-                        insertAt = App.ActiveWindow.View.Slide.SlideIndex + 1;   // 当前页之后
-                    }
-                    if (insertAt > pres.Slides.Count + 1) insertAt = pres.Slides.Count + 1;
-                    if (insertAt < 1) insertAt = 1;
-                    var inserted = pres.Slides.Paste(insertAt);   // SlideRange
-                    if (inserted == null || inserted.Count == 0) { error = "整页粘贴失败。"; return false; }
-                    // 可选：清理未使用版式（防源模板版式累积）
+                    // —— 首选：复制幻灯片 → 粘贴（能把版式绑定一起带过来，外观最保真）——
                     try
                     {
-                        if (ShapeLibraryService.LoadSettings().CleanLayoutsOnInsertPage)
+                        libPres = OpenLibraryPresentation(shapePath);   // 复用句柄池，省去约 700ms 的 Open
+                        if (libPres.Slides.Count == 0) { error = "整页内容为空。"; return false; }
+                        libPres.Slides[1].Copy();
+                        System.Threading.Thread.Sleep(60);
+
+                        if (newDoc)
                         {
-                            int rm = CleanUnusedLayouts(pres);
-                            if (rm > 0) Log.Write("cleaned unused layouts: " + rm);
+                            // 新建演示文稿并粘入该页（作为独立文稿打开）
+                            var np = App.Presentations.Add(MsoTriState.msoTrue);
+                            var pastedNew = np.Slides.Paste();   // 新文稿第 1 页
+                            if (pastedNew == null || pastedNew.Count == 0) throw new Exception("新建文稿粘贴失败。");
+                            ShapeLibraryService.TouchUsed(id);
+                            swPage.Stop();
+                            Log.Write("insert page timing: total=" + swPage.ElapsedMilliseconds + "ms pos=newDoc");
+                            return true;
                         }
+
+                        var pres = App.ActivePresentation;
+                        int insertAt = pos == "end" ? pres.Slides.Count + 1 : App.ActiveWindow.View.Slide.SlideIndex + 1;
+                        if (insertAt > pres.Slides.Count + 1) insertAt = pres.Slides.Count + 1;
+                        if (insertAt < 1) insertAt = 1;
+                        var inserted = pres.Slides.Paste(insertAt);   // SlideRange
+                        if (inserted == null || inserted.Count == 0) throw new Exception("整页粘贴失败。");
+                        try
+                        {
+                            if (ShapeLibraryService.LoadSettings().CleanLayoutsOnInsertPage)
+                                Log.Write("cleanLayoutsOnInsertPage=on 但已停用（会改坏版式绑定），本次跳过");
+                        }
+                        catch { }
+                        ShapeLibraryService.TouchUsed(id);
+                        swPage.Stop();
+                        Log.Write("insert page timing: total=" + swPage.ElapsedMilliseconds + "ms pos=" + pos);
+                        return true;
                     }
-                    catch { }
-                    ShapeLibraryService.TouchUsed(id);
-                    swPage.Stop();
-                    Log.Write("insert page timing: total=" + swPage.ElapsedMilliseconds + "ms pos=" + pos + " (pooled)");
-                    return true;
+                    catch (Exception exClip)
+                    {
+                        // 剪贴板被第三方工具（截图/剪贴板管理器）占用时走这里 → 落到下面的免剪贴板兜底
+                        Log.Write("insert page: clipboard path failed -> fallback :: " + exClip.Message);
+                    }
                 }
                 finally
                 {
                     ClipboardGuard.Restore(clip);
                     // 不 Close：库文稿由句柄池管理（空闲自动关闭 / 库变更前关闭）
+                }
+
+                // —— 兜底：免剪贴板通道（Slides.InsertFromFile，直接读库文件插页）——
+                // 仅当上面的剪贴板路径失败时执行；极端情况下与"复制幻灯片"可能有细微外观差异，故日志区分。
+                if (newDoc)
+                {
+                    var np = App.Presentations.Add(MsoTriState.msoTrue);
+                    int before = np.Slides.Count;
+                    np.Slides.InsertFromFile(shapePath, before + 1, 1, 1);
+                    for (int i = before; i >= 1; i--) { try { np.Slides[i].Delete(); } catch { } }   // 删掉新建文稿自带的空白页
+                    ShapeLibraryService.TouchUsed(id);
+                    swPage.Stop();
+                    Log.Write("insert page timing: total=" + swPage.ElapsedMilliseconds + "ms pos=newDoc (InsertFromFile fallback)");
+                    return true;
+                }
+
+                {
+                    var pres = App.ActivePresentation;
+                    int insertAt = pos == "end" ? pres.Slides.Count + 1 : App.ActiveWindow.View.Slide.SlideIndex + 1;
+                    if (insertAt > pres.Slides.Count + 1) insertAt = pres.Slides.Count + 1;
+                    if (insertAt < 1) insertAt = 1;
+                    pres.Slides.InsertFromFile(shapePath, insertAt, 1, 1);
+                    ShapeLibraryService.TouchUsed(id);
+                    swPage.Stop();
+                    Log.Write("insert page timing: total=" + swPage.ElapsedMilliseconds + "ms pos=" + pos + " (InsertFromFile fallback)");
+                    return true;
                 }
             }
             catch (Exception ex)
@@ -1850,56 +1878,36 @@ namespace PPTShapeLibrary
         private static PowerPoint.ShapeRange CopyPasteWithRetry(Action copy, PowerPoint.Shapes target)
         {
             Exception last = null;
-            const int maxAttempts = 8;
+            const int maxAttempts = 6;
             for (int attempt = 1; attempt <= maxAttempts; attempt++)
             {
                 try
                 {
+                    // ① 先清掉剪贴板里的陈旧内容：报错 "contains data which may not be pasted here" 往往
+                    //    就是因为剪贴板里留着第三方工具（截图/剪贴板管理器，如 Snipaste）放进去的数据，
+                    //    PowerPoint 试图粘贴它而失败。调用方已保存用户剪贴板快照，操作结束会还原。
+                    try { System.Windows.Forms.Clipboard.Clear(); } catch { }
+                    System.Threading.Thread.Sleep(40 + 30 * attempt);
+
+                    // ② 复制。注意：复制与粘贴之间**不读剪贴板**——读剪贴板本身会加锁，
+                    //    与第三方剪贴板工具抢锁反而更容易让 Copy 失败（旧实现在这里连读 4 次）。
                     copy();
-                    System.Threading.Thread.Sleep(60 + 40 * attempt);   // 60,100,140… 给剪贴板工具让出时间
-                    // 校验剪贴板确有"可粘贴的 Office 图形"数据；为空（Copy 静默失败/被第三方剪贴板工具抢占）
-                    // 就重试，避免 Paste 报 "Clipboard is empty or contains data which may not be pasted here"
-                    bool hasData = ClipboardHasOfficeGraphic();
-                    if (!hasData && attempt < maxAttempts)
-                    {
-                        Log.Write("copy check: clipboard lacks ppt data (attempt " + attempt + "/" + maxAttempts +
-                                  ") formats=[" + ClipboardFormatsBrief() + "]");
-                        continue;
-                    }
+                    System.Threading.Thread.Sleep(80 + 50 * attempt);
+
+                    // ③ 直接粘贴（成败以 Paste 为准）
                     return target.Paste();
                 }
                 catch (Exception ex)
                 {
                     last = ex;
-                    Log.Write("paste retry " + attempt + "/" + maxAttempts + ": " + ex.Message);
-                    try { System.Threading.Thread.Sleep(120); } catch { }
+                    Log.Write("paste retry " + attempt + "/" + maxAttempts + ": " + ex.Message +
+                              " formats=[" + ClipboardFormatsBrief() + "]");
+                    try { System.Threading.Thread.Sleep(150); } catch { }
                 }
             }
             throw new Exception(
                 "剪贴板被其他程序占用或复制未生效（运行截图/剪贴板类工具时常见，如 Snipaste）。" +
                 "请再试一次；若持续失败，可暂时关闭该类工具。原始错误：" + (last != null ? last.Message : "未知"));
-        }
-
-        /// <summary>剪贴板里是否有"可粘贴的 Office 图形"数据。按格式名关键字判定，兼容本地化命名。</summary>
-        private static bool ClipboardHasOfficeGraphic()
-        {
-            try
-            {
-                var data = System.Windows.Forms.Clipboard.GetDataObject();
-                if (data == null) return false;
-                var formats = data.GetFormats();
-                if (formats == null || formats.Length == 0) return false;
-                foreach (var f in formats)
-                {
-                    if (string.IsNullOrEmpty(f)) continue;
-                    if (f.IndexOf("PowerPoint", StringComparison.OrdinalIgnoreCase) >= 0) return true;
-                    if (f.IndexOf("PNG", StringComparison.OrdinalIgnoreCase) >= 0) return true;
-                    if (f.IndexOf("Metafile", StringComparison.OrdinalIgnoreCase) >= 0) return true;   // EnhancedMetafile / MetafilePict
-                    if (f.IndexOf("Drawing", StringComparison.OrdinalIgnoreCase) >= 0) return true;
-                }
-                return false;
-            }
-            catch { return false; }
         }
 
         /// <summary>把剪贴板当前格式列表截断成一行，供日志诊断。</summary>
