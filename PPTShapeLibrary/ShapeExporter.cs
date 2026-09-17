@@ -1850,24 +1850,20 @@ namespace PPTShapeLibrary
         private static PowerPoint.ShapeRange CopyPasteWithRetry(Action copy, PowerPoint.Shapes target)
         {
             Exception last = null;
-            for (int attempt = 1; attempt <= 5; attempt++)
+            const int maxAttempts = 8;
+            for (int attempt = 1; attempt <= maxAttempts; attempt++)
             {
                 try
                 {
                     copy();
-                    System.Threading.Thread.Sleep(40 * attempt);
-                    // Copy 后校验剪贴板确已写入 PowerPoint 形状数据；
-                    // 若为空（Copy 静默失败/被其他程序抢占）继续重试，避免 Paste 报 "Clipboard is empty"
-                    bool hasData = false;
-                    try
+                    System.Threading.Thread.Sleep(60 + 40 * attempt);   // 60,100,140… 给剪贴板工具让出时间
+                    // 校验剪贴板确有"可粘贴的 Office 图形"数据；为空（Copy 静默失败/被第三方剪贴板工具抢占）
+                    // 就重试，避免 Paste 报 "Clipboard is empty or contains data which may not be pasted here"
+                    bool hasData = ClipboardHasOfficeGraphic();
+                    if (!hasData && attempt < maxAttempts)
                     {
-                        hasData = System.Windows.Forms.Clipboard.ContainsData("PowerPoint Shapedata")
-                            || System.Windows.Forms.Clipboard.ContainsData("PNG");
-                    }
-                    catch { }
-                    if (!hasData && attempt < 5)
-                    {
-                        Log.Write("copy check: clipboard lacks PPT data (attempt " + attempt + "), retry");
+                        Log.Write("copy check: clipboard lacks ppt data (attempt " + attempt + "/" + maxAttempts +
+                                  ") formats=[" + ClipboardFormatsBrief() + "]");
                         continue;
                     }
                     return target.Paste();
@@ -1875,10 +1871,50 @@ namespace PPTShapeLibrary
                 catch (Exception ex)
                 {
                     last = ex;
-                    Log.Write("paste retry " + attempt + ": " + ex.Message);
+                    Log.Write("paste retry " + attempt + "/" + maxAttempts + ": " + ex.Message);
+                    try { System.Threading.Thread.Sleep(120); } catch { }
                 }
             }
-            throw last ?? new Exception("粘贴失败");
+            throw new Exception(
+                "剪贴板被其他程序占用或复制未生效（运行截图/剪贴板类工具时常见，如 Snipaste）。" +
+                "请再试一次；若持续失败，可暂时关闭该类工具。原始错误：" + (last != null ? last.Message : "未知"));
+        }
+
+        /// <summary>剪贴板里是否有"可粘贴的 Office 图形"数据。按格式名关键字判定，兼容本地化命名。</summary>
+        private static bool ClipboardHasOfficeGraphic()
+        {
+            try
+            {
+                var data = System.Windows.Forms.Clipboard.GetDataObject();
+                if (data == null) return false;
+                var formats = data.GetFormats();
+                if (formats == null || formats.Length == 0) return false;
+                foreach (var f in formats)
+                {
+                    if (string.IsNullOrEmpty(f)) continue;
+                    if (f.IndexOf("PowerPoint", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+                    if (f.IndexOf("PNG", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+                    if (f.IndexOf("Metafile", StringComparison.OrdinalIgnoreCase) >= 0) return true;   // EnhancedMetafile / MetafilePict
+                    if (f.IndexOf("Drawing", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+                }
+                return false;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>把剪贴板当前格式列表截断成一行，供日志诊断。</summary>
+        private static string ClipboardFormatsBrief()
+        {
+            try
+            {
+                var data = System.Windows.Forms.Clipboard.GetDataObject();
+                if (data == null) return "(null)";
+                var formats = data.GetFormats();
+                if (formats == null || formats.Length == 0) return "(empty)";
+                string s = string.Join(",", formats);
+                return s.Length > 200 ? s.Substring(0, 200) : s;
+            }
+            catch { return "(读取失败)"; }
         }
 
         // ---------------- 工具 ----------------
