@@ -20,16 +20,7 @@ namespace PPTShapeLibrary
 
         public WebPaneHost()
         {
-            try
-            {
-                InitializeComponent();
-            }
-            catch (Exception ex)
-            {
-                _failed = true;
-                Log.Error(ex, "WebPaneHost ctor");
-                InitializationFailed?.Invoke(ex);
-            }
+            InitializeComponent();
         }
 
         private void InitializeComponent()
@@ -61,6 +52,10 @@ namespace PPTShapeLibrary
                 await _webView.EnsureCoreWebView2Async(env);
 
                 var core = _webView.CoreWebView2;
+                core.NavigationStarting += (s, e) =>
+                {
+                    if (!BridgeController.IsTrustedMessageSource(e.Uri)) e.Cancel = true;
+                };
 
                 // 虚拟域名映射（约束 C4：禁 file://）
                 string webUiDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WebUI");
@@ -102,6 +97,7 @@ namespace PPTShapeLibrary
                 {
                     try
                     {
+                        if (!BridgeController.IsTrustedMessageSource(e.Source)) return;
                         _bridge?.HandleWebMessage(e.TryGetWebMessageAsString());
                     }
                     catch (Exception ex)

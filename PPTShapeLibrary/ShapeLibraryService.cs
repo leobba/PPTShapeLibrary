@@ -5,6 +5,7 @@ using System.Linq;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Json;
 using System.Text;
+using System.Threading;
 using PowerPoint = Microsoft.Office.Interop.PowerPoint;
 
 namespace PPTShapeLibrary
@@ -73,6 +74,29 @@ namespace PPTShapeLibrary
     /// </summary>
     public class ShapeLibraryService
     {
+        private const string LibraryMutationMutexName = @"Local\PPTShapeLibrary.LibraryMutation";
+
+        /// <summary>跨 PowerPoint 进程串行化素材库的复合写操作。</summary>
+        public static T WithLibraryMutationLock<T>(Func<T> operation)
+        {
+            if (operation == null) throw new ArgumentNullException("operation");
+            using (var mutex = new Mutex(false, LibraryMutationMutexName))
+            {
+                bool acquired = false;
+                try
+                {
+                    try { acquired = mutex.WaitOne(TimeSpan.FromSeconds(30)); }
+                    catch (AbandonedMutexException) { acquired = true; }
+                    if (!acquired) throw new TimeoutException("素材库正被另一个 PowerPoint 实例占用，请稍后重试。");
+                    return operation();
+                }
+                finally
+                {
+                    if (acquired) mutex.ReleaseMutex();
+                }
+            }
+        }
+
         /// <summary>库结构即将变更（删除/恢复/覆盖）时触发：用于关闭"库文稿句柄池"，
         /// 避免 PowerPoint 仍持有 shape.pptx 导致文件/目录移动删除失败。</summary>
         public static event Action LibraryWillMutate;
@@ -241,14 +265,27 @@ namespace PPTShapeLibrary
 
         public static string CreateItemDir(string id)
         {
-            string dir = Path.Combine(ItemsDir, id);
-            Directory.CreateDirectory(dir);
-            return dir;
+            if (!IsSafeId(id)) throw new System.ArgumentException("素材条目标识无效。", "id");
+            return WithLibraryMutationLock(() =>
+            {
+                string dir = Path.Combine(ItemsDir, id);
+                Directory.CreateDirectory(dir);
+                return dir;
+            });
         }
 
         public static string NewId()
         {
-            return DateTime.Now.ToString("yyyyMMdd-HHmmss-") + Guid.NewGuid().ToString("N").Substring(0, 6);
+            return WithLibraryMutationLock(() =>
+            {
+                string id;
+                do
+                {
+                    id = DateTime.Now.ToString("yyyyMMdd-HHmmss-") + Guid.NewGuid().ToString("N").Substring(0, 12);
+                }
+                while (Directory.Exists(Path.Combine(ItemsDir, id)) || Directory.Exists(Path.Combine(TrashDir, id)));
+                return id;
+            });
         }
 
         private static readonly System.Text.RegularExpressions.Regex IdSafeRegex =
@@ -257,42 +294,84 @@ namespace PPTShapeLibrary
         /// <summary>安全 id 校验：id 只允许字母数字下划线连字符（NewId 生成格式），杜绝路径穿越（..、盘符、分隔符）。</summary>
         public static bool IsSafeId(string id)
         {
-            return !string.IsNullOrEmpty(id) && id.Length <= 80 && IdSafeRegex.IsMatch(id);
+            if (string.IsNullOrEmpty(id) || id.Length > 80 || !IdSafeRegex.IsMatch(id)) return false;
+            // Windows reserves these path components for device names, even without extensions.
+            string upper = id.ToUpperInvariant();
+            if (upper == "CON" || upper == "PRN" || upper == "AUX" || upper == "NUL") return false;
+            if (upper.Length == 4 && (upper.StartsWith("COM", StringComparison.Ordinal) || upper.StartsWith("LPT", StringComparison.Ordinal))
+                && upper[3] >= '1' && upper[3] <= '9') return false;
+            return true;
         }
 
         public static string ShapeFile(string id)
         {
-            return Path.Combine(ItemsDir, id, "shape.pptx");
+            return ItemFile(id, "shape.pptx");
         }
 
         public static string StyleFile(string id)
         {
-            return Path.Combine(ItemsDir, id, "style.json");
+            return ItemFile(id, "style.json");
         }
 
         public static string PreviewFile(string id)
         {
-            return Path.Combine(ItemsDir, id, "preview.png");
+            return ItemFile(id, "preview.png");
         }
 
         public static string MetaFile(string id)
         {
-            return Path.Combine(ItemsDir, id, "meta.json");
+            return ItemFile(id, "meta.json");
+        }
+
+        private static string ItemFile(string id, string fileName)
+        {
+            if (!IsSafeId(id)) throw new System.ArgumentException("素材条目标识无效。", "id");
+            return Path.Combine(ItemsDir, id, fileName);
+        }
+
+        private static void WriteFileAtomically(string path, Action<string> writeTemp)
+        {
+            string temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                writeTemp(temp);
+                if (File.Exists(path)) File.Replace(temp, path, null);
+                else File.Move(temp, path);
+            }
+            finally
+            {
+                try { if (File.Exists(temp)) File.Delete(temp); } catch { }
+            }
         }
 
         public static void SaveMeta(LibraryMeta meta)
         {
-            Directory.CreateDirectory(Path.Combine(ItemsDir, meta.Id));
-            var ser = new DataContractJsonSerializer(typeof(LibraryMeta));
-            using (var fs = File.Create(MetaFile(meta.Id)))
+            if (meta == null || !IsSafeId(meta.Id)) throw new System.ArgumentException("素材条目标识无效。", "meta");
+            WithLibraryMutationLock(() =>
             {
-                ser.WriteObject(fs, meta);
-            }
-            InvalidateCache();
+                string dir = Path.Combine(ItemsDir, meta.Id);
+                Directory.CreateDirectory(dir);
+                string path = MetaFile(meta.Id);
+                string temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                try
+                {
+                    var ser = new DataContractJsonSerializer(typeof(LibraryMeta));
+                    using (var fs = File.Create(temp)) ser.WriteObject(fs, meta);
+                    if (File.Exists(path)) File.Replace(temp, path, null);
+                    else File.Move(temp, path);
+                    InvalidateCache();
+                }
+                finally
+                {
+                    try { if (File.Exists(temp)) File.Delete(temp); } catch { }
+                }
+                return true;
+            });
         }
 
         public static LibraryMeta LoadMeta(string id)
         {
+            if (!IsSafeId(id)) return null;
             string path = MetaFile(id);
             if (!File.Exists(path)) return null;
             try
@@ -300,7 +379,11 @@ namespace PPTShapeLibrary
                 var ser = new DataContractJsonSerializer(typeof(LibraryMeta));
                 using (var fs = File.OpenRead(path))
                 {
-                    return (LibraryMeta)ser.ReadObject(fs);
+                    var meta = (LibraryMeta)ser.ReadObject(fs);
+                    // The folder name is the trusted identity. Never allow imported metadata
+                    // to redirect later file operations to a different library path.
+                    if (meta != null) meta.Id = id;
+                    return meta;
                 }
             }
             catch
@@ -353,6 +436,7 @@ namespace PPTShapeLibrary
                     foreach (var dir in Directory.GetDirectories(ItemsDir))
                     {
                         string id = Path.GetFileName(dir);
+                        if (!IsSafeId(id)) continue;
                         var meta = LoadMeta(id);
                         if (meta != null)
                         {
@@ -369,6 +453,11 @@ namespace PPTShapeLibrary
 
         /// <summary>软删除：把条目移入回收站（可恢复）。失败时保留原位并返回 false（不静默删除）。</summary>
         public static bool DeleteItem(string id)
+        {
+            return WithLibraryMutationLock(() => DeleteItemCore(id));
+        }
+
+        private static bool DeleteItemCore(string id)
         {
             if (!IsSafeId(id)) { Log.Error(new Exception("DeleteItem: unsafe id=" + (id ?? "")), "Security"); return false; }
             RaiseWillMutate();   // 关闭库文稿句柄，避免文件被占用导致移动失败
@@ -393,6 +482,15 @@ namespace PPTShapeLibrary
         /// 避免"软删后从备份恢复的同 id 条目被回收站彻底删除连带误删"。</summary>
         public static void HardDelete(string id)
         {
+            WithLibraryMutationLock(() =>
+            {
+                HardDeleteCore(id);
+                return true;
+            });
+        }
+
+        private static void HardDeleteCore(string id)
+        {
             if (!IsSafeId(id)) { Log.Error(new Exception("HardDelete: unsafe id=" + (id ?? "")), "Security"); return; }
             string dir = Path.Combine(TrashDir, id);
             if (Directory.Exists(dir))
@@ -404,6 +502,11 @@ namespace PPTShapeLibrary
 
         /// <summary>从回收站恢复条目到素材库。</summary>
         public static bool RestoreTrashItem(string id)
+        {
+            return WithLibraryMutationLock(() => RestoreTrashItemCore(id));
+        }
+
+        private static bool RestoreTrashItemCore(string id)
         {
             if (!IsSafeId(id)) { Log.Error(new Exception("RestoreTrashItem: unsafe id=" + (id ?? "")), "Security"); return false; }
             RaiseWillMutate();
@@ -484,6 +587,11 @@ namespace PPTShapeLibrary
         /// <summary>清空回收站。返回清除条数。</summary>
         public static int PurgeTrash()
         {
+            return WithLibraryMutationLock(() => PurgeTrashCore());
+        }
+
+        private static int PurgeTrashCore()
+        {
             RaiseWillMutate();
             int n = 0;
             if (!Directory.Exists(TrashDir)) return 0;
@@ -497,25 +605,38 @@ namespace PPTShapeLibrary
 
         public static void RenameItem(string id, string newName)
         {
-            var meta = LoadMeta(id);
-            if (meta == null) return;
-            // 空名/纯空白保持原名，超长截断，避免列表出现空白条目或异常名
-            if (string.IsNullOrWhiteSpace(newName)) return;
-            string name = newName.Trim();
-            if (name.Length > 120) name = name.Substring(0, 120);
-            meta.Name = name;
-            SaveMeta(meta);
-            InvalidateCache();
+            WithLibraryMutationLock(() =>
+            {
+                var meta = LoadMeta(id);
+                if (meta == null || string.IsNullOrWhiteSpace(newName)) return true;
+                string name = newName.Trim();
+                if (name.Length > 120) name = name.Substring(0, 120);
+                meta.Name = name;
+                SaveMeta(meta);
+                InvalidateCache();
+                return true;
+            });
         }
 
         public static void SaveStyleJson(string id, string json)
         {
-            File.WriteAllText(StyleFile(id), json, Encoding.UTF8);
+            WithLibraryMutationLock(() =>
+            {
+                string path = StyleFile(id);
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                WriteFileAtomically(path, temp => File.WriteAllText(temp, json ?? "", Encoding.UTF8));
+                return true;
+            });
         }
 
         /// <summary>孤儿目录清理：把 items 下没有 meta.json（收藏流程中断残留）的目录移入回收站，返回清理数。
         /// 不硬删，用户仍可在回收站查看/彻底删除。</summary>
         public static int CollectOrphanDirs()
+        {
+            return WithLibraryMutationLock(() => CollectOrphanDirsCore());
+        }
+
+        private static int CollectOrphanDirsCore()
         {
             int n = 0;
             try
@@ -549,7 +670,13 @@ namespace PPTShapeLibrary
 
         public static void SavePreviewImage(string id, byte[] png)
         {
-            File.WriteAllBytes(PreviewFile(id), png);
+            WithLibraryMutationLock(() =>
+            {
+                string path = PreviewFile(id);
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                WriteFileAtomically(path, temp => File.WriteAllBytes(temp, png ?? new byte[0]));
+                return true;
+            });
         }
 
         public static byte[] LoadPreviewImage(string id)
@@ -573,31 +700,43 @@ namespace PPTShapeLibrary
 
         public static void SetCategory(string id, string category)
         {
-            var meta = LoadMeta(id);
-            if (meta == null) return;
-            meta.Category = string.IsNullOrWhiteSpace(category) ? "未分类" : category.Trim();
-            SaveMeta(meta);
-            InvalidateCache();
+            WithLibraryMutationLock(() =>
+            {
+                var meta = LoadMeta(id);
+                if (meta == null) return true;
+                meta.Category = string.IsNullOrWhiteSpace(category) ? "未分类" : category.Trim();
+                SaveMeta(meta);
+                InvalidateCache();
+                return true;
+            });
         }
 
         /// <summary>记录最近使用时间与使用次数。</summary>
         public static void TouchUsed(string id)
         {
-            var meta = LoadMeta(id);
-            if (meta == null) return;
-            meta.LastUsedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-            meta.UseCount++;
-            SaveMeta(meta);
-            InvalidateCache();
+            WithLibraryMutationLock(() =>
+            {
+                var meta = LoadMeta(id);
+                if (meta == null) return true;
+                meta.LastUsedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                meta.UseCount++;
+                SaveMeta(meta);
+                InvalidateCache();
+                return true;
+            });
         }
 
         public static void SetSortOrder(string id, int order)
         {
-            var meta = LoadMeta(id);
-            if (meta == null) return;
-            meta.SortOrder = order;
-            SaveMeta(meta);
-            InvalidateCache();
+            WithLibraryMutationLock(() =>
+            {
+                var meta = LoadMeta(id);
+                if (meta == null) return true;
+                meta.SortOrder = order;
+                SaveMeta(meta);
+                InvalidateCache();
+                return true;
+            });
         }
 
         // ---------------- 一级分组（Group） ----------------
@@ -612,10 +751,12 @@ namespace PPTShapeLibrary
         }
 
         private static List<string> _userGroups;
+        private static DateTime _userGroupsWriteTimeUtc = DateTime.MinValue;
 
         public static List<string> GetUserGroups()
         {
-            if (_userGroups == null)
+            DateTime writeTime = File.Exists(UserGroupsFile) ? File.GetLastWriteTimeUtc(UserGroupsFile) : DateTime.MinValue;
+            if (_userGroups == null || writeTime != _userGroupsWriteTimeUtc)
             {
                 _userGroups = new List<string>();
                 try
@@ -629,18 +770,24 @@ namespace PPTShapeLibrary
                     }
                 }
                 catch { }
+                _userGroupsWriteTimeUtc = File.Exists(UserGroupsFile) ? File.GetLastWriteTimeUtc(UserGroupsFile) : DateTime.MinValue;
             }
             return new List<string>(_userGroups);
         }
 
         private static void SaveUserGroups()
         {
-            try
+            WithLibraryMutationLock(() =>
             {
-                var ser = new System.Web.Script.Serialization.JavaScriptSerializer();
-                File.WriteAllText(UserGroupsFile, ser.Serialize(_userGroups ?? new List<string>()));
-            }
-            catch { }
+                try
+                {
+                    var ser = new System.Web.Script.Serialization.JavaScriptSerializer();
+                    WriteFileAtomically(UserGroupsFile, temp => File.WriteAllText(temp, ser.Serialize(_userGroups ?? new List<string>())));
+                    _userGroupsWriteTimeUtc = File.GetLastWriteTimeUtc(UserGroupsFile);
+                }
+                catch { }
+                return true;
+            });
         }
 
         /// <summary>全部一级组（含「全部」占位由前端处理，这里只给实体组），图标名映射前端。</summary>
@@ -670,19 +817,29 @@ namespace PPTShapeLibrary
 
         public static void SetGroup(string id, string group)
         {
-            var meta = LoadMeta(id);
-            if (meta == null) return;
-            meta.Group = string.IsNullOrWhiteSpace(group) ? LibraryMeta.DefaultGroup : group.Trim();
-            SaveMeta(meta);
-            InvalidateCache();
+            WithLibraryMutationLock(() =>
+            {
+                var meta = LoadMeta(id);
+                if (meta == null) return true;
+                meta.Group = string.IsNullOrWhiteSpace(group) ? LibraryMeta.DefaultGroup : group.Trim();
+                SaveMeta(meta);
+                InvalidateCache();
+                return true;
+            });
         }
 
         /// <summary>新建自定义组。返回 false 表示重名或非法。</summary>
         public static bool CreateUserGroup(string name)
         {
+            return WithLibraryMutationLock(() => CreateUserGroupCore(name));
+        }
+
+        private static bool CreateUserGroupCore(string name)
+        {
             if (string.IsNullOrWhiteSpace(name)) return false;
             name = name.Trim();
             if (PresetGroups.Contains(name)) return false;
+            _userGroups = null; // reload while holding the cross-process lock
             var ug = GetUserGroups();
             if (ug.Contains(name)) return false;
             ug.Add(name);
@@ -694,15 +851,26 @@ namespace PPTShapeLibrary
         /// <summary>重命名组：groups.json 更名，并把该组条目的 Group 一并更新。</summary>
         public static void RenameGroup(string oldName, string newName)
         {
+            WithLibraryMutationLock(() =>
+            {
+                RenameGroupCore(oldName, newName);
+                return true;
+            });
+        }
+
+        private static void RenameGroupCore(string oldName, string newName)
+        {
             if (string.IsNullOrWhiteSpace(oldName) || string.IsNullOrWhiteSpace(newName)) return;
             newName = newName.Trim();
             if (PresetGroups.Contains(oldName)) return;          // 预设组不允许改名
+            _userGroups = null;
             var ug = GetUserGroups();
             int i = ug.IndexOf(oldName);
             if (i < 0) return;
             ug[i] = newName;
             _userGroups = ug;
             SaveUserGroups();
+            InvalidateCache();
             foreach (var m in LoadAllItems())
             {
                 if (m.GetGroup() == oldName)
@@ -717,13 +885,20 @@ namespace PPTShapeLibrary
         /// <summary>删除用户组：其条目移到「我的」。返回受影响条目数。</summary>
         public static int DeleteGroup(string name)
         {
+            return WithLibraryMutationLock(() => DeleteGroupCore(name));
+        }
+
+        private static int DeleteGroupCore(string name)
+        {
             if (string.IsNullOrWhiteSpace(name)) return 0;
             if (PresetGroups.Contains(name)) return 0;
+            _userGroups = null;
             var ug = GetUserGroups();
             if (!ug.Remove(name)) return 0;
             _userGroups = ug;
             SaveUserGroups();
             int n = 0;
+            InvalidateCache();
             foreach (var m in LoadAllItems())
             {
                 if (m.GetGroup() == name)
@@ -757,10 +932,12 @@ namespace PPTShapeLibrary
             get { return Path.Combine(RootDir, "usercategories.json"); }
         }
         private static Dictionary<string, List<string>> _userCats;
+        private static DateTime _userCatsWriteTimeUtc = DateTime.MinValue;
 
         private static Dictionary<string, List<string>> LoadUserCats()
         {
-            if (_userCats != null) return _userCats;
+            DateTime writeTime = File.Exists(UserCatsFile) ? File.GetLastWriteTimeUtc(UserCatsFile) : DateTime.MinValue;
+            if (_userCats != null && writeTime == _userCatsWriteTimeUtc) return _userCats;
             _userCats = new Dictionary<string, List<string>>();
             try
             {
@@ -781,17 +958,23 @@ namespace PPTShapeLibrary
                 }
             }
             catch { }
+            _userCatsWriteTimeUtc = File.Exists(UserCatsFile) ? File.GetLastWriteTimeUtc(UserCatsFile) : DateTime.MinValue;
             return _userCats;
         }
 
         private static void SaveUserCats()
         {
-            try
+            WithLibraryMutationLock(() =>
             {
-                var ser = new System.Web.Script.Serialization.JavaScriptSerializer();
-                File.WriteAllText(UserCatsFile, ser.Serialize(LoadUserCats()));
-            }
-            catch { }
+                try
+                {
+                    var ser = new System.Web.Script.Serialization.JavaScriptSerializer();
+                    WriteFileAtomically(UserCatsFile, temp => File.WriteAllText(temp, ser.Serialize(LoadUserCats())));
+                    _userCatsWriteTimeUtc = File.GetLastWriteTimeUtc(UserCatsFile);
+                }
+                catch { }
+                return true;
+            });
         }
 
         /// <summary>用户声明过的二级分类（含空分类），可自行管理。</summary>
@@ -813,7 +996,17 @@ namespace PPTShapeLibrary
         /// <summary>新建二级分类（写清单；同名已存在则不重复）。</summary>
         public static void CreateGroupCategory(string group, string cat)
         {
+            WithLibraryMutationLock(() =>
+            {
+                CreateGroupCategoryCore(group, cat);
+                return true;
+            });
+        }
+
+        private static void CreateGroupCategoryCore(string group, string cat)
+        {
             if (string.IsNullOrWhiteSpace(group) || string.IsNullOrWhiteSpace(cat)) return;
+            _userCats = null;
             var d = LoadUserCats();
             string g = group.Trim();
             if (!d.ContainsKey(g)) d[g] = new List<string>();
@@ -825,9 +1018,15 @@ namespace PPTShapeLibrary
         /// <summary>重命名二级分类：改清单 + 该组条目批量改 category。返回受影响条目数。</summary>
         public static int RenameGroupCategory(string group, string oldCat, string newCat)
         {
+            return WithLibraryMutationLock(() => RenameGroupCategoryCore(group, oldCat, newCat));
+        }
+
+        private static int RenameGroupCategoryCore(string group, string oldCat, string newCat)
+        {
             if (string.IsNullOrWhiteSpace(oldCat) || string.IsNullOrWhiteSpace(newCat)) return 0;
             if (oldCat == newCat) return 0;
             int touched = 0;
+            InvalidateCache();
             // 条目批量改
             foreach (var m in LoadAllItems())
             {
@@ -839,6 +1038,7 @@ namespace PPTShapeLibrary
                 }
             }
             // 清单同步
+            _userCats = null;
             var d = LoadUserCats();
             if (d.ContainsKey(group ?? ""))
             {
@@ -853,7 +1053,13 @@ namespace PPTShapeLibrary
         /// <summary>删除二级分类：清单移除 + 该组条目 category 归「未分类」。返回受影响条目数。</summary>
         public static int DeleteGroupCategory(string group, string cat)
         {
+            return WithLibraryMutationLock(() => DeleteGroupCategoryCore(group, cat));
+        }
+
+        private static int DeleteGroupCategoryCore(string group, string cat)
+        {
             int touched = 0;
+            InvalidateCache();
             foreach (var m in LoadAllItems())
             {
                 if (m.GetGroup() != group) continue;
@@ -863,6 +1069,7 @@ namespace PPTShapeLibrary
                     touched++;
                 }
             }
+            _userCats = null;
             var d = LoadUserCats();
             if (d.ContainsKey(group ?? ""))
             {
@@ -913,15 +1120,19 @@ namespace PPTShapeLibrary
 
         public static void SaveSettings(Settings settings)
         {
-            try
+            WithLibraryMutationLock(() =>
             {
-                var ser = new DataContractJsonSerializer(typeof(Settings));
-                using (var fs = File.Create(SettingsFile))
+                try
                 {
-                    ser.WriteObject(fs, settings);
+                    var ser = new DataContractJsonSerializer(typeof(Settings));
+                    WriteFileAtomically(SettingsFile, temp =>
+                    {
+                        using (var fs = File.Create(temp)) ser.WriteObject(fs, settings);
+                    });
                 }
-            }
-            catch { }
+                catch { }
+                return true;
+            });
         }
 
         // ---------------- 去重检测 / 清理 ----------------
@@ -994,16 +1205,60 @@ namespace PPTShapeLibrary
         /// <summary>把整个收藏库打包为 .zip 备份文件。</summary>
         public static bool BackupTo(string zipPath)
         {
+            return WithLibraryMutationLock(() => BackupToCore(zipPath));
+        }
+
+        private static bool BackupToCore(string zipPath)
+        {
+            string tempZip = null;
             try
             {
-                if (File.Exists(zipPath)) File.Delete(zipPath);
-                System.IO.Compression.ZipFile.CreateFromDirectory(ItemsDir, zipPath,
-                    System.IO.Compression.CompressionLevel.Optimal, false);
+                if (string.IsNullOrWhiteSpace(zipPath)) return false;
+                string target = Path.GetFullPath(zipPath);
+                string itemsRoot = Path.GetFullPath(ItemsDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                    + Path.DirectorySeparatorChar;
+                if (target.StartsWith(itemsRoot, StringComparison.OrdinalIgnoreCase)) return false;
+                string targetDir = Path.GetDirectoryName(target);
+                if (string.IsNullOrEmpty(targetDir)) return false;
+                tempZip = Path.Combine(targetDir, ".PPTShapeLibrary_backup_" + Guid.NewGuid().ToString("N") + ".tmp");
+                using (var fs = new FileStream(tempZip, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
+                using (var zip = new System.IO.Compression.ZipArchive(fs, System.IO.Compression.ZipArchiveMode.Create))
+                {
+                    foreach (string dir in Directory.GetDirectories(ItemsDir))
+                    {
+                        string id = Path.GetFileName(dir);
+                        if (!IsSafeId(id)) continue;
+                        var itemMeta = LoadMeta(id);
+                        if (itemMeta == null) continue; // exclude incomplete/orphan entries
+                        if (itemMeta.Kind == "Shape" && !File.Exists(Path.Combine(dir, "shape.pptx"))) continue;
+                        if (itemMeta.Kind == "Style" && !File.Exists(Path.Combine(dir, "style.json"))) continue;
+                        if (itemMeta.Kind != "Shape" && itemMeta.Kind != "Style") continue;
+
+                        foreach (string file in Directory.GetFiles(dir))
+                        {
+                            string name = Path.GetFileName(file);
+                            if (!string.Equals(name, "meta.json", StringComparison.OrdinalIgnoreCase)
+                                && !string.Equals(name, "shape.pptx", StringComparison.OrdinalIgnoreCase)
+                                && !string.Equals(name, "style.json", StringComparison.OrdinalIgnoreCase)
+                                && !string.Equals(name, "preview.png", StringComparison.OrdinalIgnoreCase)) continue;
+                            var entry = zip.CreateEntry(id + "/" + name, System.IO.Compression.CompressionLevel.Optimal);
+                            using (var entryStream = entry.Open())
+                            using (var input = File.OpenRead(file)) input.CopyTo(entryStream);
+                        }
+                    }
+                }
+                if (File.Exists(target)) File.Replace(tempZip, target, null);
+                else File.Move(tempZip, target);
+                tempZip = null;
                 return true;
             }
             catch
             {
                 return false;
+            }
+            finally
+            {
+                try { if (tempZip != null && File.Exists(tempZip)) File.Delete(tempZip); } catch { }
             }
         }
 
@@ -1037,21 +1292,62 @@ namespace PPTShapeLibrary
         public static bool RestoreFrom(string zipPath)
         {
             RaiseWillMutate();   // 覆盖 items 前先关闭库文稿句柄
+            return WithLibraryMutationLock(() => RestoreFromCore(zipPath));
+        }
+
+        private static bool RestoreFromCore(string zipPath)
+        {
             string tmp = null;
+            string backup = null;
             try
             {
-                tmp = Path.Combine(Path.GetTempPath(), "PPTShapeLibrary_restore_" + Guid.NewGuid().ToString("N"));
+                // Keep staging beside items so the final directory renames stay on one volume.
+                tmp = Path.Combine(RootDir, ".restore_" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(tmp);
                 string itemsRoot = Path.GetFullPath(tmp) + Path.DirectorySeparatorChar;
 
                 using (var fs = File.OpenRead(zipPath))
                 using (var zip = new System.IO.Compression.ZipArchive(fs, System.IO.Compression.ZipArchiveMode.Read))
                 {
+                    if (zip.Entries.Count > 20004)
+                        throw new InvalidOperationException("备份包含过多文件。");
+                    long expandedBytes = 0;
+                    long extractedBytes = 0;
+                    var itemIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     foreach (var entry in zip.Entries)
                     {
-                        if (entry.FullName.EndsWith("/", StringComparison.Ordinal)) continue; // 目录项
                         string rel = entry.FullName.Replace('\\', '/');
-                        // 安全校验：拒绝绝对路径与 .. 穿越
+                        bool isDirectory = rel.EndsWith("/", StringComparison.Ordinal);
+                        if (isDirectory) rel = rel.Substring(0, rel.Length - 1);
+                        string[] parts = rel.Split('/');
+                        // Backups contain only {id}/{file}; accepting arbitrary ZIP layouts can
+                        // replace the library with an empty or unusable tree (for example a pack).
+                        if (parts.Length != (isDirectory ? 1 : 2) || !IsSafeId(parts[0]))
+                            throw new InvalidOperationException("备份包含非法条目：" + entry.FullName);
+                        itemIds.Add(parts[0]);
+                        if (entry.Length > 256L * 1024 * 1024)
+                            throw new InvalidOperationException("备份中的文件过大：" + entry.FullName);
+                        expandedBytes += entry.Length;
+                        if (expandedBytes > 512L * 1024 * 1024)
+                            throw new InvalidOperationException("备份解压后超过允许大小。");
+                        if (isDirectory)
+                        {
+                            Directory.CreateDirectory(Path.Combine(tmp, parts[0]));
+                            continue;
+                        }
+                        string fileName = parts[1];
+                        if (!string.Equals(fileName, "meta.json", StringComparison.OrdinalIgnoreCase)
+                            && !string.Equals(fileName, "shape.pptx", StringComparison.OrdinalIgnoreCase)
+                            && !string.Equals(fileName, "style.json", StringComparison.OrdinalIgnoreCase)
+                            && !string.Equals(fileName, "preview.png", StringComparison.OrdinalIgnoreCase))
+                            throw new InvalidOperationException("备份包含不支持的文件：" + entry.FullName);
+                        if (!seenPaths.Add(rel))
+                            throw new InvalidOperationException("备份包含重复文件：" + entry.FullName);
+                        if (string.Equals(fileName, "meta.json", StringComparison.OrdinalIgnoreCase)
+                            && entry.Length > 4L * 1024 * 1024)
+                            throw new InvalidOperationException("备份元数据过大：" + entry.FullName);
+
                         string full = Path.GetFullPath(Path.Combine(tmp, rel.Replace('/', Path.DirectorySeparatorChar)));
                         if (!full.StartsWith(itemsRoot, StringComparison.OrdinalIgnoreCase))
                             throw new InvalidOperationException("备份包含非法路径：" + entry.FullName);
@@ -1059,32 +1355,80 @@ namespace PPTShapeLibrary
                         using (var es = entry.Open())
                         using (var outFs = File.Create(full))
                         {
-                            es.CopyTo(outFs);
+                            var buffer = new byte[81920];
+                            int read;
+                            long entryBytes = 0;
+                            while ((read = es.Read(buffer, 0, buffer.Length)) > 0)
+                            {
+                                entryBytes += read;
+                                extractedBytes += read;
+                                if (entryBytes > 256L * 1024 * 1024 || extractedBytes > 512L * 1024 * 1024
+                                    || (string.Equals(fileName, "meta.json", StringComparison.OrdinalIgnoreCase)
+                                        && entryBytes > 4L * 1024 * 1024))
+                                    throw new InvalidOperationException("备份实际解压大小超过允许限制：" + entry.FullName);
+                                outFs.Write(buffer, 0, read);
+                            }
                         }
+                    }
+
+                    foreach (string id in itemIds)
+                    {
+                        string itemDir = Path.Combine(tmp, id);
+                        string metaPath = Path.Combine(itemDir, "meta.json");
+                        var itemMeta = LoadMetaFromDir(metaPath);
+                        if (itemMeta == null)
+                            throw new InvalidOperationException("备份条目缺少有效元数据：" + id);
+                        if (itemMeta.Kind == "Shape" && !File.Exists(Path.Combine(itemDir, "shape.pptx")))
+                            throw new InvalidOperationException("备份形状条目缺少 shape.pptx：" + id);
+                        if (itemMeta.Kind == "Style" && !File.Exists(Path.Combine(itemDir, "style.json")))
+                            throw new InvalidOperationException("备份样式条目缺少 style.json：" + id);
+                        if (itemMeta.Kind != "Shape" && itemMeta.Kind != "Style")
+                            throw new InvalidOperationException("备份条目类型无效：" + id);
+                        if (!string.Equals(itemMeta.Id, id, StringComparison.Ordinal))
+                            RewriteMetaIdText(metaPath, id);
                     }
                 }
 
-                // 校验成功：清空现有 items 并替换
+                // Swap whole directories instead of deleting existing items one by one. If the
+                // staged directory cannot be installed, restore the original directory intact.
                 string items = ItemsDir;
-                if (Directory.Exists(items))
+                bool movedOriginal = false;
+                backup = Path.Combine(RootDir, ".items_before_restore_" + Guid.NewGuid().ToString("N"));
+                try
                 {
-                    foreach (var dir in Directory.GetDirectories(items))
+                    if (Directory.Exists(items))
                     {
-                        try { Directory.Delete(dir, true); } catch { }
+                        Directory.Move(items, backup);
+                        movedOriginal = true;
                     }
+                    Directory.Move(tmp, items);
+                    tmp = null;
                 }
-                Directory.CreateDirectory(items);
-                foreach (var sub in Directory.GetDirectories(tmp))
+                catch
                 {
-                    string dest = Path.Combine(items, Path.GetFileName(sub));
-                    if (Directory.Exists(dest)) try { Directory.Delete(dest, true); } catch { }
-                    Directory.Move(sub, dest);
+                    if (movedOriginal && !Directory.Exists(items) && Directory.Exists(backup))
+                    {
+                        try { Directory.Move(backup, items); }
+                        catch (Exception rollbackError)
+                        {
+                            Log.Error(rollbackError, "RestoreFrom rollback");
+                            Log.Write("RestoreFrom rollback failed; original library retained at " + backup);
+                        }
+                    }
+                    throw;
                 }
+
                 InvalidateCache();
+                if (movedOriginal && Directory.Exists(backup))
+                {
+                    try { Directory.Delete(backup, true); }
+                    catch (Exception cleanupError) { Log.Error(cleanupError, "RestoreFrom old library cleanup"); }
+                }
                 return true;
             }
-            catch
+            catch (Exception ex)
             {
+                Log.Error(ex, "RestoreFrom");
                 return false;
             }
             finally
@@ -1100,10 +1444,12 @@ namespace PPTShapeLibrary
             get { return Path.Combine(RootDir, "toolprefs.json"); }
         }
         private static Dictionary<string, string> _toolPrefs;
+        private static DateTime _toolPrefsWriteTimeUtc = DateTime.MinValue;
 
         private static Dictionary<string, string> LoadToolPrefs()
         {
-            if (_toolPrefs != null) return _toolPrefs;
+            DateTime writeTime = File.Exists(ToolPrefsFile) ? File.GetLastWriteTimeUtc(ToolPrefsFile) : DateTime.MinValue;
+            if (_toolPrefs != null && writeTime == _toolPrefsWriteTimeUtc) return _toolPrefs;
             _toolPrefs = new Dictionary<string, string>();
             try
             {
@@ -1121,6 +1467,7 @@ namespace PPTShapeLibrary
                 }
             }
             catch { }
+            _toolPrefsWriteTimeUtc = File.Exists(ToolPrefsFile) ? File.GetLastWriteTimeUtc(ToolPrefsFile) : DateTime.MinValue;
             return _toolPrefs;
         }
 
@@ -1134,15 +1481,21 @@ namespace PPTShapeLibrary
         public static void SetToolPref(string key, string value)
         {
             if (string.IsNullOrWhiteSpace(key)) return;
-            try
+            WithLibraryMutationLock(() =>
             {
-                var d = LoadToolPrefs();
-                if (value == null) d.Remove(key);
-                else d[key] = value;
-                var ser = new System.Web.Script.Serialization.JavaScriptSerializer();
-                File.WriteAllText(ToolPrefsFile, ser.Serialize(d));
-            }
-            catch { }
+                try
+                {
+                    _toolPrefs = null; // reread under the cross-process lock to preserve other processes' updates
+                    var d = LoadToolPrefs();
+                    if (value == null) d.Remove(key);
+                    else d[key] = value;
+                    var ser = new System.Web.Script.Serialization.JavaScriptSerializer();
+                    WriteFileAtomically(ToolPrefsFile, temp => File.WriteAllText(temp, ser.Serialize(d)));
+                    _toolPrefsWriteTimeUtc = File.GetLastWriteTimeUtc(ToolPrefsFile);
+                }
+                catch { }
+                return true;
+            });
         }
     }
 }

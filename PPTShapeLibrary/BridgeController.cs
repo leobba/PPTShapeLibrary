@@ -33,6 +33,16 @@ namespace PPTShapeLibrary
             // 首屏数据在页面 ready 后由前端发 init 拉取
         }
 
+        /// <summary>WebView 消息仅接受本地受信任 UI 页面，避免外部导航页面调用宿主桥。</summary>
+        public static bool IsTrustedMessageSource(string source)
+        {
+            Uri uri;
+            return Uri.TryCreate(source, UriKind.Absolute, out uri)
+                && string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(uri.Host, "app.pptshapes.local", StringComparison.OrdinalIgnoreCase)
+                && uri.IsDefaultPort;
+        }
+
         // ---------------- 下行推送 ----------------
 
         public void PushRefresh()
@@ -264,7 +274,18 @@ namespace PPTShapeLibrary
                         }
                     case "openFolder":
                         {
-                            string dir = Path.Combine(ShapeLibraryService.ItemsDir, ToStr(payload, "id"));
+                            string id = ToStr(payload, "id");
+                            if (!ShapeLibraryService.IsSafeId(id))
+                            {
+                                Result(reqId, false, null, "素材条目标识无效");
+                                break;
+                            }
+                            string dir = Path.Combine(ShapeLibraryService.ItemsDir, id);
+                            if (!Directory.Exists(dir))
+                            {
+                                Result(reqId, false, null, "素材条目不存在");
+                                break;
+                            }
                             System.Diagnostics.Process.Start("explorer.exe", dir);
                             Ok(reqId, new Dictionary<string, object>());
                             break;

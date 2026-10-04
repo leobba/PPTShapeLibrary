@@ -101,6 +101,10 @@ namespace PPTShapeLibrary
                 await _webView.EnsureCoreWebView2Async(env);
 
                 var core = _webView.CoreWebView2;
+                core.NavigationStarting += (s, e) =>
+                {
+                    if (!BridgeController.IsTrustedMessageSource(e.Uri)) e.Cancel = true;
+                };
                 string webUiDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WebUI");
                 core.SetVirtualHostNameToFolderMapping("app.pptshapes.local", webUiDir,
                     CoreWebView2HostResourceAccessKind.Allow);
@@ -114,6 +118,7 @@ namespace PPTShapeLibrary
                 {
                     try
                     {
+                        if (!BridgeController.IsTrustedMessageSource(e.Source)) return;
                         string raw = e.TryGetWebMessageAsString();
                         // 宿主级消息：精确解析 type 后关窗/拖动，避免 Contains 误匹配业务消息
                         if (!string.IsNullOrEmpty(raw))

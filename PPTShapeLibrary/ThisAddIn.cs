@@ -229,7 +229,17 @@ namespace PPTShapeLibrary
             }
 
             // Web 面板（失败自动降级到提示页）
-            var webHost = new WebPaneHost();
+            WebPaneHost webHost;
+            try
+            {
+                webHost = new WebPaneHost();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "WebPaneHost ctor -> fallback pane");
+                UseFallbackPane("新界面控件创建失败：" + ex.Message);
+                return;
+            }
             webHost.InitializationFailed += ex =>
             {
                 try

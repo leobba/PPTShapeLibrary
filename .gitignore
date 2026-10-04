@@ -74,3 +74,10 @@ Desktop.ini
 webui-src/**/node_modules/
 npm-debug.log*
 
+# ================= Downloader credentials and downloaded assets =================
+bangongziyuan_downloader/config.json
+bangongziyuan_downloader/cookies_header.txt
+bangongziyuan_downloader/cookies.txt
+bangongziyuan_downloader/downloads/
+bangongziyuan_downloader/*.part
+

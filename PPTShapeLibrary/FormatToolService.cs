@@ -31,13 +31,14 @@ namespace PPTShapeLibrary
         private class CleanStats
         {
             public int EmptySlides, HiddenShapes, OffSlideShapes, Notes, Actions;
+            public int Failed;
         }
 
         private static string StatsText(CleanStats st)
         {
             return "空白页 " + st.EmptySlides + " · 隐藏对象 " + st.HiddenShapes +
                    " · 页外对象 " + st.OffSlideShapes + " · 备注 " + st.Notes +
-                   " · 动作链接 " + st.Actions;
+                   " · 动作链接 " + st.Actions + " · 失败 " + st.Failed;
         }
 
         // ================= ① 整稿导出 PNG/JPG =================
@@ -88,7 +89,7 @@ namespace PPTShapeLibrary
                 var st = CleanCore(opts, true);
                 return new TextToolService.ToolResult
                 {
-                    Ok = true,
+                    Ok = st.Failed == 0,
                     Message = StatsText(st),
                     Changed = st.EmptySlides + st.HiddenShapes + st.OffSlideShapes + st.Notes + st.Actions
                 };
@@ -107,8 +108,8 @@ namespace PPTShapeLibrary
                 var st = CleanCore(opts, false);
                 return new TextToolService.ToolResult
                 {
-                    Ok = true,
-                    Message = "清理完成：" + StatsText(st),
+                    Ok = st.Failed == 0,
+                    Message = (st.Failed == 0 ? "清理完成：" : "清理部分完成：") + StatsText(st),
                     Changed = st.EmptySlides + st.HiddenShapes + st.OffSlideShapes + st.Notes + st.Actions
                 };
             }
@@ -126,9 +127,10 @@ namespace PPTShapeLibrary
             var slideW = (float)pres.PageSetup.SlideWidth;
             var slideH = (float)pres.PageSetup.SlideHeight;
 
-            foreach (PowerPoint.Slide slide in pres.Slides)
+            int remainingSlides = pres.Slides.Count;
+            for (int slideIndex = pres.Slides.Count; slideIndex >= 1; slideIndex--)
             {
-                if (o.DelEmptySlides && !HasVisibleContent(slide)) st.EmptySlides++;
+                var slide = pres.Slides[slideIndex];
                 for (int i = slide.Shapes.Count; i >= 1; i--)
                 {
                     var shp = slide.Shapes[i];
@@ -136,20 +138,28 @@ namespace PPTShapeLibrary
                     {
                         if (o.DelHiddenShapes && shp.Visible == MsoTriState.msoFalse)
                         {
-                            st.HiddenShapes++;
-                            if (!dryRun) shp.Delete();
+                            if (dryRun) st.HiddenShapes++;
+                            else
+                            {
+                                try { shp.Delete(); st.HiddenShapes++; }
+                                catch { st.Failed++; }
+                            }
                             continue;
                         }
                         if (o.DelOffSlideShapes)
                         {
                             float l = 0, t = 0, r = 0, b = 0;
                             try { l = (float)shp.Left; t = (float)shp.Top; r = l + (float)shp.Width; b = t + (float)shp.Height; }
-                            catch { continue; }
+                            catch { st.Failed++; continue; }
                             // 完全在画布外才删，避免误伤半出画布对象
                             if (r < -5 || b < -5 || l > slideW + 5 || t > slideH + 5)
                             {
-                                st.OffSlideShapes++;
-                                if (!dryRun) shp.Delete();
+                                if (dryRun) st.OffSlideShapes++;
+                                else
+                                {
+                                    try { shp.Delete(); st.OffSlideShapes++; }
+                                    catch { st.Failed++; }
+                                }
                                 continue;
                             }
                         }
@@ -160,6 +170,7 @@ namespace PPTShapeLibrary
                                 if (shp.ActionSettings != null)
                                 {
                                     bool any = false;
+                                    bool changedAny = false;
                                     var activations = new[]
                                     {
                                         PowerPoint.PpMouseActivation.ppMouseClick,
@@ -172,21 +183,47 @@ namespace PPTShapeLibrary
                                             var act = shp.ActionSettings[actKey];
                                             if (act.Action != PowerPoint.PpActionType.ppActionNone)
                                             {
-                                                act.Action = PowerPoint.PpActionType.ppActionNone;
-                                                any = true;
+                                                if (dryRun) any = true;
+                                                else
+                                                {
+                                                    try { act.Action = PowerPoint.PpActionType.ppActionNone; changedAny = true; }
+                                                    catch { st.Failed++; }
+                                                }
                                             }
                                         }
-                                        catch { }
+                                        catch { st.Failed++; }
                                     }
-                                    if (any) st.Actions++;
+                                    if (any || changedAny) st.Actions++;
                                 }
                             }
-                            catch { }
+                            catch { st.Failed++; }
                         }
                     }
-                    catch { }
+                    catch { st.Failed++; }
                 }
-                if (o.ClearNotes)
+                bool slideWillBeDeleted = false;
+                if (o.DelEmptySlides && remainingSlides > 1
+                    && !HasVisibleContent(slide, o, slideW, slideH))
+                {
+                    if (dryRun)
+                    {
+                        st.EmptySlides++;
+                        remainingSlides--;
+                        slideWillBeDeleted = true;
+                    }
+                    else
+                    {
+                        try
+                        {
+                            slide.Delete();
+                            st.EmptySlides++;
+                            remainingSlides--;
+                            slideWillBeDeleted = true;
+                        }
+                        catch { st.Failed++; }
+                    }
+                }
+                if (o.ClearNotes && !slideWillBeDeleted)
                 {
                     try
                     {
@@ -194,18 +231,22 @@ namespace PPTShapeLibrary
                         var tr = notes.TextFrame.TextRange;
                         if (tr != null && !string.IsNullOrWhiteSpace(tr.Text))
                         {
-                            st.Notes++;
-                            if (!dryRun) tr.Text = "";
+                            if (dryRun) st.Notes++;
+                            else
+                            {
+                                try { tr.Text = ""; st.Notes++; }
+                                catch { st.Failed++; }
+                            }
                         }
                     }
-                    catch { }
+                    catch { st.Failed++; }
                 }
             }
             return st;
         }
 
         /// <summary>页是否有实质可见内容：占位符且无文字视为空；其它可见对象均算内容。</summary>
-        private static bool HasVisibleContent(PowerPoint.Slide slide)
+        private static bool HasVisibleContent(PowerPoint.Slide slide, CleanOptions options, float slideW, float slideH)
         {
             try
             {
@@ -214,7 +255,18 @@ namespace PPTShapeLibrary
                     var shp = slide.Shapes[i];
                     try
                     {
-                        if (shp.Visible != MsoTriState.msoTrue) continue;
+                        if (shp.Visible != MsoTriState.msoTrue)
+                        {
+                            // Preserve hidden content unless the user explicitly selected its removal.
+                            if (!options.DelHiddenShapes) return true;
+                            continue;
+                        }
+                        if (options.DelOffSlideShapes)
+                        {
+                            float l = (float)shp.Left, t = (float)shp.Top;
+                            float r = l + (float)shp.Width, b = t + (float)shp.Height;
+                            if (r < -5 || b < -5 || l > slideW + 5 || t > slideH + 5) continue;
+                        }
                         bool isPlaceholder = false;
                         try { isPlaceholder = shp.PlaceholderFormat != null; } catch { }
                         if (isPlaceholder)
@@ -224,7 +276,7 @@ namespace PPTShapeLibrary
                                 if (shp.HasTextFrame == MsoTriState.msoTrue && shp.TextFrame.HasText == MsoTriState.msoTrue
                                     && !string.IsNullOrWhiteSpace(shp.TextFrame.TextRange.Text)) return true;
                             }
-                            catch { }
+                            catch { return true; }
                             continue;
                         }
                         return true;
@@ -232,7 +284,12 @@ namespace PPTShapeLibrary
                     catch { return true; }
                 }
             }
-            catch { }
+            catch
+            {
+                // An unreadable slide is not safely known to be empty. Preserve it rather than
+                // letting an automation/COM error turn into a destructive deletion.
+                return true;
+            }
             return false;
         }
 
@@ -246,7 +303,7 @@ namespace PPTShapeLibrary
                 if (width == null && height == null)
                     return new TextToolService.ToolResult { Ok = false, Message = "请至少填写宽度或高度。" };
                 var shapes = ShapesByScope(scope);
-                int done = 0;
+                int done = 0, failed = 0;
                 foreach (var shp in shapes)
                 {
                     try
@@ -276,12 +333,12 @@ namespace PPTShapeLibrary
                         }
                         done++;
                     }
-                    catch { }
+                    catch { failed++; }
                 }
                 return new TextToolService.ToolResult
                 {
-                    Ok = true,
-                    Message = "已统一 " + done + " 个形状尺寸。",
+                    Ok = failed == 0,
+                    Message = "已统一 " + done + " 个形状尺寸" + (failed > 0 ? "，" + failed + " 个形状调整失败。" : "。"),
                     Changed = done
                 };
             }

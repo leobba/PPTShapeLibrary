@@ -1,0 +1,33 @@
+{
+  "_说明": [
+    "把本文件另存为 config.json 后编辑。",
+    "cookie 三选一（推荐第 1 种）：",
+    "  1) cookie_string: \"@cookies_header.txt\"  表示从文本文件读取浏览器复制的 Cookie 头(最省事,推荐)",
+    "  2) cookie_string: 直接粘贴 Cookie 头字符串(注意里面的引号需按 JSON 转义,较麻烦)",
+    "  3) cookie_file:   Cookie-Editor 导出的 Netscape 格式 cookies.txt"
+  ],
+
+  "cookie_string": "@cookies_header.txt",
+  "cookie_file": "",
+
+  "out_dir": "downloads",
+  "delay": 2.5,
+  "timeout": 60,
+  "retries": 3,
+  "limit": 0,
+  "max_pages": 0,
+
+  "sources": [
+    {
+      "name": "工作总结",
+      "url": "https://www.bangongziyuan.com/ppt/cat1-11-stu-0.html",
+      "include": ["述职", "汇报"],
+      "exclude": ["卡通", "可爱"]
+    }
+  ],
+
+  "keywords": [],
+
+  "include": [],
+  "exclude": []
+}

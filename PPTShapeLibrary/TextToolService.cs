@@ -70,7 +70,7 @@ namespace PPTShapeLibrary
         /// <summary>批量修改文字样式：scope=selection/page/all；仅非空字段生效。</summary>
         public static ToolResult ApplyTextStyle(string scope, string fontName, float? size, bool? bold, bool? italic, int? colorRgb, string align)
         {
-            int changed = 0;
+            int changed = 0, failed = 0;
             try
             {
                 foreach (var shp in ShapesByScope(scope))
@@ -89,9 +89,14 @@ namespace PPTShapeLibrary
                         else if (align == "right") range.ParagraphFormat.Alignment = PowerPoint.PpParagraphAlignment.ppAlignRight;
                         changed++;
                     }
-                    catch { }
+                    catch { failed++; }
                 }
-                return new ToolResult { Ok = true, Message = "已处理 " + changed + " 个文字形状。", Changed = changed };
+                return new ToolResult
+                {
+                    Ok = failed == 0,
+                    Message = "已处理 " + changed + " 个文字形状" + (failed > 0 ? "，" + failed + " 个处理失败。" : "。"),
+                    Changed = changed
+                };
             }
             catch (Exception ex)
             {
@@ -102,7 +107,7 @@ namespace PPTShapeLibrary
         /// <summary>一键替换字体：遍历整稿（scope 参数保留扩展），将 fromFont 文本替换为 toFont。</summary>
         public static ToolResult ReplaceFont(string fromFont, string toFont, bool allSlides)
         {
-            int changed = 0;
+            int changed = 0, failed = 0;
             try
             {
                 string scope = allSlides ? "all" : "page";
@@ -118,9 +123,15 @@ namespace PPTShapeLibrary
                             changed++;
                         }
                     }
-                    catch { }
+                    catch { failed++; }
                 }
-                return new ToolResult { Ok = true, Message = "已将 " + changed + " 处文字从「" + fromFont + "」替换为「" + toFont + "」。", Changed = changed };
+                return new ToolResult
+                {
+                    Ok = failed == 0,
+                    Message = "已将 " + changed + " 处文字从「" + fromFont + "」替换为「" + toFont + "」" +
+                              (failed > 0 ? "，" + failed + " 个形状处理失败。" : "。"),
+                    Changed = changed
+                };
             }
             catch (Exception ex)
             {
@@ -176,7 +187,7 @@ namespace PPTShapeLibrary
         /// <summary>文字清理（整稿）：去多余空白 / CJK 间西文标点转全角。整段重设并回刷首字符格式。</summary>
         public static ToolResult CleanText(bool trimWhitespace, bool unifyPunctuation)
         {
-            int changed = 0;
+            int changed = 0, failed = 0;
             try
             {
                 if (!trimWhitespace && !unifyPunctuation)
@@ -223,9 +234,14 @@ namespace PPTShapeLibrary
                             changed++;
                         }
                     }
-                    catch { }
+                    catch { failed++; }
                 }
-                return new ToolResult { Ok = true, Message = "已清理 " + changed + " 个文本形状。", Changed = changed };
+                return new ToolResult
+                {
+                    Ok = failed == 0,
+                    Message = "已清理 " + changed + " 个文本形状" + (failed > 0 ? "，" + failed + " 个处理失败。" : "。"),
+                    Changed = changed
+                };
             }
             catch (Exception ex)
             {
