@@ -1,9 +1,17 @@
-# PPTShapeLibrary 开发测试清单（未打包阶段）
+# PPTShapeLibrary 开发测试清单
 
 > 用途：正式打包/发布前，按本清单在真实 PowerPoint 中逐项人工测试。
-> 当前状态：**开发测试中，不打包**。所有运行走 VS 本地调试（vstolocal），
-> 不执行 `msbuild /t:Publish` / ClickOnce，无发布产物生成。
-> 更新日期：2026-07
+> 当前状态：**已进入打包阶段**（`scripts/package-release.ps1` → `dist/` + `installer/` 均存在）。
+> 日常改代码仍推荐走 VS 本地调试（vstolocal）：`scripts/dev-register.ps1` 注册，
+> 或直接用 VS2022 F5。只有发版才执行 `msbuild /t:Publish` / ClickOnce。
+> 更新日期：2026-10（随每轮实测更新；失效条目请直接改本文件）
+>
+> 自动化验证（优先跑这些，再跑人工项）：
+> - `npm run build:all`（webui-src）：typecheck + 桥调用失败处理门禁 + 构建 + 产物自检 + 部署（含 bin 同步）
+> - `msbuild PPTShapeLibrary.sln /t:Rebuild /p:Configuration=Debug`：0 错误 0 警告
+> - `pwsh -File scripts\e2e-smoke.ps1`：真机端到端冒烟（PowerPoint + WebView2 + CDP，45 项断言，自动还原库元数据、自动修复注册表）
+> - `python scripts/verify-insert-fidelity.py`：整页插入保真度（守卫"可以不用剪贴板"的前提）
+> - `python scripts/verify-font-switch.py`：一键换字体的 COM 语义
 
 ---
 
@@ -11,10 +19,10 @@
 
 | 项 | 值 | 备注 |
 |----|----|------|
-| PowerPoint | Microsoft 365 16.0.20326（x64） | `C:\Program Files\Microsoft Office\root\Office16\POWERPNT.EXE` |
+| PowerPoint | Microsoft 365 16.0.20430（x64） | `C:\Program Files\Microsoft Office\root\Office16\POWERPNT.EXE` |
 | Visual Studio | 2022 Community（含 Office/SharePoint 工作负载） | F5 调试即加载插件 |
-| WebView2 Runtime | 152.0.4191.53 | 已装，Web 面板可跑 |
-| 插件注册 | `HKCU\...\PowerPoint\Addins\PPTShapeLibrary` LoadBehavior=3, manifest=bin\Debug\*.vsto\|vstolocal | 本机已注册 |
+| WebView2 Runtime | 154.x | 已装，Web 面板可跑 |
+| 插件注册 | **两处都要写**：`HKCU\...\PowerPoint\Addins\PPTShapeLibrary`（版本无关，关键）与 `HKCU\...\16.0\PowerPoint\Addins\PPTShapeLibrary`（版本化）；LoadBehavior=3, manifest=bin\Debug\*.vsto\|vstolocal | 只写版本化路径会导致"加载项子系统未初始化"、功能区没有「素材库」——见 `PowerPoint-COM经验与坑.md` §9；用 `scripts\dev-register.ps1` 注册/注销 |
 | 数据目录 | `%APPDATA%\PPTShapeLibrary\`（items / packs / logs / webview2 / settings.json） | 已存在，含 `.builtin_installed` |
 
 ### 启动方式（三选一）
@@ -56,7 +64,7 @@ msbuild PPTShapeLibrary.sln /t:Rebuild /p:Configuration=Debug /restore /nologo /
 |---|------|------|------|
 | C1 | 整组收藏 | 画布放 1 个组合（多形状 Ctrl 选中→组合），收藏 | 卡片徽章=形状；插入后整组居中 |
 | C2 | 超大缩放 | 收藏一个明显大于画布的形状（拉大），插入 | 自动等比缩到画布 90% 内 |
-| C3 | 收藏整页 | 页面画 3 个形状 → Ribbon「收藏整页」 | 生成一个含 3 形状的收藏，名称"整页 …" |
+| C3 | 收藏整页 | 页面画 3 个形状 → Ribbon「收藏整页」 | 生成一个含 3 形状的收藏，名称"整页 …" |`r`n| C3b | 插入整页 | 整页卡右键→插入当前页之后/文稿末尾/打开为新文稿 | 三处都成功；**用户剪贴板内容不被覆盖**；单次插入 < 1s（旧剪贴板路径为 6s+） |
 | C4 | 收藏剪贴板 | 画布选中形状 Ctrl+C → Ribbon「收藏剪贴板」（不选中任何形状） | 入库成功；插入后与源一致 |
 | C5 | 收藏整稿 | 造 3 页每页有内容 → Ribbon「收藏整稿」 | 弹"已批量收藏 3 页"；面板出现"第1/2/3页 …"卡片；空页被跳过 |
 | C6 | 命名询问 | 设置→取消"按形状类型自动命名"→ 收藏一个矩形 | 弹出命名输入框；确定后按输入命名；取消则不入库 |
@@ -76,12 +84,12 @@ msbuild PPTShapeLibrary.sln /t:Rebuild /p:Configuration=Debug /restore /nologo /
 | G7 | 跨文档刷新 | 另开/切换演示文稿 | 素材库自动刷新(600ms 防抖) |
 | G8 | 面板宽度联动 | 拖动窗格边条变宽/窄 | 卡片列宽/字号自适应变化 |
 | B1 | 类型筛选 | 点「形状」段选 | 只剩形状类卡片；点「样式」只剩样式类 |
-| B2 | 标签筛选 | 给两张卡打同一标签，选标签下拉该项 | 只剩含该标签的卡；下拉计数/文本正确 |
-| B3 | 组合筛选 | 分类 + 类型 + 标签 + 搜索词叠加 | 结果取交集；状态行显示"筛选 x / y · 共 M" |
+| B2 | 颜色筛选 | 用"主色"筛选一个近似色 | 只剩主色接近的卡片；状态行计数正确 |
+| B3 | 组合筛选 | 分类 + 类型 + 搜索词 + 未使用叠加 | 结果取交集；状态行显示"x / y 条匹配" |
 | B4 | 最近使用横条 | 无任何筛选、排序=最新 | 顶部出现"最近使用"横条 6 张（全库最近用的），主网格**不重复**显示这 6 张 |
-| B5 | 分页 | 设置 PageSize=50，收藏 ≥60 条 | 首屏 ≤50 张；滚到底自动追加 |
+| B5 | 分页 | 设置 PageSize=5，收藏 ≥60 条 | 首屏 ≤5 张；滚到底自动追加；**若首屏没撑出滚动条应自动补下一页**（旧版会卡住看不到后面的条目） |
 | B6 | 大库滚动 | 收藏 ≥300 条，滚动列表 | 无长卡顿（content-visibility 生效） |
-| B7 | 搜索 | 输入名称片段/分类名/标签名 | 分别命中同一目标；150ms 防抖；Esc 清空 |
+| B7 | 搜索 | 输入名称片段/分类名 | 分别命中同一目标；150ms 防抖；Esc 清空 |
 
 ## 4. 管理 / 编辑
 
@@ -89,13 +97,13 @@ msbuild PPTShapeLibrary.sln /t:Rebuild /p:Configuration=Debug /restore /nologo /
 |---|------|------|------|
 | M1 | 多选 | Ctrl+单击 3 张卡 | 批量条"已选 3 项"；取消/删除/移动分类生效 |
 | M2 | 批量导出素材包 | 多选 3 张 → 批量条「导出素材包」命名 → 确定 | toast"已导出到 packs 目录"；`%APPDATA%\PPTShapeLibrary\packs\*.ppack.zip` 生成 |
-| M3 | 右键菜单九项+新项 | 形状卡右键 | 插入/预览/移动分类/编辑标签/重命名/删除/打开文件夹/导出到素材包；**无**样式项 |
+| M3 | 右键菜单 | 形状卡右键 | 插入/预览/移动分组/移动分类/重命名/删除/打开文件夹/导出到素材包；**无**样式项 |
 | M4 | 右键（样式卡） | 样式卡右键 | 应用样式到选中/本页同类/**整份演示文稿同类**/预览…；**无**"插入到当前页" |
 | M5 | 整稿应用样式 | 造 2 页各有同类型矩形 → 样式卡右键→整稿应用 | 两页矩形样式都变；toast 提示 |
-| M6 | 库管理→标签管理 | 状态行「…」→标签管理 | 列出标签+计数；重命名（含合并去重）；删除从所有收藏移除 |
-| M7 | 库管理→去重清理 | 「…」→去重清理 | 无重复时提示"未发现"；造两完全重复 → 列出可勾选，删除所选 |
+| M6 | 库管理→管理分组 / 管理二级分类 | 状态行「…」→管理分组 | 自定义组可重命名/删除（条目归「我的」）；预设组只读；二级分类可改名/删除 |
+| M7 | 库管理→去重清理 | 「…」→去重清理 | 无重复时提示"未发现"；造两完全重复 → 列出可勾选，删除所选。**整页快照不得出现在重复列表里**（旧版会把所有整页收藏判成彼此重复） |
 | M8 | 库管理→导入素材包 | 先用 M2 导出 → 改名后导入 | 计数正确；导入的卡可见（幂等：再导一次会产生"副本"而非覆盖） |
-| M9 | 拖拽排序 | 排序=自定义，拖拽卡片 | 顺序保持（重启 PowerPoint 后仍在）；其它排序模式下拖拽无效 |
+| M9 | 拖拽排序 | 排序=自定义，拖拽卡片；再切到其它组/分类后回来 | 顺序保持（重启 PowerPoint 后仍在）；**未参与拖拽的条目位置不变**（旧版只给可见子集写序号，会让全库顺序错乱） |
 | M10 | 单卡删除 | 卡片 hover 右上 × / 右键删除 | 二次确认 → 删除后列表/总数即时更新 |
 
 ## 5. 样式系统
@@ -130,7 +138,7 @@ msbuild PPTShapeLibrary.sln /t:Rebuild /p:Configuration=Debug /restore /nologo /
 | PT1 | Ribbon 直达弹窗 | 逐个点击 Ribbon「工具」组 8 按钮与「设置」 | 每次弹出独立 **Web 界面**小窗口（带图标标题、深浅主题跟随），非 WinForms 原生控件观感 |
 | PT2 | 布局无遮挡 | 弹窗内调整窗口大小（窄/高），滚轮滚动 | 表单可滚动、控件不重叠、文字完整不遮挡 |
 | PT3 | 文字样式 | 弹窗内整稿改字号/字体 | 选中/页/整稿范围正确 |
-| PT4 | 一键换字体 | 原字体自动列文档字体 | 整稿/当前页替换计数正确 |
+| PT4 | 一键换字体 | 选新的中文字体+英文字体 → 整稿应用（**无需**选原字体） | 中英分别生效；原有字体（含主题字体、表格/组合内文字）被覆盖；计数正确 |
 | PT5 | 查找替换 | 造 2 页重复词 → 替换 | 计数正确；保留格式 |
 | PT6 | 文字清理 | 含多余空格/中西标点 → 清理 | 生效并提示 |
 | PT7 | 导出图片 | 选目录导出 PNG | slide01/02 生成；浏览…弹目录选择并回填 |
@@ -138,11 +146,12 @@ msbuild PPTShapeLibrary.sln /t:Rebuild /p:Configuration=Debug /restore /nologo /
 | PT9 | 统一尺寸 | 选 2 形状 → 宽 200 | 等比正确 |
 | PT10 | 图片网格 | 选图→生成 | 多选回填；contain 不重叠 |
 | PT11 | 设置弹窗 | Ribbon「设置」 | 独立 Web 设置窗口；改主题立即生效且弹窗变色 |
-| PT12 | 图标显示 | 查看导航/弹窗标题/面板图标 | Material Symbols 图标正常（非方框/乱码） |
+| PT12 | 图标显示 | 查看 Ribbon 按钮与 Web 导航/标题图标 | Ribbon 为自绘 TTF 字形；Web 界面为 lucide 矢量图标（均不应出现方框/乱码） |
 | PT13 | 高级批处理 | Ribbon「高级批处理」 | Hub 四项各自打开对应 Web 工具窗口 |
 | PT14 | 成套模板 | 学术/学习→成套模板→选类型插入 | 文稿末尾新增 封面+目录+内容×N+结束 页 |
-| PT15 | 字体下拉全量 | tool2 原字体下拉点开 | 含系统全部字体，可搜索过滤；文档字体带"文稿"标签 |
+| PT15 | 字体下拉全量 | tool1/tool2 字体下拉点开 | 系统字体**全量**列出（本机 197 个，不再截断为 80）；按"文稿字体/系统字体"分组并显示数量；输入中/英文名即时过滤 |
 | PT16 | 大纲文本预览 | tool10 选大纲、目录留空→生成 | 直接显示大纲文本并可复制（不强制目录） |
+| PT17 | 字体下拉浮层 | 窄面板/小窗口打开字体下拉，滚动到最末字体并选择 | 浮层约 350×360 且不被面板裁剪；选中项带勾选，触发按钮用该字体预览显示 |
 
 ## 8. 素材包分享（v1.1）
 
@@ -163,7 +172,7 @@ msbuild PPTShapeLibrary.sln /t:Rebuild /p:Configuration=Debug /restore /nologo /
 | F2 | 无选中应用样式 | 页面无选中 → 右键样式卡→应用 | 仅 toast 错误，无重复弹窗 |
 | F3 | 放映中操作 | 进入幻灯片放映 → 触发插入 | 失败被捕获并提示，不崩溃 |
 | F4 | 多实例 | 同时开两个 PowerPoint 窗口 | 两窗格独立工作，无 UDF 锁冲突 |
-| F5 | （可选）降级 | 临时把 settings.json 加 `"uiBackend":"wpf"` | 走 FallbackPane 提示页；删字段恢复 Web 面板（旧 WPF 已移除，此项仅验证不报错） |
+| F5 | （可选）降级 | 临时把 settings.json 加 `"uiBackend":"wpf"` | 走 FallbackPane 提示页且不报错；删字段恢复 Web 面板（旧 WPF 面板已移除） |
 | F6 | WebView2 缺失模拟 | 环境受限时 | FallbackPane 显示下载引导，插件不白屏 |
 
 ---
@@ -192,4 +201,3 @@ msbuild PPTShapeLibrary.sln /t:Rebuild /p:Configuration=Debug /restore /nologo /
 …
 ```
 
-提交当前进度（本清单文档入库）:

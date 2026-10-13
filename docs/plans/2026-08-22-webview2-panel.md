@@ -1,3 +1,12 @@
+> ## ⚠️ 历史存档（2026-10 注）
+> 本文是 2026-08 迁移到 WebView2 时的**设计计划**，部分结论已被后续实现推翻，阅读时请注意：
+> - 文中把 **WPF 面板当作长期回退方案**、把 `uiBackend:"wpf"` 当作"随时可逆的总开关"——**已不成立**：
+>   旧 WPF 面板已移除，现在的降级路径是 `FallbackPane` 提示页（见 README「界面宿主」）。
+> - 文中"C3：不引入 React/Vue/Node 构建链"、图标用 Segoe Fluent Icons/MDL2 —— **已不成立**：
+>   前端已是 Vite + React + TypeScript + Tailwind v4 + shadcn/ui，Web 图标用 lucide-react。
+> - 文中前端 5s 超时、17 种上行类型等数字 **已过时**：现为默认 30s + 模态对话框类不超时。
+> - 仍然有效且值得参考：C2 的 WebView2 版本要求、C4 的虚拟域映射（`app.pptshapes.local` / `data.pptshapes.local`）、
+>   以及"桥消息同步在 UI 线程执行"这一约束（现已有分片执行方案，见 `PowerPoint-COM经验与坑.md` §9.7）。
 # PPT 形状收藏插件 B 阶段：任务窗格迁移 WebView2（Web UI）开发方案
 
 - 日期：2026-08-22

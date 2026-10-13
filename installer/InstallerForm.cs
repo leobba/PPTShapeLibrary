@@ -40,6 +40,7 @@ namespace PPTShapeLibraryInstaller
         private Button _reinstall;
         private Button _install;
         private Button _uninstallOld;
+        private Button _repair;
         private Label _summary;
         private Label _existingLabel;
         private string _existingVersion;         // 已安装版本（用于冲突提示）
@@ -226,6 +227,135 @@ namespace PPTShapeLibraryInstaller
             _install = new Button { Text = "开始安装", Size = new Size(126, 30), Location = new Point(556, 546), Anchor = AnchorStyles.Right | AnchorStyles.Bottom };
             _install.Click += (s, e) => StartInstall();
             Controls.Add(_install);
+
+            _repair = new Button
+            {
+                Text = "修复加载项注册",
+                Size = new Size(120, 30),
+                Location = new Point(330, 512),
+                Anchor = AnchorStyles.Right | AnchorStyles.Bottom
+            };
+            _repair.Click += (s, e) => RepairRegistration();
+            Controls.Add(_repair);
+            var repairTip = new ToolTip();
+            repairTip.SetToolTip(_repair,
+                "功能区没有「素材库」时点这里：重写加载项注册（当前用户）。\r\n" +
+                "「所有用户」模式会额外写入 HKLM（需要管理员）。");
+        }
+
+        // ---------------- 加载项注册修复 ----------------
+
+        /// <summary>加载项注册的 4 个位置：HKCU/HKLM × 版本无关/版本化。</summary>
+        private static readonly string[][] AddinKeyPaths =
+        {
+            new[] { "HKCU", @"Software\Microsoft\Office\PowerPoint\Addins\PPTShapeLibrary" },
+            new[] { "HKCU", @"Software\Microsoft\Office\16.0\PowerPoint\Addins\PPTShapeLibrary" },
+            new[] { "HKLM", @"Software\Microsoft\Office\PowerPoint\Addins\PPTShapeLibrary" },
+            new[] { "HKLM", @"Software\Microsoft\Office\16.0\PowerPoint\Addins\PPTShapeLibrary" }
+        };
+
+        private static bool IsAdmin()
+        {
+            try
+            {
+                var id = System.Security.Principal.WindowsIdentity.GetCurrent();
+                return new System.Security.Principal.WindowsPrincipal(id)
+                    .IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+            }
+            catch { return false; }
+        }
+
+        /// <summary>写入加载项注册。manifestPath 为 .vsto 的绝对路径（写入时转成 file:///…|vstolocal）。</summary>
+        private static int WriteAddinKeys(string manifestPath, bool includeUser, bool includeMachine)
+        {
+            string manifest = "file:///" + manifestPath.Replace('\\', '/') + "|vstolocal";
+            int written = 0;
+            foreach (var item in AddinKeyPaths)
+            {
+                bool machine = item[0] == "HKLM";
+                if (machine && !includeMachine) continue;
+                if (!machine && !includeUser) continue;
+                try
+                {
+                    var root = machine ? Registry.LocalMachine : Registry.CurrentUser;
+                    using (var key = root.CreateSubKey(item[1]))
+                    {
+                        if (key == null) continue;
+                        key.SetValue("Description", "PPTShapeLibrary", RegistryValueKind.String);
+                        key.SetValue("FriendlyName", "PPTShapeLibrary", RegistryValueKind.String);
+                        key.SetValue("LoadBehavior", 3, RegistryValueKind.DWord);
+                        key.SetValue("Manifest", manifest, RegistryValueKind.String);
+                        written++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine("写入失败 " + item[0] + "\\" + item[1] + "：" + ex.Message);
+                }
+            }
+            return written;
+        }
+
+        /// <summary>提权子模式的入口：只写 HKLM 两处键，返回写入数量（0=失败）。</summary>
+        public static int WriteMachineAddinKeys(string manifestPath)
+        {
+            return WriteAddinKeys(manifestPath, false, true);
+        }
+
+        /// <summary>「修复加载项注册」：这是"HKCU 版本无关键被清掉 → 功能区没有素材库"的用户级修复入口。</summary>
+        private void RepairRegistration()
+        {
+            string manifest = FindDeploymentManifest();
+            if (manifest == null)
+            {
+                MessageBox.Show(
+                    "未找到 App\\PPTShapeLibrary.vsto，无法修复注册。\r\n" +
+                    "请确认安装目录完整（App\\PPTShapeLibrary.vsto + App\\Application Files\\）。",
+                    "缺少安装包", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            if (IsPowerPointRunning())
+            {
+                MessageBox.Show("请先完全退出 PowerPoint 再修复注册（否则可能被覆盖回去）。",
+                    "请先关闭 PowerPoint", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            int n = WriteAddinKeys(manifest, true, IsAdmin());
+            Log("修复加载项注册：写入 " + n + " 处（当前用户" + (IsAdmin() ? " + 所有用户" : "") + "）");
+
+            string msg = "已写入 " + n + " 处加载项注册（当前用户）。";
+            if (!IsAdmin())
+            {
+                var ask = MessageBox.Show(
+                    msg + "\r\n\r\n是否同时为**所有用户**写入注册（HKLM）？\r\n" +
+                    "这会弹一次 UAC；写入后即使用户级注册被清掉，插件仍能加载。",
+                    "是否写入所有用户？", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                if (ask == DialogResult.Yes)
+                {
+                    try
+                    {
+                        var psi = new ProcessStartInfo
+                        {
+                            FileName = Application.ExecutablePath,
+                            Arguments = "--repair-machine \"" + manifest + "\"",
+                            UseShellExecute = true,
+                            Verb = "runas"
+                        };
+                        var p = Process.Start(psi);
+                        if (p != null) p.WaitForExit(60000);
+                        Log("已请求提权写入 HKLM（退出码 " + (p != null ? p.ExitCode.ToString() : "?") + "）");
+                    }
+                    catch (Exception ex)
+                    {
+                        Log("提权失败：" + ex.Message);
+                        MessageBox.Show("提权被取消或失败：" + ex.Message, "未写入所有用户",
+                            MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
+                }
+            }
+            MessageBox.Show(msg + "\r\n\r\n请重新打开 PowerPoint，功能区应出现「素材库」选项卡。",
+                "修复完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         // ---------------- 检测 ----------------
@@ -258,10 +388,21 @@ namespace PPTShapeLibraryInstaller
             _existingUninstallString = null;
             try
             {
-                using (var root = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall"))
+                // 用户级（HKCU）与机器级（HKLM，含 32 位视图）都要扫：
+                // 只扫 HKCU 时，"为所有用户安装"的 ClickOnce/ARP 记录看不见，
+                // 「卸载旧版本」按钮就不会出现，而文档恰恰让用户用它来解「已安装另一版本」。
+                var roots = new[]
                 {
-                    if (root != null)
+                    Registry.CurrentUser,
+                    Registry.LocalMachine,
+                    RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry32)
+                };
+                foreach (var hive in roots)
+                {
+                    if (_existingUninstallString != null) break;
+                    using (var root = hive.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall"))
                     {
+                        if (root == null) continue;
                         foreach (var sub in root.GetSubKeyNames())
                         {
                             using (var k = root.OpenSubKey(sub))
@@ -279,6 +420,14 @@ namespace PPTShapeLibraryInstaller
                 }
             }
             catch { }
+        }
+
+        /// <summary>PowerPoint 是否在运行。安装/卸载期间它会锁住加载项 DLL 与清单，
+        /// 导致 VSTOInstaller 半途失败、留下半注册状态。</summary>
+        private static bool IsPowerPointRunning()
+        {
+            try { return Process.GetProcessesByName("POWERPNT").Length > 0; }
+            catch { return false; }
         }
 
         private void UpdateExistingUi()
@@ -310,6 +459,13 @@ namespace PPTShapeLibraryInstaller
                 "卸载命令：\r\n" + _existingUninstallString + "\r\n\r\n是否继续？（卸载期间请勿打开 PowerPoint）",
                 "卸载旧版本", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning);
             if (r != DialogResult.OK) return;
+            if (IsPowerPointRunning())
+            {
+                MessageBox.Show("PowerPoint 正在运行，卸载会因文件被占用而失败。请完全退出 PowerPoint 后重试。",
+                    "请先关闭 PowerPoint", MessageBoxButtons.OK, MessageBoxIcon.Stop);
+                Log("✗ PowerPoint 仍在运行，卸载中止");
+                return;
+            }
 
             try
             {
@@ -331,39 +487,69 @@ namespace PPTShapeLibraryInstaller
             }
         }
 
-        private static void RunCommandLine(string cmd)
+        private void RunCommandLine(string cmd)
         {
+            if (string.IsNullOrWhiteSpace(cmd)) return;
+            string exe, args;
             int exeEnd = cmd.IndexOf(".exe", StringComparison.OrdinalIgnoreCase);
             if (exeEnd > 0)
             {
-                string exe = cmd.Substring(0, exeEnd + 4).Trim().Trim('"');
-                string args = cmd.Substring(exeEnd + 4).Trim();
-                var p = Process.Start(new ProcessStartInfo(exe, args) { UseShellExecute = false });
-                if (p != null) p.WaitForExit();
+                // 只在".exe"之后是字符串末尾或空白时才当成可执行文件边界，
+                // 否则形如 "C:\Program Files\My.exe Tools\uninstall.exe" /S 的路径会被切错。
+                int after = exeEnd + 4;
+                if (after < cmd.Length && !char.IsWhiteSpace(cmd[after]))
+                {
+                    exeEnd = cmd.LastIndexOf(".exe", StringComparison.OrdinalIgnoreCase);
+                    after = exeEnd + 4;
+                }
+                if (exeEnd <= 0) { exe = cmd.Trim().Trim('"'); args = ""; }
+                else
+                {
+                    exe = cmd.Substring(0, after).Trim().Trim('"');
+                    args = cmd.Substring(after).Trim();
+                }
             }
             else
             {
-                var p = Process.Start(new ProcessStartInfo("cmd.exe", "/c " + cmd) { UseShellExecute = false });
-                if (p != null) p.WaitForExit();
+                exe = "cmd.exe";
+                args = "/c " + cmd;
+            }
+            var p = Process.Start(new ProcessStartInfo(exe, args) { UseShellExecute = false });
+            if (p == null) return;
+            // 必须有超时：卸载器卡住（或 dfshim 弹了错误框）时不能把安装器 UI 线程永久挂死
+            if (!p.WaitForExit(5 * 60 * 1000))
+            {
+                Log("卸载命令 5 分钟未结束，已放弃等待（进程仍在后台运行）：" + exe);
+                try { p.Kill(); } catch { }
             }
         }
 
-        /// <summary>仅当注册表项是构建期写入的 |vstolocal（开发式）时才删除，避免误删正式安装的注册。</summary>
+        /// <summary>仅当注册表项是构建期写入的 |vstolocal（开发式）时才删除，避免误删正式安装的注册。
+        /// 注意：加载项注册可能同时存在于"版本无关"与"16.0 版本化"两处
+        /// （scripts\dev-register.ps1 两处都写），只清一处会留下残留继续与正式安装抢注册表，
+        /// 再次触发"已安装另一版本的自定义项"。两处都要检查。</summary>
         private static void TryRemoveStaleVstoLocalKey()
         {
-            try
+            string[] subs =
             {
-                const string sub = @"Software\Microsoft\Office\PowerPoint\Addins\PPTShapeLibrary";
-                string manifest = null;
-                using (var k = Registry.CurrentUser.OpenSubKey(sub, false))
+                @"Software\Microsoft\Office\PowerPoint\Addins\PPTShapeLibrary",
+                @"Software\Microsoft\Office\16.0\PowerPoint\Addins\PPTShapeLibrary"
+            };
+            foreach (string sub in subs)
+            {
+                try
                 {
-                    if (k == null) return;
-                    manifest = k.GetValue("Manifest") as string;
+                    string manifest;
+                    using (var k = Registry.CurrentUser.OpenSubKey(sub, false))
+                    {
+                        if (k == null) continue;
+                        manifest = k.GetValue("Manifest") as string;
+                    }
+                    if (manifest == null || manifest.IndexOf("|vstolocal", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    Registry.CurrentUser.DeleteSubKeyTree(sub, false);
                 }
-                if (manifest == null || manifest.IndexOf("|vstolocal", StringComparison.OrdinalIgnoreCase) < 0) return;
-                Registry.CurrentUser.DeleteSubKeyTree(sub, false);
+                catch { }
             }
-            catch { }
         }
 
         private void CheckPowerPoint(ReqItem it)
@@ -634,6 +820,24 @@ namespace PPTShapeLibraryInstaller
         {
             try
             {
+                // PowerPoint 在运行会锁住加载项 DLL/清单，导致 VSTOInstaller 半途失败、留下半注册状态
+                if (IsPowerPointRunning())
+                {
+                    var c = MessageBox.Show(
+                        "检测到 PowerPoint 正在运行。\r\n\r\n" +
+                        "安装/升级过程中 PowerPoint 会锁住插件文件，容易导致安装半途失败并留下半注册状态。\r\n" +
+                        "请先完全退出 PowerPoint（含所有窗口），然后点「确定」继续；或点「取消」稍后再装。",
+                        "请先关闭 PowerPoint", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning);
+                    if (c != DialogResult.OK) { Log("！ 用户选择先关闭 PowerPoint 再安装"); return; }
+                    if (IsPowerPointRunning())
+                    {
+                        MessageBox.Show("PowerPoint 仍在运行，安装已中止。请完全退出后重试。",
+                            "仍检测到 PowerPoint", MessageBoxButtons.OK, MessageBoxIcon.Stop);
+                        Log("✗ PowerPoint 仍在运行，安装中止");
+                        return;
+                    }
+                }
+
                 // 优先用部署清单(.vsto)安装：其 codebase 是相对路径(Application Files\...)，
                 // 因此安装源就是本目录，拷到任何机器/路径都能装；
                 // 而 setup.exe 里烤入了发布时的绝对 URL，不适用于分发。

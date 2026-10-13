@@ -19,6 +19,9 @@ if ($LASTEXITCODE -ne 0) { throw "ClickOnce 发布失败" }
 
 $appPublish = "$Root\PPTShapeLibrary\bin\Release\app.publish"
 $publish = "$Root\publish"
+# 先确认源存在再删旧产物：MSBuild 的 Clean/Rebuild 会删掉 app.publish，
+# 旧写法会先删掉 publish\ 再在 Copy-Item 处报错，等于毁掉上一份可用产物。
+if (-not (Test-Path $appPublish)) { throw "未找到 $appPublish（发布产物缺失，检查 /t:Publish 是否真的执行成功）" }
 if (Test-Path $publish) { Remove-Item $publish -Recurse -Force }
 Copy-Item $appPublish $publish -Recurse -Force
 Write-Host "   产物 → $publish"
@@ -26,16 +29,25 @@ Write-Host "   产物 → $publish"
 # 兜底自愈：构建期有可能把加载项注册成 <bin\Release>\...vsto|vstolocal（开发式注册），
 # 它会与用户通过安装器安装的正式版抢注册表，导致再次安装时报"已安装另一版本"。
 # 若发现是 vstolocal 就清掉；是正式安装（ClickOnce）则保留不动。
-$addinKey = "HKCU:\Software\Microsoft\Office\PowerPoint\Addins\PPTShapeLibrary"
-if (Test-Path $addinKey) {
-    $manifest = (Get-ItemProperty $addinKey -ErrorAction SilentlyContinue).Manifest
-    if ($manifest -like "*vstolocal*") {
-        Remove-Item $addinKey -Recurse -Force -ErrorAction SilentlyContinue
-        Write-Host "   已清理构建期写入的 vstolocal 开发式注册（避免与正式安装冲突）" -ForegroundColor Yellow
-    } else {
-        Write-Host "   检测到已安装的正式版注册，保留不动：$manifest" -ForegroundColor Yellow
+# 注意：加载项注册可能同时写在"版本无关"与"16.0 版本化"两处（scripts\dev-register.ps1 两处都写），
+# 只清一处会留下残留继续抢注册表 —— 两处都要检查。
+function Clear-DevLocalAddinRegistration([string]$label) {
+    $keys = @(
+        "HKCU:\Software\Microsoft\Office\PowerPoint\Addins\PPTShapeLibrary",
+        "HKCU:\Software\Microsoft\Office\16.0\PowerPoint\Addins\PPTShapeLibrary"
+    )
+    foreach ($k in $keys) {
+        if (-not (Test-Path $k)) { continue }
+        $manifest = (Get-ItemProperty $k -ErrorAction SilentlyContinue).Manifest
+        if ($manifest -like "*vstolocal*") {
+            Remove-Item $k -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Host "   $label 已清理 vstolocal 开发式注册：$k" -ForegroundColor Yellow
+        } else {
+            Write-Host "   $label 检测到正式版注册，保留不动：$k" -ForegroundColor Yellow
+        }
     }
 }
+Clear-DevLocalAddinRegistration "1/4"
 
 Write-Host "== 2/4 编译安装器（环境检测）==" -ForegroundColor Cyan
 & $msb "$Root\installer\PPTShapeLibraryInstaller.csproj" /t:Rebuild /p:Configuration=Release /nologo /v:m
@@ -43,10 +55,17 @@ if ($LASTEXITCODE -ne 0) { throw "安装器编译失败" }
 
 Write-Host "== 3/4 组装 dist 分发包 ==" -ForegroundColor Cyan
 $dist = "$Root\dist"
-if (Test-Path $dist) { Remove-Item $dist -Recurse -Force }
-New-Item -ItemType Directory -Path $dist | Out-Null
+# 只清"本脚本生成的内容"，保留用户自己放进来的 离线安装包\（文档要求用户预置 100~250MB
+# 官方安装包，整目录删除会让用户每发一版都要重新下载）。
+if (Test-Path $dist) {
+    foreach ($name in @("App", "安装 PPTShapeLibrary.exe", "安装说明.txt")) {
+        $p = Join-Path $dist $name
+        if (Test-Path $p) { Remove-Item $p -Recurse -Force }
+    }
+}
+New-Item -ItemType Directory -Path $dist -Force | Out-Null
 New-Item -ItemType Directory -Path "$dist\App" | Out-Null
-New-Item -ItemType Directory -Path "$dist\离线安装包" | Out-Null
+New-Item -ItemType Directory -Path "$dist\离线安装包" -Force | Out-Null
 Copy-Item "$Root\installer\bin\Release\安装 PPTShapeLibrary.exe" $dist -Force
 # 只放"部署清单 + 应用文件"：.vsto 的 codebase 是相对路径，安装源即本目录 → 拷到任何机器都能装。
 # 不放 setup.exe（其中烤入了发布机上的绝对 URL，换机/换目录后不可用）。
@@ -55,8 +74,10 @@ Copy-Item "$publish\Application Files" "$dist\App" -Recurse -Force
 
 # 拆掉"陷阱"：构建产物 bin\Release\PPTShapeLibrary.vsto 一旦被双击，会把加载项注册成
 # …\bin\Release\…|vstolocal（开发式），与正式安装抢注册表并导致"已安装另一版本"报错。
+# 删除前必须先把指向它的开发式注册清掉（两处键），否则注册表会指向一个已不存在的清单文件。
 $trapVsto = "$Root\PPTShapeLibrary\bin\Release\PPTShapeLibrary.vsto"
 if (Test-Path $trapVsto) {
+    Clear-DevLocalAddinRegistration "3/4"
     Remove-Item $trapVsto -Force -ErrorAction SilentlyContinue
     Write-Host "   已移除构建产物 bin\Release\PPTShapeLibrary.vsto（避免误双击造成注册冲突）" -ForegroundColor Yellow
 }
@@ -88,15 +109,22 @@ PPTShapeLibrary 安装说明（版本 $Version）
   或再次运行本安装器，检测到已安装版本时点「卸载旧版本」。
   数据（素材库/设置/备份/日志）位于 %APPDATA%\PPTShapeLibrary，卸载不会删除。
 
+【功能区没有「素材库」怎么办】
+  1. 先确认已装 VSTO Runtime，再到 文件 → 选项 → 加载项 → 管理「COM 加载项」勾选 PPTShapeLibrary；
+  2. 仍没有 → 打开本安装器点「修复加载项注册」（会重写当前用户的加载项注册）；
+     也可以选择同时写入"所有用户"（会弹一次 UAC，写入 HKLM，更不容易被清理）；
+  3. 重启 PowerPoint。若还不行，见 docs\PowerPoint-COM经验与坑.md 的『插件在 PPT 里消失』一节。
+
 【常见问题】
-  · 装了但 PowerPoint 里没有「素材库」：确认已装 VSTO Runtime；再到
-    文件 → 选项 → 加载项 → 管理「COM 加载项」勾选 PPTShapeLibrary，重启 PowerPoint。
+  · 装了但 PowerPoint 里没有「素材库」：见上一节；另确认已装 VSTO Runtime 并重启 PowerPoint。
   · 面板空白/提示缺少 WebView2：安装 Microsoft Edge WebView2 Runtime。
   · 安装时提示"未知发布者"：当前使用临时证书签名，属正常，继续安装即可。
   · 报错「已安装另一版本的自定义项，不能从该位置升级」：本机已装过一份且这次换了位置。
     请在安装器里点「卸载旧版本」后重试（或控制面板卸载后重装）。
   · 请勿双击源码目录里的 bin\Release\PPTShapeLibrary.vsto —— 那是构建产物，
     双击会把它注册成开发式加载项、与正式安装冲突。安装只用本目录的安装器。
+  · 开发者在 Release 构建后如果发现加载项"消失"：已在 csproj 里修掉（Release 构建不再注销加载项注册）；
+    详见 docs\PowerPoint-COM经验与坑.md §9。
 "@
 [System.IO.File]::WriteAllText("$dist\安装说明.txt", $readme, (New-Object System.Text.UTF8Encoding($true)))
 

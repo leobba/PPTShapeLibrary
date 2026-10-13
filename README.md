@@ -19,12 +19,11 @@
 - **图片素材**：库管理「导入图片…」把本地图片入库到 素材 › 图片；另有程序生成示意图（渐变/斜纹/圆点/网格）自动补装
 - **跨文档自动刷新**：打开/新建/关闭演示文稿时素材库自动刷新（防抖 600ms）
 - **分类**：分类标签条筛选、移动到分类、批量移动分类
-- **标签**：自由标签、搜索同时匹配名称/分类/标签、标签管理器（重命名/删除）、标签下拉筛选
+- **搜索**：实时过滤（✕/Esc 清空），匹配名称 / 分类
 - **类型筛选**：全部 / 形状 / 样式 一键切换
 - **排序**：最新/最旧/名称/最近使用/最常用/自定义（拖拽卡片排序）
 - **多选**：Ctrl 单击多选 → 批量删除/移动分类/移动分组/批量重命名/导出素材包
 - **回收站**：删除先入回收站（库管理→回收站 可恢复/彻底清除/清空）
-- **搜索**：实时过滤（✕/Esc 清空）
 - **最近使用横条**：「全部」视图且无筛选时顶部展示最近使用 Top6（可点插）
 - **插入后调整条**：插入成功浮现旋转/透明度/八向微调 + 撤销/重做（10 秒自动隐藏）
 - **去重清理**：收藏相似形状时提醒；库管理里可扫描完全重复项并批量清理
@@ -43,7 +42,7 @@
 
 ### 界面
 - **布局**：右侧任务窗格只承载素材库（搜索/筛选/卡片/库管理）；所有工具与设置经 Ribbon 独立弹窗使用，不再占窗格
-- **图标**：Material Symbols Outlined 本地图标字体——Ribbon 按钮由 RibbonIconFactory 运行时自绘字形(TTF)，Web 界面用图标字体(woff2)；涵盖素材库/文字样式/换字体/查找替换/清理/导出图片/瘦身/统一尺寸/图片网格/设置等
+- **图标**：Ribbon 按钮由 RibbonIconFactory 运行时自绘字形（本地 Material Symbols TTF，见 `RibbonFonts/`）；Web 界面用 **lucide-react** 矢量图标组件（不依赖图标字体，无字体缺失导致的方框问题）
 - **UI 组件精修**（纯 CSS 组件化质感层）：统一聚焦环/三级阴影/圆角 tokens、按钮渐变与按压微交互、卡片 hover 抬升+缩略图缩放、玻璃标题条与菜单、模态重阴影、滚动条美化、侧栏深浅主题专项配色
 - Canva 风格：圆角卡片、阴影、悬停高亮、悬停删除、空状态引导、玻璃浮动条、统一 CSS 变量深浅双主题
 - **深色/浅色主题**切换、卡片密度（紧凑/标准/大图）、**面板宽度自适应**（拖宽卡片自动变大、列数联动）
@@ -56,7 +55,7 @@ Ribbon「素材库」选项卡 →「工具」组：文字样式 / 一键换字�
 
 ### PPT 工具能力清单
 - **批量修改文字样式**：选中/当前页/全部页统一字体字号加粗斜体颜色对齐
-- **一键更换字体**：自动列出文档字体，原 → 新（整稿或当前页）
+- **一键更换字体**：无需指定原字体，直接指定新的**中文字体 / 英文字体**并覆盖原有字体设置（含主题字体、表格与组合形状内文字；整稿或当前页）。字体下拉列出**系统全部字体**（含用户级安装字体），可搜索、按"文稿/系统"分组
 - **查找/替换**：跨页保留格式替换
 - **文字清理**：去多余空白、中文间西文标点转全角（按首字符格式回刷）
 - **整稿导出 PNG/JPG**（可调分辨率）
@@ -77,6 +76,43 @@ Ribbon「素材库」选项卡 →「工具」组：文字样式 / 一键换字�
 - 存储：`%APPDATA%\PPTShapeLibrary\`（items 每收藏一目录；settings.json 设置；packs 素材包；logs 日志）
 - 界面宿主：WebView2（Evergreen Runtime）。缺失/初始化失败自动降级到提示页（`uiBackend:"wpf"` 旧开关已废弃）
 - 快捷键：无全局快捷键（工具栏操作）
+- **整页插入不占用剪贴板**：走 `Slides.InsertFromFile`（前提是库文件设计唯一改名，见 `docs/PowerPoint-COM经验与坑.md` §13）；
+  形状插入仍需 Copy→Paste，剪贴板被"活着但不响应"的程序独占时会**快速失败并给出可操作提示**（不再白等十几秒）
+- **长任务不卡死（分片执行）**：整稿导出图片 / 一键换字体 / 收藏整稿 / 重建缩略图 / 统一尺寸 / 清理瘦身
+  改为**逐片执行**（片间回到消息循环），长任务期间 PowerPoint 仍可响应（实测 ping 即时答复）、
+  取消立刻生效、期间再点别的会得到"正在执行…"的明确提示。仍同步的（只有进度+取消）：查找替换 / 文字清理 /
+  整页应用样式 / 图片网格，原因与设计守则见 `docs/PowerPoint-COM经验与坑.md` §9.7
+- **整稿工具只作用于用户文稿**：PowerPoint 文档恢复可能把库条目变成活动文稿，此时若不管，
+  "导出图片/换字体/清理瘦身"会作用到**用户收藏的素材文件**上。已加两层防护（窗口激活回弹 +
+  `ActiveUserPresentation()` 绝不返回库条目），见同文档 §9.6
+- **前端改动记得让 bin 同步**：插件实际加载的是 `bin\<Config>\WebUI\`（csproj 从 `WebUI\` 拷过去）。
+  `npm run deploy` 现在会**同时镜像更新**源码树 `WebUI\` 与已存在的 `bin\Debug\WebUI`、`bin\Release\WebUI`，
+  否则会出现"改了前端、PowerPoint 里还是旧界面"
+- **「插件在 PPT 里消失」已根治**：根因是 `msbuild /t:Rebuild /p:Configuration=Release` 会跑 Office targets 的
+  `VSTOClean → UnregisterOfficeAddin`，**把加载项注册删掉**（csproj 此前只挡住了"注册"没挡住"注销"）。
+  已在 csproj 里对称重定义 `UnregisterOfficeAddin`（Release 置空）。详见 `docs/PowerPoint-COM经验与坑.md` §9。
+  兜底仍在：冒烟脚本自动修复、`dev-register.ps1 -Machine`（HKLM）、安装器「修复加载项注册」按钮
+
+### 自动化验证（改完代码按顺序跑）
+
+```powershell
+# 1) C#：0 错误 0 警告
+msbuild PPTShapeLibrary.sln /t:Rebuild /p:Configuration=Debug /restore /nologo /v:m
+
+# 2) 前端：typecheck → 桥调用失败处理门禁 → build → 产物自检 → 部署（任一环失败即中止）
+cd PPTShapeLibrary\webui-src ; npm run build:all
+
+# 3) 端到端冒烟：真机 PowerPoint + WebView2 + CDP 驱动真实前端
+#    覆盖：数据加载 / 坏输入健壮性 / 设置夹紧 / 去重不误判 / 整页插入三位置+不碰剪贴板+性能门禁 /
+#          形状插入 / 前端无 JS 异常；**跑完自动还原素材库 meta.json**（不会污染用户数据）
+pwsh -File scripts\e2e-smoke.ps1
+
+# 4) 整页插入保真度：守卫"整页插入可以不用剪贴板"的前提（设计唯一改名 Lib<id>-*）
+python scripts\verify-insert-fidelity.py
+
+# 5) 一键换字体的 COM 语义（中/英分别落到 NameFarEast / NameAscii）
+python scripts\verify-font-switch.py
+```
 
 ### Web UI 前端（shadcn/ui · React + Tailwind v4）
 
@@ -87,16 +123,18 @@ cd PPTShapeLibrary/webui-src
 npm install          # 首次：安装依赖
 npm run dev          # 开发：热更新预览（无宿主时可浏览器看 UI，桥调用会失败仅 UI）
 npm run build        # 生产：产出到 webui-src/dist
-npm run smoke        # 产物完整性自检（引用/字体文件存在性）
-npm run deploy       # 拷贝 dist → ../WebUI（VSTO 加载目录）
-npm run build:all    # 一键：build → smoke → deploy
+npm run typecheck    # TypeScript 类型检查（build:all 已内置）
+npm run check:promises  # 桥调用失败处理门禁：禁止"裸调用"（build:all 已内置）
+npm run smoke        # 产物完整性自检（index.html 引用 + JS/CSS 内资源；失败即非零退出）
+npm run deploy       # 镜像拷贝 dist → ../WebUI 与 bin\<Config>\WebUI（插件实际加载目录）
+npm run build:all    # 一键：typecheck → check:promises → build → smoke → deploy（任一环失败即中止）
 ```
 
-- 源码在 `webui-src/src`；旧版纯静态前端备份于 `webui-legacy/`（可回退）
+- 源码在 `webui-src/src`；迁移前的纯静态前端（`webui-legacy/`）**已删除**——它停留在旧协议（`replaceFont`/标签等类型早已从 C# 桥移除），当"回退路径"只会误导；需要时从 git 历史取回：`git checkout HEAD~1 -- PPTShapeLibrary/webui-legacy`
 - C#↔JS 桥协议见 `src/lib/bridge.ts`（默认 30s 超时；模态对话框类请求不超时）
 - 新增 shadcn 组件：`npx shadcn add <组件>`；主题 tokens 见 `src/index.css`（`.dark` 类切深色）
 - 原生 confirm/prompt/alert 已全局替换为 shadcn（`src/lib/dialogs.tsx` 的 `dialogs.*` + `<DialogsHost/>`）
-- 注意：`webui-src/node_modules` 与 `dist` 不入 git；`WebUI/` 下提交的是构建产物
+- 注意：`webui-src/node_modules` 与 `dist` 不入 git；`WebUI/` 下提交的是构建产物——**改前端后必须在同一次提交里跑 `npm run build:all`**，否则会出现 index.html 指向不存在 bundle 的空白面板
 
 ## 文件结构
 
@@ -110,7 +148,7 @@ PPTShapeLibrary\            # VSTO 项目（PowerPoint 2016+ / M365 x64）
   业务层
   ShapeExporter.cs        # 收藏/插入/应用样式/内置素材/导出PPTX/微调/图片导入/预览生成
   ShapeStyleExtractor.cs / StylePreset.cs / ClipboardGuard.cs
-  ShapeLibraryService.cs  # 存储/分类/标签/去重/备份/缓存/回收站/孤儿清理/id白名单
+  ShapeLibraryService.cs  # 存储/分类/去重/备份/缓存/回收站/孤儿清理/id白名单
   PackService.cs          # 素材包（.ppack.zip v1.1）导出/导入
   TextToolService.cs / FormatToolService.cs / AcademicToolService.cs
   Settings.cs / Log.cs / InputDialog.cs（收藏命名）
@@ -118,7 +156,6 @@ PPTShapeLibrary\            # VSTO 项目（PowerPoint 2016+ / M365 x64）
   RibbonIconFactory.cs     # Ribbon 图标：本地 TTF 字库按族名匹配 + 码点表
   WebUI\                  # 前端构建产物（React+shadcn，随程序集复制）
   webui-src\              # React 前端工程（Vite；node_modules/dist 不入库）
-  webui-legacy\           # 迁移前的纯静态前端备份（可回退）
 docs\                     # 设计/清单/素材包格式规范（material-pack-spec.md）
 ```
 
