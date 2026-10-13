@@ -48,6 +48,12 @@ namespace PPTShapeLibraryInstaller
         /// 实测本机就撞上过 403）。发版时每个 Release 都上传同名 update.json 覆盖即可。</summary>
         public static readonly string UpdateJsonUrl =
             "https://github.com/" + Owner + "/" + Repo + "/releases/latest/download/update.json";
+        /// <summary>依赖运行时的托管地址：**固定 tag** 的 Release 资产。
+        /// 微软官方源在国内基本打不开，而 GitHub 资产可以走加速站（加速站只代理 github.com）。
+        /// 发版时把官方安装包上传到 tag `prerequisites`，地址就永远不变。</summary>
+        public const string PrereqTag = "prerequisites";
+        public static readonly string PrereqBaseUrl =
+            "https://github.com/" + Owner + "/" + Repo + "/releases/download/" + PrereqTag + "/";
         public static readonly string ReleasesPageUrl =
             "https://github.com/" + Owner + "/" + Repo + "/releases";
 

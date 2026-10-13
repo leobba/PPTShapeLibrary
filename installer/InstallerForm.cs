@@ -27,9 +27,20 @@ namespace PPTShapeLibraryInstaller
         public string LocalPattern;    // 期望的离线安装包文件名通配（同目录"离线安装包"下）
         public string InstallArgs;     // 离线包静默安装参数
         public string LocalFile;       // 实际找到的离线包路径
+        /// <summary>托管在**本仓库固定 tag**上的资产候选（按优先级）。微软官方源在国内常常打不开，
+        /// 而 GitHub 资产可以走加速站；这里放的就是随仓库分发的官方安装包。</summary>
+        public PrereqAsset[] Packages;
         public Label StateLabel;
         public Label DetailLabel;
         public Button ActionButton;
+    }
+
+    /// <summary>一个可下载的依赖包（固定 tag 的 Release 资产）。</summary>
+    internal class PrereqAsset
+    {
+        public string FileName;   // 资产文件名
+        public string Kind;       // exe / msi / zip（zip 会解压后运行其中的 exe 或 msi）
+        public string Args;       // 静默安装参数（msi 会被替换成 msiexec /i … /qn）
     }
 
     internal class InstallerForm : Form
@@ -69,14 +80,26 @@ namespace PPTShapeLibraryInstaller
                     Key = "vsto", Title = "Visual Studio 2010 Tools for Office Runtime (VSTO 4.0)", Required = true,
                     Detail = "Office 加载项运行时；缺失时 PowerPoint 里不会出现本插件",
                     DownloadUrl = "https://learn.microsoft.com/visualstudio/vsto/how-to-install-the-visual-studio-tools-for-office-runtime-redistributable",
-                    LocalPattern = "vstor*.exe", InstallArgs = "/quiet /norestart"
+                    LocalPattern = "vstor*.exe;vstor*.zip", InstallArgs = "/quiet /norestart",
+                    // 官方源在国内基本打不开 → 优先从本仓库固定 tag 拉（可用加速站）。
+                    // vstor_redist.exe 是官方自解压包；vstor_runtime.zip 是同一份内容的打包形式
+                    // （install.exe + vstor40_x64.MSI/CAB，均为微软签名文件），官方包拉不到时用它。
+                    Packages = new[]
+                    {
+                        new PrereqAsset { FileName = "vstor_redist.exe", Kind = "exe", Args = "/quiet /norestart" },
+                        new PrereqAsset { FileName = "vstor_runtime.zip", Kind = "zip", Args = "/q" },
+                    }
                 },
                 new ReqItem
                 {
                     Key = "webview2", Title = "Microsoft Edge WebView2 Runtime", Required = false,
                     Detail = "插件界面渲染组件；缺失时插件仍可安装，但面板会显示降级提示页",
                     DownloadUrl = "https://developer.microsoft.com/microsoft-edge/webview2/#download",
-                    LocalPattern = "MicrosoftEdgeWebview2Setup.exe", InstallArgs = "/silent /install"
+                    LocalPattern = "MicrosoftEdgeWebview2Setup.exe", InstallArgs = "/silent /install",
+                    Packages = new[]
+                    {
+                        new PrereqAsset { FileName = "MicrosoftEdgeWebview2Setup.exe", Kind = "exe", Args = "/silent /install" },
+                    }
                 },
             };
 
@@ -789,9 +812,14 @@ namespace PPTShapeLibraryInstaller
                 return;
             }
 
-            // 光看注册表不够：实测卸载 VSTO 后（未重启）**注册表键会残留**，
-            // 只查键会误报"已安装"，用户点开始安装后才发现插件根本加载不了。
-            // 所以再校验运行时文件是否真的还在（卸载后这些文件会被安排到重启时删除）。
+            // 光看注册表不够：实测卸载 VSTO 后（未重启）
+            //   · msiexec 退出码 0、控制面板卸载项清零、32 位视图键移除
+            //   · **但 64 位视图键残留**，且运行时文件**也还在**（并没有被安排重启删除）
+            // 所以"键 + 文件"都还在 → 只查这两项会**误报已安装**，用户点开始安装后才发现插件加载不了。
+            // 以**控制面板卸载项（MSI 产品注册）**为准最可靠：装了就有，卸了就没。
+            bool arpFound = IsVstoListedInPrograms();
+
+            // 运行时文件校验作为辅助：卸载项在但文件不在 → 安装坏了
             string dir = installPath;
             if (string.IsNullOrEmpty(dir))
             {
@@ -803,18 +831,57 @@ namespace PPTShapeLibraryInstaller
             bool loaderOk = false;
             try { loaderOk = File.Exists(Path.Combine(dir, "VSTOLoader.dll")); } catch { }
 
+            if (!arpFound)
+            {
+                it.State = CheckState.Missing;
+                it.Detail = "VSTO Runtime 已卸载（注册表项残留版本 " + ver +
+                            "，但控制面板里已无该产品）。请重启计算机完成清理，或点下面的按钮重新安装 VSTO Runtime";
+                Log("✗ VSTO Runtime 已卸载：控制面板卸载项不存在（注册表残留版本 " + ver + "）");
+                return;
+            }
             if (!loaderOk)
             {
                 it.State = CheckState.Missing;
-                it.Detail = "VSTO Runtime 已卸载但注册表项残留（版本 " + ver + "）：运行时文件不在 " + dir +
-                            "。请重启计算机完成卸载，或重新安装 VSTO Runtime（缺失时插件无法被 PowerPoint 加载）";
-                Log("✗ VSTO Runtime 注册表项残留但运行时文件缺失（刚卸载且未重启？）版本 " + ver);
+                it.Detail = "VSTO Runtime 安装不完整：控制面板有该产品，但运行时文件不在 " + dir +
+                            "。请重新安装 VSTO Runtime（缺失时插件无法被 PowerPoint 加载）";
+                Log("✗ VSTO Runtime 文件缺失（" + dir + "）");
                 return;
             }
 
             it.State = CheckState.Ok;
             it.Detail = "已安装 VSTO Runtime（版本 " + ver + "）";
             Log("✓ VSTO Runtime：" + ver);
+        }
+
+        /// <summary>控制面板"程序和功能"里是否还列着 VSTO Runtime（MSI 产品注册是否还在）。</summary>
+        private static bool IsVstoListedInPrograms()
+        {
+            try
+            {
+                foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+                {
+                    using (var root = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view)
+                            .OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall"))
+                    {
+                        if (root == null) continue;
+                        foreach (var sub in root.GetSubKeyNames())
+                        {
+                            using (var k = root.OpenSubKey(sub))
+                            {
+                                if (k == null) continue;
+                                var name = k.GetValue("DisplayName") as string;
+                                if (!string.IsNullOrEmpty(name) &&
+                                    name.IndexOf("Visual Studio 2010 Tools for Office", StringComparison.OrdinalIgnoreCase) >= 0)
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+            return false;
         }
 
         private void CheckWebView2(ReqItem it)
@@ -909,6 +976,8 @@ namespace PPTShapeLibraryInstaller
             it.DetailLabel.Text = it.Detail;
         }
 
+        /// <summary>在「离线安装包」目录里找离线包。pattern 可以是用 `;` 分隔的多个通配
+        /// （如 `vstor*.exe;vstor*.zip` —— 有的包是 zip 形式的官方负载）。</summary>
         private static string FindLocalPackage(string pattern)
         {
             if (string.IsNullOrEmpty(pattern)) return null;
@@ -916,11 +985,16 @@ namespace PPTShapeLibraryInstaller
             {
                 string baseDir = AppDomain.CurrentDomain.BaseDirectory;
                 string[] dirs = { Path.Combine(baseDir, "离线安装包"), baseDir };
-                foreach (var d in dirs)
+                foreach (var p in pattern.Split(';'))
                 {
-                    if (!Directory.Exists(d)) continue;
-                    var files = Directory.GetFiles(d, pattern);
-                    if (files.Length > 0) return files[0];
+                    var pat = p.Trim();
+                    if (pat.Length == 0) continue;
+                    foreach (var d in dirs)
+                    {
+                        if (!Directory.Exists(d)) continue;
+                        var files = Directory.GetFiles(d, pat);
+                        if (files.Length > 0) return files[0];
+                    }
                 }
             }
             catch { }
@@ -937,20 +1011,63 @@ namespace PPTShapeLibraryInstaller
                         "将静默安装本地离线包：\r\n" + it.LocalFile + "\r\n\r\n安装过程中可能弹出系统 UAC 授权提示，请允许。是否继续？",
                         "安装 " + it.Title, MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
                     if (r != DialogResult.OK) return;
-                    Log("正在安装本地包：" + Path.GetFileName(it.LocalFile) + " " + (it.InstallArgs ?? ""));
-                    var psi = new ProcessStartInfo(it.LocalFile, it.InstallArgs ?? "")
-                    {
-                        UseShellExecute = true,
-                        Verb = "runas"     // 需要管理员权限
-                    };
-                    var p = Process.Start(psi);
-                    p.WaitForExit();
-                    Log("本地包安装进程已退出（ExitCode=" + p.ExitCode + "），请点击「重新检测」确认结果。");
+                    Log("正在安装本地包：" + Path.GetFileName(it.LocalFile));
+                    // zip 形式（vstor_runtime.zip）先解压再装；exe/msi 直接装
+                    RunPrereqInstaller(it.LocalFile,
+                        Path.GetExtension(it.LocalFile).TrimStart('.').ToLowerInvariant(),
+                        it.InstallArgs);
+                    Log("本地包安装已结束，请点击「重新检测」确认结果。");
                     MessageBox.Show("安装程序已结束。请点击「重新检测」查看结果；部分组件需要重启计算机后生效。",
                         "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
                 }
 
+                // ① 仓库固定 tag 上的安装包（可走加速站）——微软官方源在国内基本打不开，这是首选
+                if (it.Packages != null && it.Packages.Length > 0)
+                {
+                    var r = MessageBox.Show(
+                        "将自动下载安装包并安装（直连优先，失败自动走 GitHub 加速站）：\r\n" +
+                        string.Join("\r\n", Array.ConvertAll(it.Packages, x => "  · " + x.FileName)) +
+                        "\r\n\r\n来源：本项目的 GitHub Release（固定 tag " + UpdateChecker.PrereqTag +
+                        "）。过程中可能弹出 UAC 授权提示，请允许。是否继续？",
+                        "下载安装 " + it.Title, MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+                    if (r != DialogResult.OK) return;
+
+                    PrereqAsset asset = null;
+                    string localPkg = null;
+                    foreach (var cand in it.Packages)
+                    {
+                        try
+                        {
+                            var dest = Path.Combine(Path.GetTempPath(), cand.FileName);
+                            Log("下载：" + cand.FileName + "（" + UpdateChecker.PrereqBaseUrl + cand.FileName + "）");
+                            UpdateChecker.Download(UpdateChecker.PrereqBaseUrl + cand.FileName, dest, null);
+                            localPkg = dest; asset = cand; break;
+                        }
+                        catch (Exception dex)
+                        {
+                            Log("  下载失败：" + dex.Message);
+                        }
+                    }
+                    if (localPkg == null)
+                    {
+                        var fb = MessageBox.Show(
+                            "从 GitHub（含加速站）下载失败。\r\n\r\n是否打开官方下载页手动下载？",
+                            "下载失败", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                        if (fb == DialogResult.Yes)
+                            Process.Start(new ProcessStartInfo(it.DownloadUrl) { UseShellExecute = true });
+                        return;
+                    }
+
+                    Log("下载完成，开始安装：" + asset.FileName);
+                    RunPrereqInstaller(localPkg, asset.Kind, asset.Args);
+                    Log("安装程序已结束，请点击「重新检测」确认结果。");
+                    MessageBox.Show("安装程序已结束。请点击「重新检测」查看结果；部分组件需要重启计算机后生效。",
+                        "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+
+                // ② 没有托管包 → 打开官方页（原来的行为），并提示离线方式
                 Log("打开下载页面：" + it.DownloadUrl);
                 Process.Start(new ProcessStartInfo(it.DownloadUrl) { UseShellExecute = true });
                 MessageBox.Show(
@@ -967,6 +1084,42 @@ namespace PPTShapeLibraryInstaller
                 Log("操作失败：" + ex.Message);
                 MessageBox.Show("操作失败：" + ex.Message, "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        /// <summary>运行依赖安装程序：exe 直接跑；msi 走 msiexec；zip 解压后跑里面的 exe/msi。</summary>
+        private void RunPrereqInstaller(string path, string kind, string args)
+        {
+            string exe = path, exeArgs = args ?? "";
+
+            if (string.Equals(kind, "zip", StringComparison.OrdinalIgnoreCase))
+            {
+                string dir = Path.Combine(Path.GetTempPath(), "pptsl_prereq_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+                Directory.CreateDirectory(dir);
+                System.IO.Compression.ZipFile.ExtractToDirectory(path, dir);
+                Log("已解压到：" + dir);
+                // 优先装 exe（bootstrapper），其次 msi
+                var exes = Directory.GetFiles(dir, "*.exe", SearchOption.AllDirectories);
+                var msis = Directory.GetFiles(dir, "*.msi", SearchOption.AllDirectories);
+                if (exes.Length > 0) { exe = exes[0]; exeArgs = args ?? ""; }
+                else if (msis.Length > 0) { exe = msis[0]; }
+                else throw new Exception("压缩包里没有找到 .exe 或 .msi");
+            }
+
+            ProcessStartInfo psi;
+            if (exe.EndsWith(".msi", StringComparison.OrdinalIgnoreCase))
+            {
+                psi = new ProcessStartInfo("msiexec.exe", "/i \"" + exe + "\" /qn /norestart");
+            }
+            else
+            {
+                psi = new ProcessStartInfo(exe, exeArgs);
+            }
+            psi.UseShellExecute = true;
+            psi.Verb = "runas";
+            Log("执行：" + psi.FileName + " " + psi.Arguments);
+            var p = Process.Start(psi);
+            p.WaitForExit();
+            Log("退出码：" + p.ExitCode);
         }
 
         private void UpdateSummary()
