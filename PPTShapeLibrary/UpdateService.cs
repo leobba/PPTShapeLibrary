@@ -9,6 +9,23 @@ using Microsoft.Win32;
 
 namespace PPTShapeLibrary
 {
+    /// <summary>一键更新的准备结果。</summary>
+    public class UpdateApply
+    {
+        public bool Ok;
+        public string Message;
+        public string Dir;        // 新版解压目录
+        public string Installer;  // 解压出来的安装器路径
+    }
+
+    /// <summary>下载结果类型。</summary>
+    public enum DownloadStatus
+    {
+        Ok,
+        NotFound,   // HTTP 404：资产没托管
+        Failed      // 网络/连接问题
+    }
+
     /// <summary>一次更新检查的结果（发给前端）。</summary>
     public class UpdateResult
     {
@@ -474,6 +491,141 @@ namespace PPTShapeLibrary
             }
         }
 
+        /// <summary>
+        /// 一键更新：下载新版本 → 校验 SHA256 → 解压 → 启动其中的安装器（带 --pending-update）
+        /// → 由安装器等 PowerPoint 退出后完成"卸载旧版 + 装新版"。
+        ///
+        /// 返回：Ok / Message / Dir（解压目录，供安装器使用）。
+        /// 注意：本方法**不**关闭 PowerPoint，关闭由调用方（用户在弹窗里确认后）执行。
+        /// </summary>
+        public static UpdateApply ApplyUpdate(Action<long, long> progress)
+        {
+            var res = new UpdateApply();
+            var info = Check();
+            if (!info.Ok || !info.HasUpdate)
+            {
+                res.Message = info.Ok ? "当前已是最新版本，无需更新。" : ("检查更新失败：" + info.Error);
+                return res;
+            }
+            if (string.IsNullOrEmpty(info.DownloadUrl))
+            {
+                res.Message = "该版本没有提供下载地址，请到发布页手动下载。";
+                return res;
+            }
+
+            string zip = null;
+            try
+            {
+                zip = Path.Combine(Path.GetTempPath(), info.LatestVersion + "-dist.zip");
+                Log.Write("[update] 下载 " + info.DownloadUrl);
+                if (Download(info.DownloadUrl, zip, progress) != DownloadStatus.Ok)
+                    throw new Exception("下载失败（直连与加速站都试过了）");
+
+                if (!string.IsNullOrEmpty(info.Sha256))
+                {
+                    var actual = Sha256(zip);
+                    if (!string.Equals(actual, info.Sha256, StringComparison.OrdinalIgnoreCase))
+                        throw new Exception("校验失败，已放弃安装（下载的文件与发布的不一致）");
+                    Log.Write("[update] SHA256 校验通过");
+                }
+
+                // 解压到**持久目录**，不要用 %TEMP%：
+                // ClickOnce 会把"安装源 URL"记下来（后续升级/修复/卸载都要回到这个路径），
+                // 放 temp 里迟早被清理，安装源失效会导致以后无法升级或卸载。
+                var root = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "PPTShapeLibrary", "updates");
+                var dir = Path.Combine(root, info.LatestVersion);
+                try
+                {
+                    if (Directory.Exists(dir)) Directory.Delete(dir, true);
+                }
+                catch { }
+                Directory.CreateDirectory(dir);
+                System.IO.Compression.ZipFile.ExtractToDirectory(zip, dir);
+                Log.Write("[update] 已解压到 " + dir);
+
+                var installer = Directory.GetFiles(dir, "安装 PPTShapeLibrary.exe", SearchOption.AllDirectories);
+                if (installer.Length == 0) throw new Exception("分发包里没有找到安装器");
+
+                try { File.Delete(zip); } catch { }
+
+                res.Ok = true;
+                res.Dir = dir;
+                res.Installer = installer[0];
+                res.Message = "新版已准备好：" + info.LatestVersion;
+                return res;
+            }
+            catch (Exception ex)
+            {
+                try { if (zip != null && File.Exists(zip)) File.Delete(zip); } catch { }
+                res.Message = ex.Message;
+                Log.Write("[update] 更新失败：" + ex.Message);
+                return res;
+            }
+        }
+
+        /// <summary>下载（直连优先，失败回退加速站）。</summary>
+        public static DownloadStatus Download(string url, string destPath, Action<long, long> progress)
+        {
+            Exception last = null;
+            foreach (var prefix in MirrorPrefixes)
+            {
+                string u = prefix.Length == 0 ? url : prefix + url;
+                try
+                {
+                    ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+                    var req = (HttpWebRequest)WebRequest.Create(u);
+                    req.UserAgent = "PPTShapeLibrary-plugin-updater";
+                    req.Accept = "application/octet-stream";
+                    req.Timeout = 30000;
+                    req.ReadWriteTimeout = 30000;
+                    req.Proxy = null;
+                    using (var resp = (HttpWebResponse)req.GetResponse())
+                    using (var src = resp.GetResponseStream())
+                    using (var fs = new FileStream(destPath, FileMode.Create, FileAccess.Write))
+                    {
+                        long total = resp.ContentLength, got = 0;
+                        var buf = new byte[81920];
+                        int n;
+                        while ((n = src.Read(buf, 0, buf.Length)) > 0)
+                        {
+                            fs.Write(buf, 0, n);
+                            got += n;
+                            if (progress != null) progress(got, total);
+                        }
+                    }
+                    return DownloadStatus.Ok;
+                }
+                catch (WebException wex)
+                {
+                    var hr = wex.Response as HttpWebResponse;
+                    if (hr != null && hr.StatusCode == HttpStatusCode.NotFound) return DownloadStatus.NotFound;
+                    last = wex;
+                    try { if (File.Exists(destPath)) File.Delete(destPath); } catch { }
+                }
+                catch (Exception ex)
+                {
+                    last = ex;
+                    try { if (File.Exists(destPath)) File.Delete(destPath); } catch { }
+                }
+            }
+            Log.Write("[update] 下载失败：" + (last != null ? last.Message : "未知"));
+            return DownloadStatus.Failed;
+        }
+
+        public static string Sha256(string path)
+        {
+            using (var sha = System.Security.Cryptography.SHA256.Create())
+            using (var fs = File.OpenRead(path))
+            {
+                var sb = new StringBuilder();
+                foreach (var b in sha.ComputeHash(fs)) sb.Append(b.ToString("x2"));
+                return sb.ToString();
+            }
+        }
+
+        /// <summary>判断一个 HTTP(S) 地址是否可用（只要响应码是 2xx 就算可用）。</summary>
         private static string GetString(string url)
         {
             ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;

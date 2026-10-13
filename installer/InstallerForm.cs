@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Text;
+using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
@@ -599,6 +601,349 @@ namespace PPTShapeLibraryInstaller
                 }
             }
             catch { }
+        }
+
+        /// <summary>从 ARP 读已安装版本的卸载命令（找不到返回 null）。</summary>
+        private static string FindExistingUninstallString()
+        {
+            try
+            {
+                var roots = new[]
+                {
+                    Registry.CurrentUser,
+                    Registry.LocalMachine,
+                    RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry32)
+                };
+                foreach (var hive in roots)
+                {
+                    using (var root = hive.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall"))
+                    {
+                        if (root == null) continue;
+                        foreach (var sub in root.GetSubKeyNames())
+                        {
+                            using (var k = root.OpenSubKey(sub))
+                            {
+                                if (k == null) continue;
+                                var name = k.GetValue("DisplayName") as string;
+                                if (string.IsNullOrEmpty(name)) continue;
+                                if (name.IndexOf("PPTShapeLibrary", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                                return k.GetValue("UninstallString") as string;
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        /// <summary>
+        /// 无人值守更新：`--pending-update &lt;解压目录&gt;` 走这里。
+        ///
+        /// 流程：等 PowerPoint 退出 → 卸载已装的旧版（ClickOnce 不允许就地升级）
+        ///       → 用解压出来的部署清单装新版 → 结果写到 %TEMP%\pptsl_pending_update.log。
+        /// 全程**不弹任何 UI**（用户在 PowerPoint 里点完"立即更新"就把 PowerPoint 关了，不该再被打断）。
+        /// 返回 0 表示成功。
+        /// </summary>
+        public static int RunPendingUpdate(string dir)
+        {
+            var logPath = Path.Combine(Path.GetTempPath(), "pptsl_pending_update.log");
+            Action<string> say = (m) =>
+            {
+                var line = DateTime.Now.ToString("HH:mm:ss") + "  " + m;
+                try { File.AppendAllText(logPath, line + Environment.NewLine, Encoding.UTF8); } catch { }
+            };
+            try { File.Delete(logPath); } catch { }
+
+            try
+            {
+                say("待安装目录：" + dir);
+                var manifest = Path.Combine(dir, "App", "PPTShapeLibrary.vsto");
+                if (!File.Exists(manifest))
+                {
+                    say("✗ 未找到 " + manifest);
+                    return 2;
+                }
+
+                // ① 等 PowerPoint 退出（它锁着插件 DLL/清单，装到一半失败会留半注册状态）
+                say("等待 PowerPoint 退出…");
+                int waited = 0;
+                while (IsPowerPointRunning() && waited < 180)
+                {
+                    Thread.Sleep(2000);
+                    waited += 2;
+                }
+                if (IsPowerPointRunning())
+                {
+                    say("✗ 等待超时（" + waited + " 秒），PowerPoint 仍未退出，已放弃");
+                    return 3;
+                }
+                say("PowerPoint 已退出（等待 " + waited + " 秒）");
+
+                // ② 卸载旧版
+                //    分两种：
+                //     · 开发式（Addins 键带 |vstolocal，或 ARP 的卸载串指向 bin\Debug|bin\Release）
+                //       —— 这种**不是** VSTOInstaller 正规装的，用 /Uninstall 会挂住（实测卡 120s 超时）
+                //       → 直接删注册表键
+                //     · 正式安装（ClickOnce）→ 走 ARP 里的卸载串
+                if (HasDevRegistration() || ArpRecordIsDev())
+                {
+                    say("检测到开发式注册/陈旧卸载项：直接清理注册表键（VSTOInstaller 处理不了这种）");
+                    ClearDevRegistration(say);
+                }
+                else
+                {
+                    var uninstall = FindExistingUninstallString();
+                    if (!string.IsNullOrEmpty(uninstall))
+                    {
+                        say("卸载旧版：" + uninstall);
+                        try { RunCommandLineStatic(uninstall, say, 120000); }
+                        catch (Exception ex) { say("卸载异常（继续尝试安装）：" + ex.Message); }
+                    }
+                    else { say("未检测到旧版安装记录，直接安装"); }
+                }
+
+                // ★ 无论走哪条路，装之前都要清掉 VSTA\Solutions 里的本产品记录。
+                //   它与"当前是否注册了加载项"无关：VSTO 用它判定"该产品已安装另一版本"，
+                //   残留时 VSTOInstaller 一定报 AddInAlreadyInstalledException（实测多轮）。
+                ClearVstaRecords(say);
+
+                // ③ 安装新版
+                var vi = FindVstoInstaller();
+                var url = new Uri(manifest).AbsoluteUri;
+                say("安装源：" + url);
+                if (vi != null)
+                {
+                    var p = Process.Start(new ProcessStartInfo(vi, "/Install \"" + url + "\"") { UseShellExecute = false });
+                    if (p != null) p.WaitForExit();
+                    int code = p == null ? -1 : p.ExitCode;
+                    say("VSTOInstaller 退出码：" + code);
+                }
+                else
+                {
+                    var p = Process.Start(new ProcessStartInfo(manifest) { UseShellExecute = true });
+                    if (p != null) p.WaitForExit();
+                    say("已用系统关联方式安装（无 VSTOInstaller）");
+                }
+
+                var now = FindExistingUninstallString();
+                bool ok = !string.IsNullOrEmpty(now);
+                say(ok ? "✓ 安装完成" : "✗ 未检测到安装记录（可能被取消或失败）");
+                return ok ? 0 : 4;
+            }
+            catch (Exception ex)
+            {
+                say("✗ 异常：" + ex.Message);
+                return 1;
+            }
+        }
+
+        /// <summary>是否存在开发式注册（Manifest 带 |vstolocal）。</summary>
+        private static bool HasDevRegistration()
+        {
+            try
+            {
+                foreach (var keyPath in new[]
+                {
+                    @"Software\Microsoft\Office\PowerPoint\Addins\PPTShapeLibrary",
+                    @"Software\Microsoft\Office\16.0\PowerPoint\Addins\PPTShapeLibrary"
+                })
+                {
+                    using (var k = Registry.CurrentUser.OpenSubKey(keyPath))
+                    {
+                        if (k == null) continue;
+                        var mf = k.GetValue("Manifest") as string;
+                        if (!string.IsNullOrEmpty(mf) && mf.IndexOf("vstolocal", StringComparison.OrdinalIgnoreCase) >= 0)
+                            return true;
+                    }
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        /// <summary>ARP 里是否存在**指向开发路径**的陈旧卸载项（bin\Debug / bin\Release / vstolocal）。
+        /// 这种记录 VSTOInstaller /Uninstall 卸不掉（会挂住等超时），只能直接删键。</summary>
+        private static bool ArpRecordIsDev()
+        {
+            try
+            {
+                foreach (var hive in new[] { Registry.CurrentUser, Registry.LocalMachine })
+                {
+                    using (var root = hive.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall"))
+                    {
+                        if (root == null) continue;
+                        foreach (var sub in root.GetSubKeyNames())
+                        {
+                            using (var k = root.OpenSubKey(sub))
+                            {
+                                if (k == null) continue;
+                                var name = k.GetValue("DisplayName") as string;
+                                if (string.IsNullOrEmpty(name)) continue;
+                                if (name.IndexOf("PPTShapeLibrary", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                                var un = k.GetValue("UninstallString") as string;
+                                if (string.IsNullOrEmpty(un)) continue;
+                                // 注意：卸载串里是 **正斜杠**（file:///E:/…/bin/Debug/…），
+                                // 直接找 "bin\Debug" 会漏判 —— 必须先把分隔符统一。
+                                var norm = un.Replace('/', '\\');
+                                if (norm.IndexOf("bin\\Debug", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                    norm.IndexOf("bin\\Release", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                    norm.IndexOf("vstolocal", StringComparison.OrdinalIgnoreCase) >= 0)
+                                    return true;
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        /// <summary>清掉开发式注册：两处 Addins 键 + VSTO SolutionMetadata + AddinsData 缓存。</summary>
+        private static void ClearDevRegistration(Action<string> say)
+        {
+            try
+            {
+                foreach (var keyPath in new[]
+                {
+                    @"Software\Microsoft\Office\PowerPoint\Addins\PPTShapeLibrary",
+                    @"Software\Microsoft\Office\16.0\PowerPoint\Addins\PPTShapeLibrary"
+                })
+                {
+                    try { Registry.CurrentUser.DeleteSubKeyTree(keyPath, false); say("已删除注册：" + keyPath); }
+                    catch (Exception ex) { say("删除注册失败（忽略）：" + keyPath + " → " + ex.Message); }
+                }
+                try { Registry.CurrentUser.DeleteSubKeyTree(@"Software\Microsoft\Office\16.0\PowerPoint\AddinsData\PPTShapeLibrary", false); } catch { }
+                try { Registry.CurrentUser.DeleteSubKeyTree(@"Software\Microsoft\Office\PowerPoint\AddinsData\PPTShapeLibrary", false); } catch { }
+
+                // VSTO 的"已安装"记录（以**产品名**为唯一键）：不清掉的话后面装新版会报
+                // AddInAlreadyInstalledException（"已安装另一版本的自定义项"）。
+                using (var sm = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\VSTO\SolutionMetadata"))
+                {
+                    if (sm != null)
+                    {
+                        foreach (var sub in sm.GetSubKeyNames())
+                        {
+                            using (var k = sm.OpenSubKey(sub))
+                            {
+                                if (k == null) continue;
+                                var name = k.GetValue("addInName") as string;
+                                if (!string.IsNullOrEmpty(name) &&
+                                    name.IndexOf("PPTShapeLibrary", StringComparison.OrdinalIgnoreCase) >= 0)
+                                {
+                                    try
+                                    {
+                                        Registry.CurrentUser.DeleteSubKeyTree(@"Software\Microsoft\VSTO\SolutionMetadata\" + sub, false);
+                                        say("已删除 VSTO 安装记录：" + sub);
+                                    }
+                                    catch { }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ⚠️ 还要删掉**陈旧的 ARP 卸载项**：VSTO 判断"是否已安装另一版本"看的就是它。
+                // 实测踩过：把 Addins 键和 SolutionMetadata 都清了，VSTOInstaller 仍报
+                // "已安装另一版本的自定义项"，就是这条 ARP 记录（早期装开发版时留下的）在作怪。
+                // 只删**指向开发路径**的那些（bin\Debug / bin\Release / |vstolocal），正式安装的记录保持不动。
+                foreach (var hive in new[] { Registry.CurrentUser, Registry.LocalMachine })
+                {
+                    try
+                    {
+                        using (var root = hive.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall"))
+                        {
+                            if (root == null) continue;
+                            foreach (var sub in root.GetSubKeyNames())
+                            {
+                                using (var k = root.OpenSubKey(sub))
+                                {
+                                    if (k == null) continue;
+                                    var name = k.GetValue("DisplayName") as string;
+                                    if (string.IsNullOrEmpty(name)) continue;
+                                    if (name.IndexOf("PPTShapeLibrary", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                                    var un = k.GetValue("UninstallString") as string;
+                                    var norm = (un ?? "").Replace('/', '\\');
+                                    bool isDev = norm.IndexOf("bin\\Debug", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                                 norm.IndexOf("bin\\Release", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                                 norm.IndexOf("vstolocal", StringComparison.OrdinalIgnoreCase) >= 0;
+                                    if (!isDev) continue;
+                                    try
+                                    {
+                                        hive.DeleteSubKeyTree(@"Software\Microsoft\Windows\CurrentVersion\Uninstall\" + sub, false);
+                                        say("已删除陈旧的卸载项（开发版残留）：" + sub);
+                                    }
+                                    catch (Exception ex) { say("删除卸载项失败（忽略）：" + ex.Message); }
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+                }
+                // ★ 最关键的一条：VSTA\Solutions —— VSTO 用它记"这个产品装过哪个版本"，
+                //   是 AddInAlreadyInstalledException（"已安装另一版本的自定义项"）的**真正判定来源**。
+                ClearVstaRecords(say);
+            }
+            catch (Exception ex) { say("清理开发式注册异常（忽略）：" + ex.Message); }
+        }
+
+        /// <summary>清掉 VSTA\Solutions 里本产品的记录（"已安装另一版本"的判定来源）。</summary>
+        private static void ClearVstaRecords(Action<string> say)
+        {
+            try
+            {
+                using (var sol = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\VSTA\Solutions"))
+                {
+                    if (sol == null) return;
+                    foreach (var sub in sol.GetSubKeyNames())
+                    {
+                        using (var k = sol.OpenSubKey(sub))
+                        {
+                            if (k == null) continue;
+                            var product = k.GetValue("ProductName") as string;
+                            var url = k.GetValue("Url") as string;
+                            var appId = k.GetValue("ApplicationID") as string;
+                            bool mine = (!string.IsNullOrEmpty(product) &&
+                                         product.IndexOf("PPTShapeLibrary", StringComparison.OrdinalIgnoreCase) >= 0)
+                                        || (!string.IsNullOrEmpty(url) &&
+                                            url.IndexOf("PPTShapeLibrary", StringComparison.OrdinalIgnoreCase) >= 0)
+                                        || (!string.IsNullOrEmpty(appId) &&
+                                            appId.IndexOf("PPTShapeLibrary", StringComparison.OrdinalIgnoreCase) >= 0);
+                            if (!mine) continue;
+                            try
+                            {
+                                Registry.CurrentUser.DeleteSubKeyTree(@"Software\Microsoft\VSTA\Solutions\" + sub, false);
+                                say("已删除 VSTA 记录（『已安装另一版本』的判定来源）：" + sub);
+                            }
+                            catch (Exception ex) { say("删除 VSTA 记录失败：" + ex.Message); }
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>执行一条命令行（按首个 ".exe" 切分，避免路径里的空格被切错）；输出走 say。</summary>
+        private static void RunCommandLineStatic(string cmd, Action<string> say, int timeoutMs = 5 * 60 * 1000)
+        {
+            int i = cmd.IndexOf(".exe", StringComparison.OrdinalIgnoreCase);
+            string exe, args;
+            if (i > 0)
+            {
+                exe = cmd.Substring(0, i + 4).Trim().Trim('"');
+                args = cmd.Substring(i + 4).Trim();
+            }
+            else { exe = cmd; args = ""; }
+            say("执行：" + exe + " " + args);
+            var p = Process.Start(new ProcessStartInfo(exe, args) { UseShellExecute = false });
+            if (p == null) { say("未能启动进程"); return; }
+            if (!p.WaitForExit(timeoutMs))
+            {
+                say("超时未结束（" + (timeoutMs / 1000) + "s），放弃等待并结束该进程");
+                try { p.Kill(); } catch { }
+                return;
+            }
+            say("退出码：" + p.ExitCode);
         }
 
         /// <summary>PowerPoint 是否在运行。安装/卸载期间它会锁住加载项 DLL 与清单，

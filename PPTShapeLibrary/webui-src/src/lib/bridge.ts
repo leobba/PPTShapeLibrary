@@ -141,6 +141,10 @@ export const bridge = {
   openRelease: (url: string) => send("openRelease", { url }),
   /** 设置更新提醒间隔（分钟；0=关闭定时提醒）。 */
   setUpdateReminder: (minutes: number) => send("setUpdateReminder", { minutes }),
+  /** 一键更新：下载+校验+解压（耗时较长，走长任务超时策略）。 */
+  applyUpdate: () => send("applyUpdate", {}, 0),
+  /** 关掉 PowerPoint，让安装器在退出后完成更新。 */
+  quitForUpdate: (installer: string, dir: string) => send("quitForUpdate", { installer, dir }, 0),
   undo: () => send("undo", {}),
   redo: () => send("redo", {}),
   trashList: () => send("trashList", {}),

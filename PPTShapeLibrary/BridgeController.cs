@@ -276,6 +276,48 @@ namespace PPTShapeLibrary
                         }
                     // 定时提醒：前端可设提醒间隔（分钟，0=关闭）。C# 侧起定时器，
                     // 到点检查一次，有新版就**主动推** updateAvailable 给前端，不等用户下次手点。
+                    // 一键更新：下载+校验+解压，返回准备好的目录（真正的安装由安装器在 PowerPoint 退出后完成）
+                    case "applyUpdate":
+                        {
+                            var ap = UpdateService.ApplyUpdate(null);
+                            var d = new Dictionary<string, object>
+                            {
+                                { "ok", ap.Ok },
+                                { "message", ap.Message },
+                                { "dir", ap.Dir ?? "" },
+                                { "installer", ap.Installer ?? "" },
+                            };
+                            Ok(reqId, d);
+                            break;
+                        }
+                    // 关掉 PowerPoint 并让安装器完成更新（用户在弹窗里点"立即更新"后走这里）
+                    case "quitForUpdate":
+                        {
+                            string installer = ToStr(payload, "installer");
+                            string dir = ToStr(payload, "dir");
+                            if (string.IsNullOrEmpty(installer) || !File.Exists(installer))
+                            {
+                                Result(reqId, false, null, "安装器不存在，无法自动更新");
+                                break;
+                            }
+                            try
+                            {
+                                // 先起安装器（它会等 PowerPoint 退出），再关 PowerPoint
+                                var psi = new System.Diagnostics.ProcessStartInfo(installer, "--pending-update \"" + dir + "\"");
+                                psi.UseShellExecute = true;
+                                psi.WorkingDirectory = Path.GetDirectoryName(installer);
+                                System.Diagnostics.Process.Start(psi);
+                                Log.Write("[update] 已启动安装器：" + installer + " --pending-update " + dir);
+                                Ok(reqId, new Dictionary<string, object> { { "started", true } });
+                                // 关 PowerPoint（延后一点，让安装器进程先起来）
+                                ScheduleQuitPowerPoint();
+                            }
+                            catch (Exception ex)
+                            {
+                                Result(reqId, false, null, ex.Message);
+                            }
+                            break;
+                        }
                     case "setUpdateReminder":
                         {
                             int minutes = 0;
@@ -1402,6 +1444,32 @@ namespace PPTShapeLibrary
                 { "cleanLayoutsOnInsertPage", s.CleanLayoutsOnInsertPage },
                 { "accentColor", s.AccentColor ?? "blue" }
             };
+        }
+
+        /// <summary>延后一点关闭 PowerPoint，让安装器进程先起来（它会等 PowerPoint 退出后再装）。</summary>
+        private void ScheduleQuitPowerPoint()
+        {
+            var t = new System.Windows.Forms.Timer();
+            t.Interval = 1500;
+            t.Tick += (s, e) =>
+            {
+                t.Stop();
+                t.Dispose();
+                try
+                {
+                    var app = Globals.ThisAddIn != null ? Globals.ThisAddIn.Application : null;
+                    if (app != null)
+                    {
+                        Log.Write("[update] 正在关闭 PowerPoint 以完成更新…");
+                        app.Quit();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Write("[update] 关闭 PowerPoint 失败：" + ex.Message);
+                }
+            };
+            t.Start();
         }
 
         /// <summary>主动告诉前端"有新版本"，前端据此弹窗/显示提示条。

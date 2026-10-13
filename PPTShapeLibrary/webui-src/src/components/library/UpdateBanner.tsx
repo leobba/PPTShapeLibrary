@@ -101,12 +101,42 @@ export function UpdateBanner() {
           <button
             className="rounded-md bg-blue-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-blue-700 disabled:opacity-50"
             disabled={busy}
+            onClick={async () => {
+              // 一键更新：下载+校验+解压 → 确认关闭 PowerPoint → 安装器在退出后自动装新版
+              const yes = await dialogs.confirm(
+                "将下载新版 " + info.latestVersion + " 并自动安装。\r\n\r\n" +
+                "安装需要**关闭 PowerPoint**（新版文件要替换正在使用的旧版），" +
+                "确认后会立即关闭，安装器会在后台完成升级，完成后重新打开 PowerPoint 即可。\r\n\r\n" +
+                "（素材库数据不受影响）\r\n\r\n是否现在更新？",
+                { title: "立即更新", okText: "更新并关闭 PowerPoint" }
+              );
+              if (!yes) return;
+              setBusy(true);
+              try {
+                const r = (await bridge.applyUpdate()) as any;
+                if (!r?.ok) {
+                  setBusy(false);
+                  await dialogs.alert("更新失败：" + (r?.message || "未知原因") + "\r\n\r\n也可点「查看更新」到发布页手动下载。");
+                  return;
+                }
+                await bridge.quitForUpdate(r.installer, r.dir);
+                // PowerPoint 即将关闭，这里不用再改 UI 状态
+              } catch (e: any) {
+                setBusy(false);
+                await dialogs.alert("更新失败：" + (e?.message || e));
+              }
+            }}
+          >
+            {busy ? "准备中…" : "立即更新"}
+          </button>
+          <button
+            className="rounded-md border border-blue-300 px-2.5 py-1 text-[11px] text-blue-700 hover:bg-blue-100"
             onClick={() => {
               // 打开发布页（一定存在，还能看到更新说明和历史版本），不会出现 404
               void bridge.openRelease(info.releaseUrl).catch(() => {});
             }}
           >
-            {busy ? "检查中…" : "查看更新"}
+            查看更新
           </button>
           <button
             className="rounded-md px-2 py-1 text-[11px] text-blue-700 hover:bg-blue-100"

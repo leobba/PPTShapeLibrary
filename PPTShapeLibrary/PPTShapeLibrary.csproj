@@ -211,7 +211,7 @@
     下面在 Office targets 导入之后重定义同名 target（后定义者生效）：
     Release 不注册，Debug 保持原行为（F5 调试需要注册）。
   -->
-  <Target Name="RegisterOfficeAddin" Condition="'$(VSTO_ProjectType)' == 'Application' and '$(Configuration)' != 'Release'">
+  <Target Name="RegisterOfficeAddin" Condition="'$(VSTO_ProjectType)' == 'Application' and '$(Configuration)' != 'Release' and '$(VstoSkipRegistration)' != 'true'">
     <SetOffice2007AddInRegistration
         Url="$(AbsolutePathToTheDeploymentManifest)"
         AddInName="$(TargetName)"
@@ -229,7 +229,7 @@
     Debug Rebuild 因还会重新注册所以看起来"恢复"了）。
     Release 下把注销也置空；Debug 保留原行为（F5 调试需要 VS 管理注册）。
   -->
-  <Target Name="UnregisterOfficeAddin" Condition="'$(VSTO_ProjectType)' == 'Application' and '$(Configuration)' != 'Release'">
+  <Target Name="UnregisterOfficeAddin" Condition="'$(VSTO_ProjectType)' == 'Application' and '$(Configuration)' != 'Release' and '$(VstoSkipRegistration)' != 'true'">
     <SetOffice2007AddInRegistration
         Url="$(AbsolutePathToTheDeploymentManifest)"
         AddInName="$(TargetName)"

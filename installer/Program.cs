@@ -17,6 +17,16 @@ namespace PPTShapeLibraryInstaller
                 Environment.Exit(n > 0 ? 0 : 1);
             }
 
+            // 无人值守更新子模式：由**插件**拉起（用户在 PowerPoint 里点了「立即更新」并关闭 PowerPoint）。
+            // 参数：--pending-update <新版解压目录>
+            // 行为：等 PowerPoint 退出 → 卸载旧版 → 装新版 → 结果写 %TEMP%\pptsl_pending_update.log。
+            // 全程不弹 UI；退出码 0=成功。
+            if (args != null && args.Length >= 2 && args[0] == "--pending-update")
+            {
+                int rc = InstallerForm.RunPendingUpdate(args[1]);
+                Environment.Exit(rc);
+            }
+
             // 命令行模式：静默检查更新（便于脚本化验证 / 定时任务）
             //   --check-update            只查并打印结果
             //   --check-update --download 再下载并校验 SHA256（不安装）
