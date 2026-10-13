@@ -241,6 +241,161 @@ namespace PPTShapeLibraryInstaller
             repairTip.SetToolTip(_repair,
                 "功能区没有「素材库」时点这里：重写加载项注册（当前用户）。\r\n" +
                 "「所有用户」模式会额外写入 HKLM（需要管理员）。");
+
+            _checkUpdate = new Button
+            {
+                Text = "检查更新",
+                Size = new Size(100, 30),
+                Location = new Point(222, 512),
+                Anchor = AnchorStyles.Right | AnchorStyles.Bottom
+            };
+            _checkUpdate.Click += (s, e) => CheckUpdateAsync(true);
+            Controls.Add(_checkUpdate);
+
+            _updateLabel = new Label
+            {
+                Text = "",
+                Location = new Point(18, 516),
+                Size = new Size(196, 22),
+                Anchor = AnchorStyles.Left | AnchorStyles.Bottom,
+                ForeColor = Color.FromArgb(90, 100, 110),
+                AutoEllipsis = true
+            };
+            Controls.Add(_updateLabel);
+
+            // 启动后自动检查一次（24h 缓存，不重复联网）
+            Load += (s, e) => CheckUpdateAsync(false);
+        }
+
+        // ---------------- 更新检查（GitHub Releases） ----------------
+
+        private Button _checkUpdate;
+        private Label _updateLabel;
+        private bool _updateChecking;
+
+        /// <summary>manual=false 时走 24h 缓存；结果异步回填到界面。</summary>
+        private void CheckUpdateAsync(bool manual)
+        {
+            if (_updateChecking) return;
+            _updateChecking = true;
+            if (manual) _checkUpdate.Enabled = false;
+            _updateLabel.Text = "正在检查更新…";
+
+            var ui = System.Threading.SynchronizationContext.Current;
+            var t = new System.Threading.Thread(() =>
+            {
+                UpdateInfo info;
+                try { info = UpdateChecker.Check(manual); }
+                catch (Exception ex) { info = new UpdateInfo { Ok = false, Error = ex.Message }; }
+                Action apply = () => ApplyUpdateInfo(info, manual);
+                if (ui != null) ui.Post(_ => apply(), null);
+                else { try { BeginInvoke(apply); } catch { } }
+            });
+            t.IsBackground = true;
+            t.Start();
+        }
+
+        private void ApplyUpdateInfo(UpdateInfo info, bool manual)
+        {
+            _updateChecking = false;
+            _checkUpdate.Enabled = true;
+            string cur = UpdateChecker.CurrentVersion();
+
+            if (!info.Ok)
+            {
+                _updateLabel.Text = "更新检查失败（点「检查更新」重试）";
+                _updateLabel.ForeColor = Color.FromArgb(150, 120, 60);
+                Log("更新检查失败：" + info.Error);
+                if (manual)
+                    MessageBox.Show(info.Error + "\r\n\r\n不影响安装；也可直接到发布页手动查看：\r\n" +
+                                    UpdateChecker.ReleasesPageUrl,
+                        "检查更新", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            if (!info.HasUpdate)
+            {
+                _updateLabel.Text = "已是最新版本 " + cur;
+                _updateLabel.ForeColor = Color.FromArgb(90, 100, 110);
+                Log("更新检查：已是最新（当前 " + cur + "，最新 " + info.LatestVersion + "）" +
+                    (info.FromCache ? "（缓存）" : ""));
+                if (manual)
+                    MessageBox.Show("当前版本 " + cur + " 已是最新。", "检查更新",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            _updateLabel.Text = "发现新版本 " + info.LatestVersion + "（点「检查更新」查看）";
+            _updateLabel.ForeColor = Color.FromArgb(0, 102, 204);
+            Log("更新检查：发现新版本 " + info.LatestVersion + "（当前 " + cur + "）" +
+                (info.FromCache ? "（缓存）" : ""));
+            // 自动检查只做被动提示，不弹模态窗打断用户；手动点「检查更新」才弹下载确认
+            if (manual) PromptUpdate(info);
+        }
+
+        private void PromptUpdate(UpdateInfo info)
+        {
+            string notes = string.IsNullOrWhiteSpace(info.Notes) ? "" : "\r\n\r\n更新说明：\r\n" + info.Notes;
+            string assetLine = string.IsNullOrEmpty(info.AssetUrl)
+                ? "\r\n\r\n（该版本没有上传分发包，只能到发布页手动下载）"
+                : "";
+            var r = MessageBox.Show(
+                "发现新版本 " + info.LatestVersion + "（当前 " + info.CurrentVersion + "）。" + notes + assetLine +
+                "\r\n\r\n是否现在下载并安装？（下载会先试直连，失败自动走 GitHub 加速站）",
+                "发现新版本", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+            if (r != DialogResult.Yes) return;
+
+            if (string.IsNullOrEmpty(info.AssetUrl))
+            {
+                Process.Start(new ProcessStartInfo(info.ReleaseUrl ?? UpdateChecker.ReleasesPageUrl) { UseShellExecute = true });
+                return;
+            }
+
+            string zip = Path.Combine(Path.GetTempPath(), info.AssetName ?? "pptshape-update.zip");
+            try
+            {
+                Log("开始下载：" + info.AssetName);
+                _updateLabel.Text = "正在下载…";
+                UpdateChecker.Download(info.AssetUrl, zip, (got, total) =>
+                {
+                    try
+                    {
+                        string txt = total > 0
+                            ? string.Format("正在下载… {0:0.0}/{1:0.0} MB", got / 1048576.0, total / 1048576.0)
+                            : string.Format("正在下载… {0:0.0} MB", got / 1048576.0);
+                        if (_updateLabel != null) _updateLabel.Text = txt;
+                    }
+                    catch { }
+                });
+
+                string expected = UpdateChecker.FetchExpectedHash(info.Sha256Url);
+                string actual = UpdateChecker.Sha256(zip);
+                Log("下载完成：" + actual);
+                if (!string.IsNullOrEmpty(expected) && !string.Equals(expected, actual, StringComparison.OrdinalIgnoreCase))
+                {
+                    MessageBox.Show("下载文件校验失败，已放弃安装。\r\n期望 " + expected + "\r\n实际 " + actual,
+                        "校验失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    try { File.Delete(zip); } catch { }
+                    _updateLabel.Text = "校验失败";
+                    return;
+                }
+
+                _updateLabel.Text = "正在启动新版安装程序…";
+                var p = UpdateChecker.ApplyUpdate(zip);
+                Log("已启动新版安装程序：" + (p != null ? p.ProcessName : "?"));
+                MessageBox.Show(
+                    "新版安装程序已启动，请按它的提示完成安装。\r\n\r\n" +
+                    "建议：先完全退出 PowerPoint 再安装。安装完成后本窗口可关闭。",
+                    "开始安装新版本", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                Log("更新失败：" + ex.Message);
+                _updateLabel.Text = "更新失败";
+                MessageBox.Show("更新失败：" + ex.Message + "\r\n\r\n可到发布页手动下载：\r\n" +
+                                (info.ReleaseUrl ?? UpdateChecker.ReleasesPageUrl),
+                    "更新失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         // ---------------- 加载项注册修复 ----------------

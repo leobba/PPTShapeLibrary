@@ -76,6 +76,11 @@ Desktop.ini
 # 首次克隆后构建：VS 会自动生成新的临时密钥并更新 csproj 里的指纹；
 # 也可手动在「项目属性 → 签名」里新建。正式分发请换成正式代码签名证书。
 
+# ================= 发版产物（由 scripts/publish-release.ps1 生成，不入库） =================
+PPTShapeLibrary-*-dist.zip
+PPTShapeLibrary-*-dist.zip.sha256
+/update.json
+
 # ================= Node / webui-src 前端工程 =================
 **/node_modules/
 **/webui-src/dist/

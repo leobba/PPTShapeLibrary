@@ -18,6 +18,7 @@
     <ApplicationIcon>
     </ApplicationIcon>
     <Deterministic>true</Deterministic>
+
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <DebugType>none</DebugType>
@@ -33,9 +34,14 @@
     <Reference Include="System.Core" />
     <Reference Include="System.Drawing" />
     <Reference Include="System.Windows.Forms" />
+    <!-- 更新检查：JSON 解析（JavaScriptSerializer）与 zip 解压 -->
+    <Reference Include="System.Web.Extensions" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="InstallerForm.cs" />
+    <Compile Include="UpdateChecker.cs" />
     <Compile Include="Program.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
