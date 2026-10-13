@@ -130,19 +130,56 @@ $payload = @{
 } | ConvertTo-Json
 
 $release = $null
-try {
-    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$owner/$name/releases/tags/$tag" -Headers $headers -TimeoutSec 30
-    Write-Host "  Release 已存在，改为上传/覆盖资产"
-} catch {
-    if ($_.Exception.Response.StatusCode.value__ -eq 404) {
-        try {
-            $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$owner/$name/releases" -Method Post `
-                -Headers $headers -Body $payload -ContentType "application/json" -TimeoutSec 60
-            Write-Host "  已创建 Release: $($release.html_url)" -ForegroundColor Green
-        } catch {
-            Write-Warning "  创建 Release 失败（tag 可能还没推到远端）：$($_.Exception.Message)"
+# 按 tag 找 Release 必须重试：网络抖动时 GitHub 会返回 404，若直接当成"没有"就会**建出重复 Release**
+# —— 实测踩过：同一个 tag 出现两个 Release，releases/latest 指到了缺 update.json 的副本上。
+function Get-ReleaseByTag([string]$t) {
+    for ($i = 1; $i -le 4; $i++) {
+        try { return Invoke-RestMethod -Uri "https://api.github.com/repos/$owner/$name/releases/tags/$t" -Headers $headers -TimeoutSec 30 }
+        catch { Start-Sleep -Seconds 3 }
+    }
+    return $null
+}
+
+$release = Get-ReleaseByTag $tag
+if (-not $release) {
+    $all = @()
+    try { $all = @(Invoke-RestMethod -Uri "https://api.github.com/repos/$owner/$name/releases?per_page=100" -Headers $headers -TimeoutSec 30) } catch { }
+    $same = @($all | Where-Object { $_.tag_name -eq $tag })
+    if ($same.Count -gt 1) {
+        Write-Warning "  发现 $($same.Count) 个同 tag 的 Release（重复），保留资产最多的一个，其余删除"
+        $keep = $same | Sort-Object { $_.assets.Count } -Descending | Select-Object -First 1
+        foreach ($dup in ($same | Where-Object { $_.id -ne $keep.id })) {
+            try {
+                Invoke-RestMethod -Uri "https://api.github.com/repos/$owner/$name/releases/$($dup.id)" -Method Delete -Headers $headers -TimeoutSec 30 | Out-Null
+                Write-Host "    已删除重复 Release id=$($dup.id)（资产 $($dup.assets.Count) 个）" -ForegroundColor Yellow
+            } catch { Write-Warning "    删除重复 Release 失败：$($_.Exception.Message)" }
         }
-    } else { throw }
+        $release = $keep
+    } elseif ($same.Count -eq 1) {
+        $release = $same[0]
+    }
+}
+if ($release) {
+    Write-Host "  Release 已存在（id=$($release.id)，资产 $($release.assets.Count) 个），改为上传/覆盖资产"
+} else {
+    try {
+        $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$owner/$name/releases" -Method Post `
+            -Headers $headers -Body $payload -ContentType "application/json" -TimeoutSec 60
+        Write-Host "  已创建 Release: $($release.html_url)" -ForegroundColor Green
+    } catch {
+        Write-Warning "  创建 Release 失败（tag 可能还没推到远端）：$($_.Exception.Message)"
+    }
+}
+
+# 关键：draft 状态的 Release **不会**被 releases/latest 返回（更新器的固定地址就是 latest/download/…），
+# 于是用户端更新会静默失效。实测踩过：强制删掉带 Release 的 tag 再重建，GitHub 会把 Release 转成草稿。
+if ($release -and ($release.draft -or $release.prerelease)) {
+    try {
+        $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$owner/$name/releases/$($release.id)" -Method Patch `
+            -Headers $headers -Body (@{ draft = $false; prerelease = $false } | ConvertTo-Json) `
+            -ContentType "application/json" -TimeoutSec 30
+        Write-Host "  已把 Release 从 draft/prerelease 转为正式发布（否则 releases/latest 取不到）" -ForegroundColor Yellow
+    } catch { Write-Warning "  取消草稿失败：$($_.Exception.Message)（更新检查会取不到清单，请到网页上手动 Publish release）" }
 }
 
 function Upload-Asset($releaseId, $path) {

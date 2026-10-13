@@ -114,6 +114,40 @@ python scripts\verify-insert-fidelity.py
 python scripts\verify-font-switch.py
 ```
 
+### 发布与自动更新（GitHub Releases）
+
+仓库：<https://github.com/leobba/PPTShapeLibrary>（**必须公开**，否则更新检查拿不到清单）
+
+```powershell
+# 首次：复制 .env.example 为 .env，填入 Classic PAT（scope: repo + workflow，.env 已 gitignore）
+pwsh -File scripts\publish-to-github.ps1                     # 幂等建库 + 推送（token 不落 .git/config）
+pwsh -File scripts\publish-to-github.ps1 -Proxy http://127.0.0.1:7890   # 网络受限时走代理
+
+# 发版：构建 → zip+sha256 → update.json → 打 tag → 建 Release → 上传三个资产
+pwsh -File scripts\publish-release.ps1 -Version 1.0.2.0 -Notes "本次改动…"
+
+# 把三个官方前置包下到 dist\离线安装包\（别人装的时候完全离线，不用连微软）
+pwsh -File scripts\fetch-prerequisites.ps1
+```
+
+**更新机制**（`installer/UpdateChecker.cs`）：
+
+| 环节 | 做法 | 为什么 |
+|---|---|---|
+| 清单通道 | ① `releases/latest/download/update.json` → ② GitHub API | ①是**固定地址、不走 API**；匿名 API 每 IP 每小时仅 60 次，**实测本机就被限流 403** |
+| 下载 | 直连优先，失败回退加速站（ghproxy.net / gh-proxy.com / ghfast.top） | **实测本机 github.com 被墙**，只有加速站能通（加速站只代理 github.com 域名，不能加速微软下载） |
+| 校验 | 有 `.sha256` 资产就校验，不过拒绝安装 | 防止半截包/被替换的包 |
+| 缓存 | `%LOCALAPPDATA%\PPTShapeLibrary\update-check.json`，24h | 避免反复联网与限流 |
+| 当前版本 | 已安装版本(ARP) → 分发包内目录名 `PPTShapeLibrary_x_y_z_w` | 传统 csproj 不生成 AssemblyVersion，读程序集版本恒为 0.0.0.0 |
+| 界面 | 启动自动检查**只被动提示**；手动点「检查更新」才弹下载确认 | 不打断只想安装/修复的用户 |
+| 命令行 | `安装 PPTShapeLibrary.exe --check-update [--download] [--apply] [--out 报告]` | 可脚本化验证 / 定时任务；退出码 0=最新 1=失败 2=有新版（WinExe 的 stdout 常抓不到，故写报告文件） |
+
+发版三条**实测踩过的坑**（已写进脚本）：
+1. **别删带 Release 的 tag 再重建**——GitHub 会把 Release 转成**草稿**，而 `releases/latest` 排除草稿 → 用户端更新静默失效。脚本已自动取消草稿。
+2. **按 tag 查 Release 必须重试**——网络抖动时返回 404，直接当成"没有"就会建出**同 tag 的重复 Release**（`latest` 会指到缺资产的副本上）。脚本改为重试 + 列表兜底 + 去重。
+3. **PowerShell here-string 里反引号是转义符**——写发布说明时 `` `r `` 会变成回车，把 "releases" 吃成 "eleases"。英文/含反引号的正文用**单引号** here-string（`@'…'@`）。
+
+
 ### Web UI 前端（shadcn/ui · React + Tailwind v4）
 
 界面已从免构建静态迁移为 **Vite + React + TypeScript + Tailwind CSS v4 + shadcn/ui** 工程：
