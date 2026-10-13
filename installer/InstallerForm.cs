@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -1012,13 +1013,20 @@ namespace PPTShapeLibraryInstaller
                         "安装 " + it.Title, MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
                     if (r != DialogResult.OK) return;
                     Log("正在安装本地包：" + Path.GetFileName(it.LocalFile));
-                    // zip 形式（vstor_runtime.zip）先解压再装；exe/msi 直接装
-                    RunPrereqInstaller(it.LocalFile,
-                        Path.GetExtension(it.LocalFile).TrimStart('.').ToLowerInvariant(),
-                        it.InstallArgs);
-                    Log("本地包安装已结束，请点击「重新检测」确认结果。");
-                    MessageBox.Show("安装程序已结束。请点击「重新检测」查看结果；部分组件需要重启计算机后生效。",
-                        "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    // 参数必须按"包的形态"取：zip 里的 install.exe 要 /q，
+                    // 而官方 vstor_redist.exe 要 /quiet /norestart——混用会得到退出码 4096（参数无效、什么都没做）。
+                    var pk = MatchPackage(it, it.LocalFile);
+                    string lkind = pk != null ? pk.Kind
+                        : Path.GetExtension(it.LocalFile).TrimStart('.').ToLowerInvariant();
+                    string largs = pk != null ? pk.Args : it.InstallArgs;
+                    if (lkind == "zip") Log("（zip 形式：解压后按 " + largs + " 运行其中的安装程序）");
+                    RunPrereqInstaller(it.LocalFile, lkind, largs);
+                    Log("本地包安装已结束，正在重新检测…");
+                    RefreshChecks();
+                    Log(SummaryLine());
+                    MessageBox.Show(SummaryLine() + "\r\n\r\n详情见下方日志。部分组件需要重启计算机后生效。",
+                        "安装结束", MessageBoxButtons.OK,
+                        BlockedByRequired() ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
                     return;
                 }
 
@@ -1040,9 +1048,22 @@ namespace PPTShapeLibraryInstaller
                         try
                         {
                             var dest = Path.Combine(Path.GetTempPath(), cand.FileName);
-                            Log("下载：" + cand.FileName + "（" + UpdateChecker.PrereqBaseUrl + cand.FileName + "）");
-                            UpdateChecker.Download(UpdateChecker.PrereqBaseUrl + cand.FileName, dest, null);
-                            localPkg = dest; asset = cand; break;
+                            Log("下载：" + cand.FileName);
+                            string why;
+                            var st = UpdateChecker.TryDownload(UpdateChecker.PrereqBaseUrl + cand.FileName, dest,
+                                (got, total) =>
+                                {
+                                    // 只在每 25% 打一次，避免刷屏
+                                    if (total > 0 && got * 100 / total % 25 == 0)
+                                        Log("  " + (got * 100 / total) + "%");
+                                }, out why);
+                            if (st == DownloadStatus.Ok)
+                            {
+                                localPkg = dest; asset = cand; break;
+                            }
+                            Log("  " + (st == DownloadStatus.NotFound
+                                    ? "跳过（仓库里没有这个资产）"
+                                    : "失败：" + why));
                         }
                         catch (Exception dex)
                         {
@@ -1061,9 +1082,12 @@ namespace PPTShapeLibraryInstaller
 
                     Log("下载完成，开始安装：" + asset.FileName);
                     RunPrereqInstaller(localPkg, asset.Kind, asset.Args);
-                    Log("安装程序已结束，请点击「重新检测」确认结果。");
-                    MessageBox.Show("安装程序已结束。请点击「重新检测」查看结果；部分组件需要重启计算机后生效。",
-                        "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    Log("安装程序已结束，正在重新检测…");
+                    RefreshChecks();
+                    Log(SummaryLine());
+                    MessageBox.Show(SummaryLine() + "\r\n\r\n详情见下方日志。部分组件需要重启计算机后生效。",
+                        "安装结束", MessageBoxButtons.OK,
+                        BlockedByRequired() ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
                     return;
                 }
 
@@ -1084,6 +1108,39 @@ namespace PPTShapeLibraryInstaller
                 Log("操作失败：" + ex.Message);
                 MessageBox.Show("操作失败：" + ex.Message, "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        /// <summary>把本地文件与 Packages 里的候选对上（用于取正确的 Kind/Args）。</summary>
+        private static PrereqAsset MatchPackage(ReqItem it, string localFile)
+        {
+            if (it.Packages == null) return null;
+            var name = Path.GetFileName(localFile);
+            foreach (var c in it.Packages)
+            {
+                if (string.Equals(c.FileName, name, StringComparison.OrdinalIgnoreCase)) return c;
+            }
+            // 名字对不上时按扩展名兜个底
+            var ext = Path.GetExtension(localFile).TrimStart('.').ToLowerInvariant();
+            foreach (var c in it.Packages)
+            {
+                if (string.Equals(c.Kind, ext, StringComparison.OrdinalIgnoreCase)) return c;
+            }
+            return null;
+        }
+
+        private bool BlockedByRequired()
+        {
+            foreach (var x in _items) if (x.Required && x.State != CheckState.Ok) return true;
+            return false;
+        }
+
+        private string SummaryLine()
+        {
+            var bad = new List<string>();
+            foreach (var x in _items) if (x.Required && x.State != CheckState.Ok) bad.Add(x.Title);
+            return bad.Count == 0
+                ? "环境检测通过，可以开始安装。"
+                : "仍缺失必需组件：" + string.Join("、", bad.ToArray()) + "。请按上面的提示处理后再试。";
         }
 
         /// <summary>运行依赖安装程序：exe 直接跑；msi 走 msiexec；zip 解压后跑里面的 exe/msi。</summary>
@@ -1118,8 +1175,19 @@ namespace PPTShapeLibraryInstaller
             psi.Verb = "runas";
             Log("执行：" + psi.FileName + " " + psi.Arguments);
             var p = Process.Start(psi);
+            if (p == null)
+            {
+                Log("⚠ 未能启动安装程序（可能被 UAC 取消）");
+                return;
+            }
             p.WaitForExit();
-            Log("退出码：" + p.ExitCode);
+            int code = p.ExitCode;
+            Log("退出码：" + code);
+            if (code != 0 && code != 3010 && code != 1641)
+            {
+                // 实测：给 install.exe 传错参数会得到 4096（=0x1000，"参数无效"），看起来"成功"其实什么都没做
+                Log("⚠ 退出码非 0（0=成功 3010=成功但需重启）。若是 4096，通常说明安装参数与这个包不匹配。");
+            }
         }
 
         private void UpdateSummary()

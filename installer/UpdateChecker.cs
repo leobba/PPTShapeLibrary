@@ -10,6 +10,14 @@ using System.Web.Script.Serialization;
 
 namespace PPTShapeLibraryInstaller
 {
+    /// <summary>下载结果类型：区分"资产不存在"与"网络失败"，便于换候选/换镜像。</summary>
+    internal enum DownloadStatus
+    {
+        Ok,
+        NotFound,   // HTTP 404：资产没托管，换下一个候选即可，不必再试其它加速站
+        Failed      // 网络/连接问题
+    }
+
     /// <summary>一次更新检查的结果。</summary>
     internal class UpdateInfo
     {
@@ -465,6 +473,15 @@ namespace PPTShapeLibraryInstaller
         /// <summary>下载（直连优先，失败回退加速站）。progress 可为 null。</summary>
         public static void Download(string url, string destPath, Action<long, long> progress)
         {
+            string msg;
+            if (TryDownload(url, destPath, progress, out msg) != DownloadStatus.Ok)
+                throw new Exception("下载失败：" + msg);
+        }
+
+        /// <summary>尝试下载并区分失败类型（依赖包要按类型决定是否换下一个候选）。</summary>
+        public static DownloadStatus TryDownload(string url, string destPath, Action<long, long> progress, out string message)
+        {
+            message = null;
             Exception last = null;
             foreach (var prefix in MirrorPrefixes)
             {
@@ -474,7 +491,8 @@ namespace PPTShapeLibraryInstaller
                     ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
                     var req = (HttpWebRequest)WebRequest.Create(u);
                     req.UserAgent = "PPTShapeLibrary-installer-updater";
-                    req.Timeout = 30000;
+                    req.Timeout = 20000;
+                    req.ReadWriteTimeout = 20000;
                     using (var resp = (HttpWebResponse)req.GetResponse())
                     using (var src = resp.GetResponseStream())
                     using (var fs = new FileStream(destPath, FileMode.Create, FileAccess.Write))
@@ -490,7 +508,20 @@ namespace PPTShapeLibraryInstaller
                             if (progress != null) progress(got, total);
                         }
                     }
-                    return;   // 成功
+                    return DownloadStatus.Ok;   // 成功
+                }
+                catch (WebException wex)
+                {
+                    var hr = wex.Response as HttpWebResponse;
+                    // 404 = 该资产不存在（不是网络问题）→ 不必再试其它加速站，直接换下一个候选
+                    if (hr != null && hr.StatusCode == HttpStatusCode.NotFound)
+                    {
+                        message = "该资产未托管（HTTP 404）";
+                        try { if (File.Exists(destPath)) File.Delete(destPath); } catch { }
+                        return DownloadStatus.NotFound;
+                    }
+                    last = wex;
+                    try { if (File.Exists(destPath)) File.Delete(destPath); } catch { }
                 }
                 catch (Exception ex)
                 {
@@ -498,7 +529,8 @@ namespace PPTShapeLibraryInstaller
                     try { if (File.Exists(destPath)) File.Delete(destPath); } catch { }
                 }
             }
-            throw new Exception("下载失败（直连与加速站都试过了）：" + (last != null ? last.Message : "未知"));
+            message = "直连与加速站都试过了仍失败：" + (last != null ? last.Message : "未知");
+            return DownloadStatus.Failed;
         }
 
         public static string Sha256(string path)
