@@ -36,7 +36,7 @@ namespace PPTShapeLibrary
         {
             try
             {
-                var pres = App.ActivePresentation;
+                var pres = ShapeExporter.ActiveUserPresentation();
                 if (pres == null) return Err("没有打开的演示文稿。");
                 // 页脚/页码经幻灯片母版页脚占位与页面页脚两种。稳妥：每页底部建文本框
                 float sw = (float)pres.PageSetup.SlideWidth;
@@ -54,7 +54,9 @@ namespace PPTShapeLibrary
                         string leftText = string.Join("  ", parts);
                         if (leftText.Length > 0)
                         {
-                            AddFooterTextBox(slide, leftText, 0.35f, 0.94f, 0.3f * sw, sh * 0.045f, 11, PowerPoint.PpParagraphAlignment.ppAlignLeft);
+                            // 左下页脚：坐标必须按页面尺寸换算（此前写成 0.35f/0.94f 点，
+                            // 结果文本框落在页面左上角 0.94 磅处，与标题重叠）
+                            AddFooterTextBox(slide, leftText, 0.35f * sw, 0.94f * sh, 0.3f * sw, sh * 0.045f, 11, PowerPoint.PpParagraphAlignment.ppAlignLeft);
                         }
                         // 页码（右下）
                         if (showPageNumber)
@@ -100,7 +102,7 @@ namespace PPTShapeLibrary
         {
             try
             {
-                var pres = App.ActivePresentation;
+                var pres = ShapeExporter.ActiveUserPresentation();
                 if (pres == null) return Err("没有打开的演示文稿。");
                 if (!System.IO.Directory.Exists(dir)) return Err("导出目录不存在。");
                 if (string.IsNullOrEmpty(fileNameBase)) fileNameBase = pres.Name;
@@ -129,7 +131,7 @@ namespace PPTShapeLibrary
         {
             try
             {
-                var pres = App.ActivePresentation;
+                var pres = ShapeExporter.ActiveUserPresentation();
                 if (pres == null) return Err("没有打开的演示文稿。");
                 var sb = new StringBuilder();
                 int page = 0;
@@ -246,7 +248,7 @@ namespace PPTShapeLibrary
         {
             try
             {
-                var pres = App.ActivePresentation;
+                var pres = ShapeExporter.ActiveUserPresentation();
                 if (pres == null) return Err("没有打开的演示文稿。");
                 if (contentSlides < 1) contentSlides = 1;
                 if (contentSlides > 6) contentSlides = 6;

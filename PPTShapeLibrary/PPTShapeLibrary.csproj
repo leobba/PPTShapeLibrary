@@ -27,6 +27,16 @@
       <ProductName>Microsoft Visual Studio 2010 Tools for Office Runtime %28x86 and x64%29</ProductName>
       <Install>true</Install>
     </BootstrapperPackage>
+    <!-- 补上 .NET Framework 前置：否则 /t:Publish 会报
+         MSB3696「VSTO Runtime 需要以下项之一（.NET Framework …），但未包括其中任何一项」，
+         生成的 setup.exe 也就不会在缺 .NET 的机器上引导安装。
+         注意 dist 分发包默认不含 setup.exe（用安装器），这里主要修掉警告并让 publish\setup.exe 这条
+         同机安装路径保持可用。 -->
+    <BootstrapperPackage Include=".NETFramework,Version=v4.8">
+      <Visible>False</Visible>
+      <ProductName>Microsoft .NET Framework 4.8 %28x86 and x64%29</ProductName>
+      <Install>true</Install>
+    </BootstrapperPackage>
   </ItemGroup>
   <PropertyGroup>
     <OfficeApplication>PowerPoint</OfficeApplication>
@@ -141,9 +151,11 @@
     <Compile Include="Ribbon1.cs" />
     <Compile Include="ShapeLibraryService.cs" />
     <Compile Include="ShapeExporter.cs" />
+    <Compile Include="LongOperation.cs" />
     <Compile Include="ShapeStyleExtractor.cs" />
     <Compile Include="PackService.cs" />
     <Compile Include="TextToolService.cs" />
+    <Compile Include="FontCatalog.cs" />
     <Compile Include="FormatToolService.cs" />
     <Compile Include="AcademicToolService.cs" />
     <Compile Include="InputDialog.cs" />
@@ -165,7 +177,7 @@
   </ItemGroup>
   <ItemGroup>
     <!-- 只发布 WebUI 构建产物；明确排除 React 源码工程与旧版备份，防误入安装包 -->
-    <Content Include="WebUI\**\*" Exclude="..\webui-src\**;..\webui-legacy\**">
+    <Content Include="WebUI\**\*" Exclude="..\webui-src\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
@@ -205,6 +217,25 @@
         FriendlyName="$(FriendlyName)"
         Description="$(OfficeApplicationDescription)"
         LoadBehavior="$(LoadBehavior)" />
+  </Target>
+  <!--
+    同样关键的对称修复：Office targets 的 VSTOClean（Clean/Rebuild 都会跑）依赖 UnregisterOfficeAddin，
+    而它**不看 RegisterForVSTO**，会无条件调用 SetOffice2007AddInRegistration(Unregister=true)。
+    只挡住"注册"不挡"注销"的后果是：一次 `msbuild /t:Rebuild /p:Configuration=Release` 就会把
+    用户已装好的加载项注册**删掉**（版本无关键消失），此后 PowerPoint 功能区不再出现「素材库」——
+    这正是长期被当成"不明原因消失"的那个现象（实测：Release Rebuild 后 版本无关键 由 True 变 False，
+    Debug Rebuild 因还会重新注册所以看起来"恢复"了）。
+    Release 下把注销也置空；Debug 保留原行为（F5 调试需要 VS 管理注册）。
+  -->
+  <Target Name="UnregisterOfficeAddin" Condition="'$(VSTO_ProjectType)' == 'Application' and '$(Configuration)' != 'Release'">
+    <SetOffice2007AddInRegistration
+        Url="$(AbsolutePathToTheDeploymentManifest)"
+        AddInName="$(TargetName)"
+        OfficeApplication="$(OfficeApplication)"
+        FriendlyName="$(FriendlyName)"
+        Description="$(OfficeApplicationDescription)"
+        LoadBehavior="$(LoadBehavior)"
+        Unregister="true" />
   </Target>
   <ProjectExtensions>
     <VisualStudio>

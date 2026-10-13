@@ -27,7 +27,7 @@ namespace PPTShapeLibrary
                 Log.Write("Startup begin");
                 HookAppEvents();
                 BridgeController.SettingsSaved += OnSettingsSaved;
-                ShapeLibraryService.LibraryWillMutate += () => ShapeExporter.SweepLibPresPool(true, 0);   // 库变更前释放库文稿占用
+                ShapeLibraryService.LibraryWillMutate += OnLibraryWillMutate;   // 库变更前释放库文稿占用
                 CreatePane();
                 Log.Write("TaskPane created");
                 // 注意：不在 Startup 立即 Add 任务窗格——此时可能无活动文档窗口，
@@ -72,6 +72,7 @@ namespace PPTShapeLibrary
             {
                 UnhookAppEvents();
                 BridgeController.SettingsSaved -= OnSettingsSaved;
+                ShapeLibraryService.LibraryWillMutate -= OnLibraryWillMutate;
                 try { ShapeExporter.SweepLibPresPool(true, 0); } catch { }   // 释放库文稿句柄池（避免残留打开的文件）
                 if (_refreshDebounce != null) { _refreshDebounce.Stop(); _refreshDebounce.Dispose(); _refreshDebounce = null; }
                 // 释放宿主（WebView2 底层进程与 userData 锁随之释放，避免残留实例占用 profile）
@@ -90,7 +91,15 @@ namespace PPTShapeLibrary
             catch { }
         }
 
-        /// <summary>设置保存后即时应用需要宿主配合的项（如任务窗格宽度）。</summary>
+        /// <summary>库结构即将变更（删除/恢复/覆盖）前释放库文稿句柄池，避免文件被占用导致操作失败。
+        /// 用命名方法而非匿名 lambda：Shutdown 时能对称退订（静态事件持有实例会阻止回收）。</summary>
+        private void OnLibraryWillMutate()
+        {
+            try { ShapeExporter.SweepLibPresPool(true, 0); }
+            catch (Exception ex) { Log.Error(ex, "OnLibraryWillMutate"); }
+        }
+
+        /// <summary>设置保存后即时应用需要宿主配合的项（任务窗格宽度 + 把新设置推给已打开的面板）。</summary>
         private void OnSettingsSaved(Settings s)
         {
             try
@@ -99,6 +108,9 @@ namespace PPTShapeLibrary
                 {
                     _taskPane.Width = s.PaneWidth;
                 }
+                // 关键：设置是在"工具弹窗"里保存的，推送只到达保存它的那个宿主。
+                // 任务窗格必须由这里主动应用，否则改主题/列数/单击行为要重开面板才生效。
+                if (_paneControl != null) _paneControl.ApplySettings(s);
             }
             catch (Exception ex)
             {
@@ -161,6 +173,17 @@ namespace PPTShapeLibrary
             {
                 string cap = "?";
                 try { cap = win != null ? win.Caption : "null"; } catch { }
+                // 库文稿（插件自己打开、用于插入的 items\*\shape.pptx）激活时不要迁移窗格：
+                // 否则每次插入/整页插入都会把任务窗格搬到库文稿窗口并重建 WebView2，
+                // 实测会引发 E_ABORT、面板降级为提示页、以及桥向已释放的 CoreWebView2 发消息报错。
+                if (ShapeExporter.IsLibraryWindow(win))
+                {
+                    Log.Write("[pane] WindowActivate ignored (library presentation) caption=[" + cap + "]");
+                    // 把焦点还给用户文稿：否则 ActivePresentation 会停在库条目上，
+                    // 后续"整稿"工具（导出/换字体/清理…）会作用到用户的素材文件上。
+                    ShapeExporter.ActivateUserWindow();
+                    return;
+                }
                 int hwnd = WindowHwnd(win);
                 Log.Write("[pane] WindowActivate caption=[" + cap + "] hwnd=" + hwnd + " boundHwnd=" + _boundWindowHwnd + " paneVisible=" + (_taskPane != null && _taskPane.Visible));
                 if (_taskPane == null) return;
@@ -244,6 +267,9 @@ namespace PPTShapeLibrary
             {
                 try
                 {
+                    // 迁移/退出过程中被释放的旧宿主也会回调：只处理"当前正在用的那个面板"的失败，
+                    // 否则一次迁移就会把刚建好的面板替换成降级提示页。
+                    if (!ReferenceEquals(_paneControl, webHost)) return;
                     Log.Error(ex, "WebPane init failed -> fallback pane");
                     if (_taskPane != null)
                     {
@@ -526,26 +552,10 @@ namespace PPTShapeLibrary
             if (_paneControl != null) _paneControl.RefreshLibrary();
         }
 
-        /// <summary>把 Web 面板切到"工具"视图（Ribbon「小工具」→ 文字样式首项）。</summary>
-        public void ShowToolsView()
-        {
-            ShowTaskPane();
-            if (_paneControl is WebPaneHost web) web.SwitchView("tool1");
-        }
-
-        /// <summary>把 Web 面板切到指定工具视图（tool1..tool8 / settings / library）。</summary>
-        public void ShowToolView(string view)
-        {
-            ShowTaskPane();
-            if (_paneControl is WebPaneHost web) web.SwitchView(view);
-        }
-
-        /// <summary>把 Web 面板切到"设置"视图（Ribbon「设置」）。</summary>
-        public void ShowSettingsView()
-        {
-            ShowTaskPane();
-            if (_paneControl is WebPaneHost web) web.SwitchView("settings");
-        }
+        // 说明：原先这里还有 ShowToolsView/ShowToolView/ShowSettingsView（把面板切到某个视图），
+        // 但 Ribbon 的工具/设置一律弹独立 Web 窗口（ToolPopupHostForm），前端也没有 switchView 监听，
+        // 整条链路无人调用 → 已删除，避免留下"看起来能用、实际没实现"的死 API。
+        // 若将来要做"Ribbon 按钮把已打开的面板切到某工具"，再按 URL ?view= 的方式重新实现。
 
         #region VSTO generated code
 

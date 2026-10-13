@@ -739,6 +739,62 @@ namespace PPTShapeLibrary
             });
         }
 
+        /// <summary>
+        /// 应用一次拖拽排序：orderedIds 是"用户看到的这些条目"的新顺序（可能只是当前页/当前筛选的子集）。
+        /// 做法：以当前全局自定义顺序为底，把 orderedIds 里的条目按新相对顺序回填到它们原本占据的位置，
+        /// 再把**全部**条目的 SortOrder 重新编号为 0..N-1。
+        /// 这样未出现在 orderedIds 里的条目不会被"归零到最前"（旧实现只给传进来的 id 写序号，
+        /// 其余条目 SortOrder 仍为 0，导致拖拽后全局顺序错乱、刷新后跳位）。
+        /// 返回被重新编号的条目数。
+        /// </summary>
+        public static int ReorderItems(IEnumerable<string> orderedIds)
+        {
+            return WithLibraryMutationLock(() => ReorderItemsCore(orderedIds));
+        }
+
+        private static int ReorderItemsCore(IEnumerable<string> orderedIds)
+        {
+            var wanted = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var id in orderedIds ?? Enumerable.Empty<string>())
+            {
+                if (!IsSafeId(id) || !seen.Add(id)) continue;
+                wanted.Add(id);
+            }
+            if (wanted.Count == 0) return 0;
+
+            var all = LoadAllItems()
+                .OrderBy(m => m.SortOrder)
+                .ThenByDescending(m => m.CreatedAt)
+                .ToList();
+
+            var byId = new Dictionary<string, LibraryMeta>(StringComparer.OrdinalIgnoreCase);
+            foreach (var m in all) if (!byId.ContainsKey(m.Id)) byId[m.Id] = m;
+
+            // 只处理真实存在的条目；orderedIds 里的未知 id 直接忽略
+            var ordered = wanted.Where(id => byId.ContainsKey(id)).Select(id => byId[id]).ToList();
+            if (ordered.Count == 0) return 0;
+
+            var slots = new List<int>();
+            for (int i = 0; i < all.Count; i++) if (seen.Contains(all[i].Id)) slots.Add(i);
+
+            var result = new List<LibraryMeta>(all);
+            for (int k = 0; k < slots.Count && k < ordered.Count; k++) result[slots[k]] = ordered[k];
+
+            int changed = 0;
+            for (int i = 0; i < result.Count; i++)
+            {
+                if (result[i].SortOrder == i) continue;
+                var fresh = LoadMeta(result[i].Id);   // 绝不在缓存对象上原地改（缓存是只读共享的）
+                if (fresh == null) continue;
+                fresh.SortOrder = i;
+                SaveMeta(fresh);
+                changed++;
+            }
+            InvalidateCache();
+            return changed;
+        }
+
         // ---------------- 一级分组（Group） ----------------
 
         /// <summary>预设组（固定顺序与图标名；「全部」为前端虚拟）。图标名供前端 msym 用。</summary>
@@ -875,8 +931,12 @@ namespace PPTShapeLibrary
             {
                 if (m.GetGroup() == oldName)
                 {
-                    m.Group = newName;
-                    SaveMeta(m);
+                    // 用 LoadMeta 取新实例再改：LoadAllItems 返回的是缓存里的共享对象，
+                    // 原地改会污染缓存（本文件顶部的缓存约定）。
+                    var fresh = LoadMeta(m.Id);
+                    if (fresh == null) continue;
+                    fresh.Group = newName;
+                    SaveMeta(fresh);
                 }
             }
             InvalidateCache();
@@ -903,8 +963,10 @@ namespace PPTShapeLibrary
             {
                 if (m.GetGroup() == name)
                 {
-                    m.Group = LibraryMeta.DefaultGroup;
-                    SaveMeta(m);
+                    var fresh = LoadMeta(m.Id);   // 同上：不原地修改缓存对象
+                    if (fresh == null) continue;
+                    fresh.Group = LibraryMeta.DefaultGroup;
+                    SaveMeta(fresh);
                     n++;
                 }
             }
@@ -1174,7 +1236,10 @@ namespace PPTShapeLibrary
             return null;
         }
 
-        /// <summary>找出完全重复的收藏（同类型、同数量、尺寸一致），返回重复项列表（保留最早的）。</summary>
+        /// <summary>找出完全重复的收藏（同类型、同数量、尺寸一致），返回重复项列表（保留最早的）。
+        /// 注意：整页快照条目（SnapshotPage）的 ShapeCount/Width/Height 均为 0，若参与比较会把
+        /// 每一张互不相同的整页收藏都判成"彼此重复"，用户一键清理会误删真实收藏——故必须排除。
+        /// 同理排除尺寸缺失（<=0）的条目。</summary>
         public static List<LibraryMeta> FindExactDuplicates()
         {
             var dups = new List<LibraryMeta>();
@@ -1185,6 +1250,8 @@ namespace PPTShapeLibrary
                 foreach (var meta in all.OrderBy(m => m.CreatedAt))
                 {
                     if (meta.Kind != "Shape") continue;
+                    if (meta.SnapshotPage) continue;                       // 整页快照：逐页内容不同，不参与去重
+                    if (meta.ShapeCount <= 0 || meta.Width <= 0 || meta.Height <= 0) continue;
                     string key = meta.Kind + "|" + meta.ShapeCount + "|" + meta.Width.ToString("F1") + "|" + meta.Height.ToString("F1");
                     if (seen.ContainsKey(key))
                     {

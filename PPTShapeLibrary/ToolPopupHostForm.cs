@@ -97,8 +97,8 @@ namespace PPTShapeLibrary
                 Log.Write("Popup WebView2 runtime: " + version);
 
                 // 与任务窗格共享环境与用户数据目录：浏览器进程常驻，弹窗打开不冷启动（快）
-                var env = await WebView2Env.GetAsync();
-                await _webView.EnsureCoreWebView2Async(env);
+                // 带重试：任务窗格刚被释放/迁移时创建控制器可能偶发 E_ABORT
+                await WebView2Env.EnsureCoreWebView2WithRetryAsync(_webView);
 
                 var core = _webView.CoreWebView2;
                 core.NavigationStarting += (s, e) =>

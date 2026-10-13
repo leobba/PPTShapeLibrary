@@ -14,6 +14,7 @@ namespace PPTShapeLibrary
         private BridgeController _bridge;
         private bool _initialized = false;
         private bool _failed = false;
+        private volatile bool _shutdown = false;   // 已被 PrepareShutdown 释放（迁移/退出），此后的失败不算失败
 
         /// <summary>初始化失败（Runtime 缺失/导航失败）时触发，ThisAddIn 据此降级 WPF。</summary>
         public event Action<Exception> InitializationFailed;
@@ -48,8 +49,8 @@ namespace PPTShapeLibrary
                 Log.Write("WebView2 runtime: " + version);
 
                 // 共享环境 + 共享用户数据目录（保持浏览器进程常驻，加速后续工具弹窗）
-                var env = await WebView2Env.GetAsync();
-                await _webView.EnsureCoreWebView2Async(env);
+                // 带重试：窗格迁移到新文档窗口时旧宿主刚 Dispose，控制器创建可能偶发 E_ABORT
+                await WebView2Env.EnsureCoreWebView2WithRetryAsync(_webView);
 
                 var core = _webView.CoreWebView2;
                 core.NavigationStarting += (s, e) =>
@@ -119,7 +120,9 @@ namespace PPTShapeLibrary
 
         private void Fail(Exception ex)
         {
-            if (_failed) return;
+            // 迁移到别的文档窗口时，旧宿主会被 PrepareShutdown 释放；此时初始化失败属预期，
+            // 不能当成"WebView2 不可用"去降级成提示页（历史现象：面板突然变成安装引导页）。
+            if (_failed || _shutdown) return;
             _failed = true;
             Log.Error(ex, "WebPaneHost init failed");
             InitializationFailed?.Invoke(ex);
@@ -151,7 +154,9 @@ namespace PPTShapeLibrary
         {
             try
             {
+                _shutdown = true;
                 BridgeController.RefreshRequested -= OnCrossRefresh;
+                if (_bridge != null) _bridge.MarkClosed();   // 之后不再向已释放的 CoreWebView2 发消息
                 if (_webView != null)
                 {
                     try { _webView.Dispose(); } catch { }
@@ -195,22 +200,6 @@ namespace PPTShapeLibrary
             catch (Exception ex)
             {
                 Log.Error(ex, "WebPaneHost.ApplySettings");
-            }
-        }
-
-        /// <summary>切换前端视图（library/tools/settings）——供 Ribbon 直达按钮使用。</summary>
-        public void SwitchView(string view)
-        {
-            try
-            {
-                if (_initialized && _bridge != null)
-                {
-                    _bridge.PushSwitchView(view);
-                }
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "WebPaneHost.SwitchView");
             }
         }
     }

@@ -81,6 +81,106 @@ namespace PPTShapeLibrary
             catch { }
         }
 
+        /// <summary>
+        /// 该文档窗口是否是"插件自己打开的库文稿"（%APPDATA%\PPTShapeLibrary\items\…\shape.pptx）。
+        /// 用途：PowerPoint 会为库文稿触发 WindowActivate，而窗格迁移逻辑若跟着迁移，
+        /// 就会在每次插入/整页插入时把任务窗格搬到库文稿窗口并重建 WebView2
+        /// （实测现象：日志里一连串 Migrating task pane + E_ABORT + 面板降级成提示页）。
+        /// </summary>
+        public static bool IsLibraryWindow(PowerPoint.DocumentWindow win)
+        {
+            try
+            {
+                if (win == null) return false;
+                return IsLibraryPresentation(win.Presentation);
+            }
+            catch { return false; }
+        }
+
+        /// <summary>该文稿是否是库条目文件（items\*\shape.pptx）。</summary>
+        public static bool IsLibraryPresentation(PowerPoint.Presentation pres)
+        {
+            try
+            {
+                if (pres == null) return false;
+                string full = pres.FullName;
+                return !string.IsNullOrEmpty(full) && IsLibraryPath(full);
+            }
+            catch { return false; }
+        }
+
+        /// <summary>路径是否位于素材库 items 目录下。</summary>
+        public static bool IsLibraryPath(string fullPath)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(fullPath)) return false;
+                string itemsRoot = System.IO.Path.GetFullPath(ShapeLibraryService.ItemsDir)
+                    .TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar)
+                    + System.IO.Path.DirectorySeparatorChar;
+                return System.IO.Path.GetFullPath(fullPath).StartsWith(itemsRoot, StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return false; }
+        }
+
+        /// <summary>
+        /// 取"用户的演示文稿"，**绝不返回库条目文件**。
+        ///
+        /// 为什么需要：PowerPoint 在某些情况下会把库条目变成活动文稿——实测最典型的是
+        /// **文档恢复**：上次 PowerPoint 被强制结束时句柄池里还开着某个 items\*\shape.pptx，
+        /// 下次启动 PowerPoint 会把它当"未正常关闭的文档"重新打开（而且是**读写 + 有窗口**），
+        /// 于是 `Application.ActivePresentation` 指向用户的素材文件。
+        /// 此时所有"整稿"工具（导出图片/换字体/统一尺寸/清理瘦身/页脚页码…）都会作用到
+        /// **用户的素材文件**上——写操作会直接把收藏的素材改坏，而用户以为在改自己的文稿。
+        ///
+        /// 行为：活动文稿不是库文件 → 直接返回；是库文件 → 尝试激活一个非库文稿的窗口并返回它；
+        /// 实在没有用户文稿 → 返回 null（让调用方报"没有打开的演示文稿"，而不是去动库文件）。
+        /// </summary>
+        public static PowerPoint.Presentation ActiveUserPresentation()
+        {
+            PowerPoint.Presentation active = null;
+            try { active = App.ActivePresentation; } catch { }
+            if (active != null && !IsLibraryPresentation(active)) return active;
+
+            if (active != null)
+            {
+                try
+                {
+                    Log.Write("WARN: active presentation is a library item (" + active.Name + ") -> looking for user deck");
+                }
+                catch { }
+            }
+
+            try
+            {
+                foreach (PowerPoint.Presentation p in App.Presentations)
+                {
+                    if (IsLibraryPresentation(p)) continue;
+                    try
+                    {
+                        if (p.Windows.Count > 0)
+                        {
+                            p.Windows[1].Activate();
+                            var now = App.ActivePresentation;
+                            if (now != null && !IsLibraryPresentation(now)) return now;
+                            return p;
+                        }
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+
+            try { Log.Write("WARN: no user presentation available (only library items are open)"); } catch { }
+            return null;
+        }
+
+        /// <summary>把焦点还给用户文稿（供 WindowActivate 里"库文稿抢到活动状态"时回弹）。</summary>
+        public static void ActivateUserWindow()
+        {
+            try { ActiveUserPresentation(); } catch { }
+        }
+
         // ---------------- 收藏 ----------------
 
         /// <summary>无打开的演示文稿时抛出友好异常。</summary>
@@ -147,7 +247,7 @@ namespace PPTShapeLibrary
             EnsurePresentation();
             try
             {
-                var pres = App.ActivePresentation;
+                var pres = ShapeExporter.ActiveUserPresentation();
                 if (pres == null) return null;
                 var slide = pres.Slides[App.ActiveWindow.View.Slide.SlideIndex];
 
@@ -395,7 +495,7 @@ namespace PPTShapeLibrary
         private static PowerPoint.Master CurrentMaster()
         {
             try { return App.ActiveWindow.View.Slide.Design.SlideMaster; } catch { }
-            try { return App.ActivePresentation.SlideMaster; } catch { }
+            try { return ShapeExporter.ActiveUserPresentation().SlideMaster; } catch { }
             return null;
         }
 
@@ -427,83 +527,52 @@ namespace PPTShapeLibrary
                     return false;
                 }
 
-                PowerPoint.Presentation libPres = null;
-                var clip = ClipboardGuard.Snapshot();
+                // 唯一通道：Slides.InsertFromFile（不碰剪贴板）。
+                //
+                // 【为什么可以不再用剪贴板】2026-10 判决性实验（见 docs/PowerPoint-COM经验与坑.md §13）：
+                // 库文件在收藏时已做 MakeDesignUniqueForLibrary（设计/母版/版式改名 Lib<id>-*），
+                // 目标文稿因此匹配不到同名设计、只能导入我们的设计，于是 InsertFromFile 与
+                // "Copy 幻灯片 → Paste" 的产物**逐项一致**：
+                //   · 版式绑定（slideN.xml.rels 的 slideLayout 指向）相同
+                //   · 主题 clrScheme 相同、设计/母版名相同、媒体文件相同
+                //   · 导出 PNG 像素平均差 0.0000（无差异区域）
+                //   · slide XML 仅差一个随机生成的 <p14:creationId>（每次插入都不同，无语义影响）
+                // 因此这里删掉了剪贴板主路径：整页插入不再覆盖/还原用户剪贴板，也不再依赖库文稿句柄池。
+                //
+                // 索引语义（本机 PowerPoint 16.0 实测）：InsertFromFile(FileName, Index, …) 的 Index 是
+                // "插到第 Index 页【之后】"，合法范围 0..Slides.Count；传 Count+1 会抛
+                // "Integer out of range. N is not in the valid range of 0 to M"。
                 var swPage = System.Diagnostics.Stopwatch.StartNew();
-                try
-                {
-                    // —— 首选：复制幻灯片 → 粘贴（能把版式绑定一起带过来，外观最保真）——
-                    try
-                    {
-                        libPres = OpenLibraryPresentation(shapePath);   // 复用句柄池，省去约 700ms 的 Open
-                        if (libPres.Slides.Count == 0) { error = "整页内容为空。"; return false; }
-                        libPres.Slides[1].Copy();
-                        System.Threading.Thread.Sleep(60);
-
-                        if (newDoc)
-                        {
-                            // 新建演示文稿并粘入该页（作为独立文稿打开）
-                            var np = App.Presentations.Add(MsoTriState.msoTrue);
-                            var pastedNew = np.Slides.Paste();   // 新文稿第 1 页
-                            if (pastedNew == null || pastedNew.Count == 0) throw new Exception("新建文稿粘贴失败。");
-                            ShapeLibraryService.TouchUsed(id);
-                            swPage.Stop();
-                            Log.Write("insert page timing: total=" + swPage.ElapsedMilliseconds + "ms pos=newDoc");
-                            return true;
-                        }
-
-                        var pres = App.ActivePresentation;
-                        int insertAt = pos == "end" ? pres.Slides.Count + 1 : App.ActiveWindow.View.Slide.SlideIndex + 1;
-                        if (insertAt > pres.Slides.Count + 1) insertAt = pres.Slides.Count + 1;
-                        if (insertAt < 1) insertAt = 1;
-                        var inserted = pres.Slides.Paste(insertAt);   // SlideRange
-                        if (inserted == null || inserted.Count == 0) throw new Exception("整页粘贴失败。");
-                        try
-                        {
-                            if (ShapeLibraryService.LoadSettings().CleanLayoutsOnInsertPage)
-                                Log.Write("cleanLayoutsOnInsertPage=on 但已停用（会改坏版式绑定），本次跳过");
-                        }
-                        catch { }
-                        ShapeLibraryService.TouchUsed(id);
-                        swPage.Stop();
-                        Log.Write("insert page timing: total=" + swPage.ElapsedMilliseconds + "ms pos=" + pos);
-                        return true;
-                    }
-                    catch (Exception exClip)
-                    {
-                        // 剪贴板被第三方工具（截图/剪贴板管理器）占用时走这里 → 落到下面的免剪贴板兜底
-                        Log.Write("insert page: clipboard path failed -> fallback :: " + exClip.Message);
-                    }
-                }
-                finally
-                {
-                    ClipboardGuard.Restore(clip);
-                    // 不 Close：库文稿由句柄池管理（空闲自动关闭 / 库变更前关闭）
-                }
-
-                // —— 兜底：免剪贴板通道（Slides.InsertFromFile，直接读库文件插页）——
-                // 仅当上面的剪贴板路径失败时执行；极端情况下与"复制幻灯片"可能有细微外观差异，故日志区分。
                 if (newDoc)
                 {
                     var np = App.Presentations.Add(MsoTriState.msoTrue);
                     int before = np.Slides.Count;
-                    np.Slides.InsertFromFile(shapePath, before + 1, 1, 1);
+                    np.Slides.InsertFromFile(shapePath, before, 1, 1);   // Index=当前页数 → 追加到末尾
                     for (int i = before; i >= 1; i--) { try { np.Slides[i].Delete(); } catch { } }   // 删掉新建文稿自带的空白页
                     ShapeLibraryService.TouchUsed(id);
                     swPage.Stop();
-                    Log.Write("insert page timing: total=" + swPage.ElapsedMilliseconds + "ms pos=newDoc (InsertFromFile fallback)");
+                    Log.Write("insert page timing: total=" + swPage.ElapsedMilliseconds + "ms pos=newDoc");
                     return true;
                 }
 
                 {
-                    var pres = App.ActivePresentation;
-                    int insertAt = pos == "end" ? pres.Slides.Count + 1 : App.ActiveWindow.View.Slide.SlideIndex + 1;
-                    if (insertAt > pres.Slides.Count + 1) insertAt = pres.Slides.Count + 1;
-                    if (insertAt < 1) insertAt = 1;
-                    pres.Slides.InsertFromFile(shapePath, insertAt, 1, 1);
+                    var pres = ShapeExporter.ActiveUserPresentation();
+                    // "after"=插到当前页之后 → Index 取当前页序号；"end"=追加 → Index 取当前页数
+                    int insertAfter = pos == "end"
+                        ? pres.Slides.Count
+                        : App.ActiveWindow.View.Slide.SlideIndex;
+                    if (insertAfter > pres.Slides.Count) insertAfter = pres.Slides.Count;
+                    if (insertAfter < 0) insertAfter = 0;
+                    pres.Slides.InsertFromFile(shapePath, insertAfter, 1, 1);
+                    try
+                    {
+                        if (ShapeLibraryService.LoadSettings().CleanLayoutsOnInsertPage)
+                            Log.Write("cleanLayoutsOnInsertPage=on 但已停用（会改坏版式绑定），本次跳过");
+                    }
+                    catch { }
                     ShapeLibraryService.TouchUsed(id);
                     swPage.Stop();
-                    Log.Write("insert page timing: total=" + swPage.ElapsedMilliseconds + "ms pos=" + pos + " (InsertFromFile fallback)");
+                    Log.Write("insert page timing: total=" + swPage.ElapsedMilliseconds + "ms pos=" + pos);
                     return true;
                 }
             }
@@ -515,39 +584,88 @@ namespace PPTShapeLibrary
         }
 
         /// <summary>
-        /// 批量收藏整份演示文稿：每页所有非占位形状打包为一个收藏（跳过空页）。
-        /// 使用安静模式：不去重弹框、不逐个询问命名（命名统一为 "第N页 {自动名}"）。
-        /// 返回成功收藏数。
+        /// "收藏整稿"的分片作业：按**页**切片，由桥在 UI 线程上一片一片执行
+        /// （片间回到消息循环）→ 整稿收藏不再卡死 PowerPoint，取消即时生效。
+        /// 每页成功与否独立计数，单页异常只记日志、不弹模态框（桥路径不能弹框）。
         /// </summary>
-        public static int CollectAllSlides()
+        public class CollectAllSlidesJob
         {
-            EnsurePresentation();
-            var pres = App.ActivePresentation;
-            if (pres == null) return 0;
-            int okCount = 0;
-            try
+            public int Total { get; private set; }
+            public int Collected;
+
+            private readonly PowerPoint.Presentation _pres;
+
+            private CollectAllSlidesJob(PowerPoint.Presentation pres)
             {
-                for (int s = 1; s <= pres.Slides.Count; s++)
+                _pres = pres;
+                Total = pres.Slides.Count;
+            }
+
+            public static CollectAllSlidesJob Create(out string error)
+            {
+                error = null;
+                var pres = ActiveUserPresentation();
+                if (pres == null)
                 {
-                    var slide = pres.Slides[s];
+                    error = "请先新建或打开演示文稿，再收藏整稿。";
+                    return null;
+                }
+                return new CollectAllSlidesJob(pres);
+            }
+
+            /// <summary>收藏第 i 页（0-based）。</summary>
+            public void Step(int i)
+            {
+                int s = i + 1;
+                if (s > _pres.Slides.Count) return;   // 处理期间用户删了页
+                try
+                {
+                    var slide = _pres.Slides[s];
                     var idx = new System.Collections.Generic.List<int>();
-                    for (int i = 1; i <= slide.Shapes.Count; i++)
+                    for (int k = 1; k <= slide.Shapes.Count; k++)
                     {
-                            if (!IsEmptyPlaceholder(slide.Shapes[i])) idx.Add(i);
+                        if (!IsEmptyPlaceholder(slide.Shapes[k])) idx.Add(k);
                     }
-                    if (idx.Count == 0) continue;
+                    if (idx.Count == 0) return;   // 空页跳过
                     var range = slide.Shapes.Range(idx.ToArray());
                     string nm = "第" + s + "页 " + GetAutoName(range) + " " + DateTime.Now.ToString("MM-dd HH:mm");
                     string id = CollectRangeQuiet(range, nm);
-                    if (id != null) okCount++;
+                    if (id != null) Collected++;
                 }
-                return okCount;
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "CollectAllSlides page " + s);
+                }
             }
-            catch (Exception ex)
+
+            public TextToolService.ToolResult Finish(bool cancelled)
             {
-                System.Windows.Forms.MessageBox.Show("批量收藏失败：" + ex.Message, "素材库");
-                return okCount;
+                return new TextToolService.ToolResult
+                {
+                    Ok = Collected > 0,
+                    Message = (cancelled ? "已取消：" : "") + "已批量收藏 " + Collected + " / " + Total + " 页内容。",
+                    Changed = Collected
+                };
             }
+        }
+
+        /// <summary>
+        /// 批量收藏整份演示文稿（同步版：Ribbon 路径使用；桥走 CollectAllSlidesJob 分片执行）。
+        /// 每页所有非占位形状打包为一个收藏（跳过空页）；命名统一为 "第N页 {自动名}"。返回成功收藏数。
+        /// </summary>
+        public static int CollectAllSlides(LongOperation op = null)
+        {
+            EnsurePresentation();
+            string err;
+            var job = CollectAllSlidesJob.Create(out err);
+            if (job == null) return 0;
+            for (int i = 0; i < job.Total; i++)
+            {
+                if (op != null && op.Step(i, job.Total)) break;
+                job.Step(i);
+            }
+            if (op != null) op.Report(job.Total, job.Total);
+            return job.Collected;
         }
 
         /// <summary>
@@ -932,7 +1050,7 @@ namespace PPTShapeLibrary
                 for (int i = 1; i <= slide.Shapes.Count; i++) ids[i - 1] = i;
                 var range = slide.Shapes.Range(ids);
 
-                PowerPoint.Shapes targetShapes = App.ActivePresentation.Slides[App.ActiveWindow.View.Slide.SlideIndex].Shapes;
+                PowerPoint.Shapes targetShapes = ShapeExporter.ActiveUserPresentation().Slides[App.ActiveWindow.View.Slide.SlideIndex].Shapes;
                 var clip = ClipboardGuard.Snapshot();   // 保护用户剪贴板（Copy 会覆盖它）
                 PowerPoint.ShapeRange pasted = null;
                 try
@@ -945,8 +1063,8 @@ namespace PPTShapeLibrary
                 }
 
                 // 粘贴到页面中心
-                float sw = (float)App.ActivePresentation.PageSetup.SlideWidth;
-                float sh = (float)App.ActivePresentation.PageSetup.SlideHeight;
+                float sw = (float)ShapeExporter.ActiveUserPresentation().PageSetup.SlideWidth;
+                float sh = (float)ShapeExporter.ActiveUserPresentation().PageSetup.SlideHeight;
                 float minL = float.MaxValue, minT = float.MaxValue, maxR = float.MinValue, maxB = float.MinValue;
                 foreach (PowerPoint.Shape s in pasted)
                 {
@@ -1118,7 +1236,7 @@ namespace PPTShapeLibrary
             }
             try
             {
-                var slide = App.ActivePresentation.Slides[App.ActiveWindow.View.Slide.SlideIndex];
+                var slide = ShapeExporter.ActiveUserPresentation().Slides[App.ActiveWindow.View.Slide.SlideIndex];
                 int applied = 0;
                 for (int i = 1; i <= slide.Shapes.Count; i++)
                 {
@@ -1187,7 +1305,7 @@ namespace PPTShapeLibrary
             }
             try
             {
-                var pres = App.ActivePresentation;
+                var pres = ShapeExporter.ActiveUserPresentation();
                 int applied = 0;
                 foreach (PowerPoint.Slide slide in pres.Slides)
                 {
@@ -1233,7 +1351,7 @@ namespace PPTShapeLibrary
             try
             {
                 if (!ShapeLibraryService.LoadSettings().ThemeAdaptStyle) return;
-                var slide = App.ActivePresentation.Slides[App.ActiveWindow.View.Slide.SlideIndex];
+                var slide = ShapeExporter.ActiveUserPresentation().Slides[App.ActiveWindow.View.Slide.SlideIndex];
                 var accent = slide.ThemeColorScheme(MsoThemeColorIndex.msoThemeColorAccent1).RGB;
                 string hex = ShapeStyleExtractor.RgbToHex(accent);
                 if (preset.FillColor != null) preset.FillColor = hex;
@@ -1873,7 +1991,9 @@ namespace PPTShapeLibrary
 
         /// <summary>
         /// 复制→粘贴（带重试）：PowerPoint 的 Copy 是异步的，立即 Paste 可能报
-        /// "Clipboard is empty"；逐次延迟并重新 Copy，最多 5 次。
+        /// "Clipboard is empty"；逐次延迟并重新 Copy，最多 6 次。
+        /// 另：若剪贴板被别的程序独占且**读都读不出来**（`ClipboardFormatsBrief` 报"读取失败"），
+        /// 说明重试再多次也没用，立即失败并给出可操作提示——避免白等十几秒（实测每轮约 3.3s）。
         /// </summary>
         private static PowerPoint.ShapeRange CopyPasteWithRetry(Action copy, PowerPoint.Shapes target)
         {
@@ -1900,8 +2020,16 @@ namespace PPTShapeLibrary
                 catch (Exception ex)
                 {
                     last = ex;
+                    string formats = ClipboardFormatsBrief();
                     Log.Write("paste retry " + attempt + "/" + maxAttempts + ": " + ex.Message +
-                              " formats=[" + ClipboardFormatsBrief() + "]");
+                              " formats=[" + formats + "]");
+                    if (formats == "(读取失败)" && !ClipboardGuard.IsReadable())
+                    {
+                        // 剪贴板被独占且不可读 → 重试无意义，快速失败
+                        throw new Exception(
+                            "剪贴板被另一个程序独占且未响应（常见于截图/剪贴板工具，如 Snipaste）。" +
+                            "请关闭该程序，或在任意程序里复制一次新内容后重试。原始错误：" + ex.Message);
+                    }
                     try { System.Threading.Thread.Sleep(150); } catch { }
                 }
             }
@@ -2065,8 +2193,8 @@ namespace PPTShapeLibrary
         {
             try
             {
-                if (App.ActivePresentation == null) return "";
-                return App.ActivePresentation.FullName + " · 幻灯片 " + App.ActiveWindow.View.Slide.SlideIndex;
+                if (ShapeExporter.ActiveUserPresentation() == null) return "";
+                return ShapeExporter.ActiveUserPresentation().FullName + " · 幻灯片 " + App.ActiveWindow.View.Slide.SlideIndex;
             }
             catch { return ""; }
         }
@@ -2119,16 +2247,70 @@ namespace PPTShapeLibrary
         }
 
         /// <summary>重建全部形状条目的预览缩略图。返回成功数。</summary>
-        public static int RebuildAllPreviews()
+        /// <summary>
+        /// "重建缩略图"的分片作业：逐条重建（每条要打开一次库文稿，属于重 COM 操作）。
+        /// 由桥分片执行 → 92 条素材重建时 PowerPoint 不再整段卡死。
+        /// </summary>
+        public class RebuildPreviewsJob
         {
-            int ok = 0;
-            foreach (var m in ShapeLibraryService.LoadAllItems())
+            public int Total { get; private set; }
+            public int Rebuilt;
+
+            private readonly System.Collections.Generic.List<string> _ids;
+
+            private RebuildPreviewsJob(System.Collections.Generic.List<string> ids)
             {
-                if (m.Kind != "Shape") continue;
-                try { if (RebuildPreview(m.Id)) ok++; }
+                _ids = ids;
+                Total = ids.Count;
+            }
+
+            public static RebuildPreviewsJob Create(out string error)
+            {
+                error = null;
+                var ids = new System.Collections.Generic.List<string>();
+                foreach (var m in ShapeLibraryService.LoadAllItems())
+                {
+                    if (m.Kind == "Shape") ids.Add(m.Id);
+                }
+                if (ids.Count == 0)
+                {
+                    error = "库里没有形状类收藏，无需重建。";
+                    return null;
+                }
+                return new RebuildPreviewsJob(ids);
+            }
+
+            public void Step(int i)
+            {
+                if (i < 0 || i >= _ids.Count) return;
+                try { if (RebuildPreview(_ids[i])) Rebuilt++; }
                 catch { }
             }
-            return ok;
+
+            public TextToolService.ToolResult Finish(bool cancelled)
+            {
+                return new TextToolService.ToolResult
+                {
+                    Ok = true,
+                    Message = (cancelled ? "已取消，" : "") + "已重建 " + Rebuilt + " / " + Total + " 个缩略图。",
+                    Changed = Rebuilt
+                };
+            }
+        }
+
+        /// <summary>同步版：Ribbon 等非桥调用方使用；桥走 RebuildPreviewsJob 分片执行。</summary>
+        public static int RebuildAllPreviews(LongOperation op = null)
+        {
+            string err;
+            var job = RebuildPreviewsJob.Create(out err);
+            if (job == null) return 0;
+            for (int i = 0; i < job.Total; i++)
+            {
+                if (op != null && op.Step(i, job.Total)) break;
+                job.Step(i);
+            }
+            if (op != null) op.Report(job.Total, job.Total);
+            return job.Rebuilt;
         }
 
 

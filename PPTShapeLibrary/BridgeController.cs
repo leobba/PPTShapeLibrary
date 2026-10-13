@@ -22,6 +22,7 @@ namespace PPTShapeLibrary
         private readonly CoreWebView2 _core;
         private readonly JavaScriptSerializer _json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
         private readonly string _hostKey = Guid.NewGuid().ToString("N");   // 每个宿主(面板/弹窗)独立浏览上下文
+        private volatile bool _closed = false;                             // 宿主已释放（见 MarkClosed）
 
         public BridgeController(CoreWebView2 core)
         {
@@ -43,6 +44,126 @@ namespace PPTShapeLibrary
                 && uri.IsDefaultPort;
         }
 
+        // ---------------- 长任务（进度 / 取消 / 分片执行） ----------------
+
+        private static LongOperation _current;   // 同一时刻只允许一个长任务
+
+        /// <summary>把回调投递回 UI 线程的消息队列（片与片之间回到消息循环）。
+        /// 用 SynchronizationContext：WebView2/WinForms 控件创建时已在本线程安装，
+        /// 没有时退化为一次性 WinForms 计时器（同样依赖消息循环）。</summary>
+        private static void PostToUi(Action action)
+        {
+            var ctx = System.Threading.SynchronizationContext.Current;
+            if (ctx != null)
+            {
+                ctx.Post(_ => { try { action(); } catch (Exception ex) { Log.Error(ex, "PostToUi"); } }, null);
+                return;
+            }
+            var timer = new System.Windows.Forms.Timer { Interval = 1 };
+            timer.Tick += (s, e) =>
+            {
+                timer.Stop();
+                timer.Dispose();
+                try { action(); } catch (Exception ex) { Log.Error(ex, "PostToUi(timer)"); }
+            };
+            timer.Start();
+        }
+
+        /// <summary>
+        /// 分片执行长任务：每片在 UI 线程上跑一小步，**片间回到消息循环**。
+        /// 效果：PowerPoint 不再被整段占死（能重绘/响应点击），桥消息（含 cancel、ping）
+        /// 也能正常送达——这比"泵 DoEvents"可靠（实测 DoEvents 送不进 WebView2 消息）。
+        ///
+        /// 协议不变：本方法**不立即**下发 result，全部完成后异步发出，前端仍按 reqId 等待。
+        /// 调用方在 switch 里直接 break，不要自己再发 result。
+        /// </summary>
+        private void RunChunked(string reqId, string title, int total, Action<int> slice,
+                                Func<bool, TextToolService.ToolResult> finish)
+        {
+            var op = new LongOperation(reqId, title, PushProgress);
+            _current = op;
+            op.OpenCancelChannel();   // 兼容前端"fetch 取消"通道（分片后普通消息也生效，双保险）
+            op.Report(0, total);
+            Log.Write("[bridge] chunked op begin: " + title + " total=" + total + " req=" + reqId);
+
+            int i = 0;
+            Action step = null;
+            step = () =>
+            {
+                if (op.Cancelled || i >= total)
+                {
+                    FinishChunked(op, reqId, finish, op.Cancelled);
+                    return;
+                }
+                try { slice(i); }
+                catch (Exception ex) { Log.Error(ex, "chunk " + title + " #" + i); }
+                i++;
+                op.Report(i, total);
+                if (i < total && !op.Cancelled) PostToUi(step);
+                else FinishChunked(op, reqId, finish, op.Cancelled);
+            };
+            step();
+        }
+
+        private void FinishChunked(LongOperation op, string reqId,
+                                   Func<bool, TextToolService.ToolResult> finish, bool cancelled)
+        {
+            op.CloseCancelChannel();
+            if (ReferenceEquals(_current, op)) _current = null;
+            TextToolService.ToolResult r = null;
+            try { r = finish(cancelled); }
+            catch (Exception ex) { Log.Error(ex, "chunked finish"); }
+            Log.Write("[bridge] chunked op end: " + op.Title + " cancelled=" + cancelled);
+            if (r == null)
+            {
+                Result(reqId, false, null, "操作失败。");
+                return;
+            }
+            Result(reqId, r.Ok,
+                   r.Ok ? new Dictionary<string, object>
+                       {
+                           { "changed", r.Changed },
+                           { "message", r.Message },
+                           { "cancelled", cancelled }
+                       } : null,
+                   r.Ok ? null : r.Message);
+        }
+
+        private LongOperation BeginLongOperation(string reqId, string title)
+        {
+            var op = new LongOperation(reqId, title, PushProgress);
+            _current = op;
+            op.RegisterComFilter();
+            op.OpenCancelChannel();   // 取消通道（只监听回环，任务结束即关）
+            op.Report(0, 0);
+            Log.Write("[bridge] long op begin: " + title + " req=" + reqId);
+            return op;
+        }
+
+        private void EndLongOperation(LongOperation op)
+        {
+            if (op == null) return;
+            op.RevokeComFilter();
+            op.CloseCancelChannel();
+            if (ReferenceEquals(_current, op)) _current = null;
+            Log.Write("[bridge] long op end: " + op.Title + " cancelled=" + op.Cancelled);
+        }
+
+        private void PushProgress(string reqId, int current, int total)
+        {
+            var cur = _current;
+            var payload = new Dictionary<string, object>
+            {
+                { "reqId", reqId },
+                { "current", current },
+                { "total", total },
+                { "title", cur != null ? cur.Title : "" }
+            };
+            // 取消地址随进度下发：前端据此 fetch 回环端口，绕开被占住的 UI 消息循环
+            if (cur != null && !string.IsNullOrEmpty(cur.CancelUrl)) payload["cancelUrl"] = cur.CancelUrl;
+            Post(new Dictionary<string, object> { { "type", "progress" }, { "payload", payload } });
+        }
+
         // ---------------- 下行推送 ----------------
 
         public void PushRefresh()
@@ -62,11 +183,6 @@ namespace PPTShapeLibrary
             Post(new Dictionary<string, object> { { "type", "settingsChanged" }, { "payload", SettingsDict(s) } });
         }
 
-        public void PushSwitchView(string view)
-        {
-            Post(new Dictionary<string, object> { { "type", "switchView" }, { "payload", new Dictionary<string, object> { { "view", view } } } });
-        }
-
         // ---------------- 上行处理 ----------------
 
         public void HandleWebMessage(string raw)
@@ -82,11 +198,38 @@ namespace PPTShapeLibrary
                 var payload = msg.ContainsKey("payload") ? msg["payload"] as Dictionary<string, object> : new Dictionary<string, object>();
                 if (payload == null) payload = new Dictionary<string, object>();
 
+                // 长任务执行期间只放行"取消/探活/日志"：DoEvents 会把队列里的其他请求送进来，
+                // 若不拦住就会重入（在整稿操作中途又发起一次插入/删除）。
+                var running = _current;
+                if (running != null && type != "cancel" && type != "ping" && type != "log")
+                {
+                    Log.Write("[bridge] rejected while busy: " + type);
+                    Result(reqId, false, null,
+                        "正在执行「" + running.Title + "」，请等待完成或点击「取消」。");
+                    return;
+                }
+
                 switch (type)
                 {
                     case "ping":
                         Ok(reqId, new Dictionary<string, object> { { "pong", true } });
                         break;
+                    case "cancel":
+                        {
+                            // 长任务里的 DoEvents 会让这条消息有机会被处理，从而把 Cancelled 置位
+                            var cur = _current;
+                            if (cur != null)
+                            {
+                                cur.Cancelled = true;
+                                Log.Write("[bridge] cancel requested for " + cur.Title + " req=" + reqId);
+                                Ok(reqId, new Dictionary<string, object> { { "cancelling", true } });
+                            }
+                            else
+                            {
+                                Ok(reqId, new Dictionary<string, object> { { "cancelling", false } });
+                            }
+                            break;
+                        }
                     case "init":
                         Ok(reqId, BuildInit());
                         break;
@@ -160,11 +303,22 @@ namespace PPTShapeLibrary
                         }
                     case "collectAllSlides":
                         {
-                            int n = ShapeExporter.CollectAllSlides();
-                            if (n > 0) BroadcastRefresh();
-                            Result(reqId, n > 0,
-                                   n > 0 ? new Dictionary<string, object> { { "collected", n } } : null,
-                                   n > 0 ? null : "没有可收藏的页面（跳过空白/占位页）");
+                            // 分片执行：按页切片（每页会产生一个库条目），片间回到消息循环
+                            string caErr;
+                            var job = ShapeExporter.CollectAllSlidesJob.Create(out caErr);
+                            if (job == null)
+                            {
+                                Result(reqId, false, null, caErr);
+                                break;
+                            }
+                            RunChunked(reqId, "收藏整稿", job.Total,
+                                       idx => job.Step(idx),
+                                       cancelled =>
+                                       {
+                                           var res = job.Finish(cancelled);
+                                           if (job.Collected > 0) BroadcastRefresh();
+                                           return res;
+                                       });
                             break;
                         }
                     case "undo":
@@ -188,9 +342,12 @@ namespace PPTShapeLibrary
                                 if (ShapeLibraryService.DeleteItem(id)) n++;
                                 else failed++;
                             }
+                            // 部分成功也必须广播：否则其他宿主（工具弹窗等）仍显示已删除的条目
+                            if (n > 0) BroadcastRefresh();
                             if (failed > 0)
-                                Result(reqId, false, null,
-                                    "有 " + failed + " 项移入回收站失败（可能被占用或文件锁定），已保留在原位。");
+                                Result(reqId, false,
+                                    new Dictionary<string, object> { { "deleted", n }, { "failed", failed } },
+                                    "已移入回收站 " + n + " 项；有 " + failed + " 项失败（可能被占用或文件锁定），已保留在原位。");
                             else
                                 Ok(reqId, new Dictionary<string, object> { { "deleted", n } });
                             break;
@@ -262,14 +419,14 @@ namespace PPTShapeLibrary
                     case "reorder":
                         {
                             var ordered = payload.ContainsKey("orderedIds") ? payload["orderedIds"] as System.Collections.ArrayList : null;
+                            var ids = new List<string>();
                             if (ordered != null)
                             {
-                                for (int i = 0; i < ordered.Count; i++)
-                                {
-                                    ShapeLibraryService.SetSortOrder(ordered[i].ToString(), i);
-                                }
+                                for (int i = 0; i < ordered.Count; i++) ids.Add(ordered[i].ToString());
                             }
-                            Ok(reqId, new Dictionary<string, object>());
+                            // 由服务层按"全局顺序回填 + 全量重新编号"落盘，避免只给子集写序号导致全局顺序错乱
+                            int renumbered = ShapeLibraryService.ReorderItems(ids);
+                            Ok(reqId, new Dictionary<string, object> { { "renumbered", renumbered } });
                             break;
                         }
                     case "openFolder":
@@ -331,10 +488,22 @@ namespace PPTShapeLibrary
                         }
                     case "rebuildPreviews":
                         {
-                            // 修复历史错位缩略图：重建全部形状条目预览（逐条打开库文稿导出）
-                            int n = ShapeExporter.RebuildAllPreviews();
-                            Ok(reqId, new Dictionary<string, object> { { "rebuilt", n } });
-                            BroadcastRefresh();
+                            // 分片执行：逐条重建（每条要打开一次库文稿），片间回到消息循环
+                            string rpErr;
+                            var job = ShapeExporter.RebuildPreviewsJob.Create(out rpErr);
+                            if (job == null)
+                            {
+                                Result(reqId, false, null, rpErr);
+                                break;
+                            }
+                            RunChunked(reqId, "重建缩略图", job.Total,
+                                       idx => job.Step(idx),
+                                       cancelled =>
+                                       {
+                                           var res = job.Finish(cancelled);
+                                           BroadcastRefresh();
+                                           return res;
+                                       });
                             break;
                         }
                     case "setPaneDock":
@@ -359,24 +528,8 @@ namespace PPTShapeLibrary
                     // ---------------- PPT 工具（Web 工具页） ----------------
                     case "toolGetFonts":
                         {
-                            var sysFonts = new List<string>();
-                            try
-                            {
-                                using (var fc = new System.Drawing.Text.InstalledFontCollection())
-                                {
-                                    foreach (var fam in fc.Families)
-                                    {
-                                        string n = fam.Name;
-                                        // 仅排除本插件的图标字体家族（MaterialIcons/Material Symbols），
-                                        // 保留 Segoe UI Symbol 等真实可用符号字体
-                                        if (n.StartsWith("Material", StringComparison.OrdinalIgnoreCase)) continue;
-                                        if (n.Contains("PPTShapeLibrary")) continue;
-                                        if (!sysFonts.Contains(n)) sysFonts.Add(n);
-                                    }
-                                }
-                            }
-                            catch { }
-                            sysFonts.Sort(StringComparer.OrdinalIgnoreCase);
+                            // 系统字体：GDI+ 已安装字体 + 用户级字体（见 FontCatalog）
+                            var sysFonts = FontCatalog.GetFamilies();
                             Ok(reqId, new Dictionary<string, object>
                             {
                                 { "fonts", TextToolService.GetDocumentFonts() },
@@ -399,15 +552,21 @@ namespace PPTShapeLibrary
                                    r.Ok ? null : r.Message);
                             break;
                         }
-                    case "replaceFont":
+                    case "setFonts":
                         {
+                            // 分片执行：按页切片，片间回到消息循环（整稿换字体不再卡死 PowerPoint）
                             bool allSlides = ToBoolNullable(payload, "allSlides") ?? true;   // 默认整稿
-                            var r = TextToolService.ReplaceFont(
-                                ToStr(payload, "fromFont"),
-                                ToStr(payload, "toFont"),
-                                allSlides);
-                            Result(reqId, r.Ok, r.Ok ? new Dictionary<string, object> { { "changed", r.Changed } } : null,
-                                   r.Ok ? null : r.Message);
+                            string sfErr;
+                            var job = TextToolService.SetFontsJob.Create(
+                                ToStr(payload, "chineseFont"), ToStr(payload, "latinFont"), allSlides, out sfErr);
+                            if (job == null)
+                            {
+                                Result(reqId, false, null, sfErr);
+                                break;
+                            }
+                            RunChunked(reqId, "一键换字体", job.Total,
+                                       idx => job.Step(idx),
+                                       cancelled => job.Finish(cancelled));
                             break;
                         }
                     case "findReplace":
@@ -543,39 +702,56 @@ namespace PPTShapeLibrary
                         }
                     case "formatExportImages":
                         {
-                            var r = FormatToolService.ExportImages(
-                                ToStr(payload, "dir"),
-                                ToStr(payload, "format"),
-                                ToInt(payload, "width"));
-                            Result(reqId, r.Ok, r.Ok ? new Dictionary<string, object> { { "changed", r.Changed } } : null,
-                                   r.Ok ? null : r.Message);
+                            // 分片执行：逐页导出，片间回到消息循环（PowerPoint 保持响应、取消即时生效）
+                            string exErr;
+                            var job = FormatToolService.ExportImagesJob.Create(
+                                ToStr(payload, "dir"), ToStr(payload, "format"), ToInt(payload, "width"), out exErr);
+                            if (job == null)
+                            {
+                                Result(reqId, false, null, exErr);
+                                break;
+                            }
+                            RunChunked(reqId, "导出图片", job.Total,
+                                       idx => job.Step(idx),
+                                       cancelled => job.Finish(cancelled));
                             break;
                         }
                     case "formatScanClean":
-                        {
-                            var opts = CleanOptsFrom(payload);
-                            var r = FormatToolService.ScanClean(opts);
-                            Result(reqId, r.Ok, r.Ok ? new Dictionary<string, object> { { "changed", r.Changed }, { "message", r.Message } } : null,
-                                   r.Ok ? null : r.Message);
-                            break;
-                        }
                     case "formatRunClean":
                         {
+                            // 分片执行：按页扫描/清理，片间回到消息循环（大文档不再整段卡死）
+                            bool dryRun = type == "formatScanClean";
                             var opts = CleanOptsFrom(payload);
-                            var r = FormatToolService.RunClean(opts);
-                            Result(reqId, r.Ok, r.Ok ? new Dictionary<string, object> { { "changed", r.Changed }, { "message", r.Message } } : null,
-                                   r.Ok ? null : r.Message);
+                            string cErr;
+                            var job = FormatToolService.CleanJob.Create(opts, dryRun, out cErr);
+                            if (job == null)
+                            {
+                                Result(reqId, false, null, cErr);
+                                break;
+                            }
+                            RunChunked(reqId, dryRun ? "扫描清理项" : "清理瘦身", job.Total,
+                                       idx => job.Step(idx),
+                                       cancelled => job.Finish(cancelled));
                             break;
                         }
                     case "formatResize":
                         {
-                            var r = FormatToolService.ResizeShapes(
+                            // 分片执行：逐个形状改尺寸，片间回到消息循环
+                            string rsErr;
+                            var job = FormatToolService.ResizeShapesJob.Create(
                                 ToStr(payload, "scope"),
                                 ToFloatNullable(payload, "width"),
                                 ToFloatNullable(payload, "height"),
-                                true == ToBoolNullable(payload, "forceImageRatio"));
-                            Result(reqId, r.Ok, r.Ok ? new Dictionary<string, object> { { "changed", r.Changed } } : null,
-                                   r.Ok ? null : r.Message);
+                                true == ToBoolNullable(payload, "forceImageRatio"),
+                                out rsErr);
+                            if (job == null)
+                            {
+                                Result(reqId, false, null, rsErr);
+                                break;
+                            }
+                            RunChunked(reqId, "统一尺寸", job.Total,
+                                       idx => job.Step(idx),
+                                       cancelled => job.Finish(cancelled));
                             break;
                         }
                     case "formatImageGrid":
@@ -855,11 +1031,9 @@ namespace PPTShapeLibrary
             }
             // 按主色近似筛选（RGB 曼哈顿距离阈值）
             string colorLike = ToStr(payload, "colorLike");
-            if (!string.IsNullOrWhiteSpace(colorLike) && colorLike.Length >= 6)
+            int tr, tg, tb;
+            if (!string.IsNullOrWhiteSpace(colorLike) && colorLike.Length >= 6 && TryParseHexColor(colorLike, out tr, out tg, out tb))
             {
-                int tr = Convert.ToInt32(colorLike.Substring(0, 2), 16);
-                int tg = Convert.ToInt32(colorLike.Substring(2, 2), 16);
-                int tb = Convert.ToInt32(colorLike.Substring(4, 2), 16);
                 items = items.Where(m =>
                 {
                     string hex = m.ColorHex;
@@ -975,11 +1149,13 @@ namespace PPTShapeLibrary
                 }
                 if (patch.ContainsKey("pageSize"))
                 {
-                    int n; if (int.TryParse(patch["pageSize"].ToString(), out n) && n > 0) s.PageSize = n;
+                    int n; if (int.TryParse(patch["pageSize"].ToString(), out n)) s.PageSize = Math.Max(1, Math.Min(500, n));
                 }
                 if (patch.ContainsKey("paneWidth"))
                 {
-                    int n; if (int.TryParse(patch["paneWidth"].ToString(), out n)) s.PaneWidth = n;
+                    // 必须夹紧：该值会被 ThisAddIn.OnSettingsSaved 立即应用到任务窗格宽度并持久化，
+                    // 未夹紧时一个坏值（如 999999）会让窗格宽度异常且重启后依然生效。
+                    int n; if (int.TryParse(patch["paneWidth"].ToString(), out n)) s.PaneWidth = Math.Max(200, Math.Min(1200, n));
                 }
                 if (patch.ContainsKey("authorName"))
                 {
@@ -1059,6 +1235,19 @@ namespace PPTShapeLibrary
         private static string ToStr(Dictionary<string, object> d, string key)
         {
             return d.ContainsKey(key) && d[key] != null ? d[key].ToString() : "";
+        }
+
+        /// <summary>解析 "RRGGBB"（允许带 # 前缀）。非法输入返回 false，绝不抛异常——
+        /// 此前直接 Convert.ToInt32(sub,16) 会让一个坏颜色值把整次 list 请求打成错误。</summary>
+        private static bool TryParseHexColor(string s, out int r, out int g, out int b)
+        {
+            r = g = b = 0;
+            if (string.IsNullOrWhiteSpace(s)) return false;
+            s = s.Trim().TrimStart('#');
+            if (s.Length < 6) return false;
+            return int.TryParse(s.Substring(0, 2), System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out r)
+                && int.TryParse(s.Substring(2, 2), System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out g)
+                && int.TryParse(s.Substring(4, 2), System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out b);
         }
 
         /// <summary>文件名净化：替换路径分隔符/冒号/控制字符与 .. 段，防止路径穿越（覆盖 Windows 与便携语义）。</summary>
@@ -1181,6 +1370,7 @@ namespace PPTShapeLibrary
 
         private void Post(Dictionary<string, object> msg)
         {
+            if (_closed) return;   // 宿主已释放（窗格迁移/退出）：再发消息只会刷一堆 disposed 异常日志
             try
             {
                 _core.PostWebMessageAsJson(_json.Serialize(msg));
@@ -1189,6 +1379,12 @@ namespace PPTShapeLibrary
             {
                 Log.Error(ex, "Bridge.Post");
             }
+        }
+
+        /// <summary>宿主释放时调用：之后所有下行消息直接丢弃。</summary>
+        public void MarkClosed()
+        {
+            _closed = true;
         }
     }
 }

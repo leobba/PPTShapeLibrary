@@ -28,7 +28,7 @@ namespace PPTShapeLibrary
             public bool RemoveActions;
         }
 
-        private class CleanStats
+        public class CleanStats
         {
             public int EmptySlides, HiddenShapes, OffSlideShapes, Notes, Actions;
             public int Failed;
@@ -43,35 +43,94 @@ namespace PPTShapeLibrary
 
         // ================= ① 整稿导出 PNG/JPG =================
 
-        /// <summary>逐页导出图片到 dir，命名 slide01.png…。format="PNG"/"JPG"；width=0 为原始分辨率。</summary>
+        /// <summary>
+        /// "整稿导出图片"的分片作业：把逐页导出拆成 Step(i)，由桥在 UI 线程上**一片一片**执行
+        /// （片间回到消息循环）→ PowerPoint 不卡死、取消按钮也走普通桥消息即时生效。
+        /// 同步调用方可以直接 while 循环跑完（行为与旧实现一致）。
+        /// </summary>
+        public class ExportImagesJob
+        {
+            public int Total { get; private set; }
+            public int Done { get; private set; }
+            public int Failed { get; private set; }
+
+            private readonly string _dir;
+            private readonly bool _isJpg;
+            private readonly int _width;
+            private PowerPoint.Presentation _pres;
+
+            private ExportImagesJob(PowerPoint.Presentation pres, string dir, bool isJpg, int width)
+            {
+                _pres = pres;
+                _dir = dir;
+                _isJpg = isJpg;
+                _width = width;
+                Total = pres.Slides.Count;
+            }
+
+            /// <summary>校验参数并建立作业；不满足时返回 null 并给出原因。</summary>
+            public static ExportImagesJob Create(string dir, string format, int width, out string error)
+            {
+                error = null;
+                if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
+                {
+                    error = "导出目录不存在。";
+                    return null;
+                }
+                var pres = ShapeExporter.ActiveUserPresentation();
+                if (pres == null)
+                {
+                    error = "没有打开的演示文稿。";
+                    return null;
+                }
+                bool isJpg = "JPG".Equals(format, StringComparison.OrdinalIgnoreCase);
+                return new ExportImagesJob(pres, dir, isJpg, width > 0 ? width : 0);
+            }
+
+            /// <summary>导出第 i 页（0-based）。</summary>
+            public void Step(int i)
+            {
+                if (_pres == null) return;
+                int idx = i + 1;
+                if (idx > _pres.Slides.Count) return;   // 处理期间用户删了页：跳过
+                string file = Path.Combine(_dir, "slide" + idx.ToString("D2") + "." + (_isJpg ? "jpg" : "png"));
+                try
+                {
+                    _pres.Slides[idx].Export(file, _isJpg ? "JPG" : "PNG", _width, 0);
+                    Done++;
+                }
+                catch { Failed++; }
+            }
+
+            public TextToolService.ToolResult Finish(bool cancelled)
+            {
+                if (Failed > 0 && Done == 0)
+                    return new TextToolService.ToolResult
+                    {
+                        Ok = false,
+                        Message = "导出失败：" + Failed + " 页均无法导出（请检查目录权限/格式支持）。",
+                        Changed = 0
+                    };
+                return new TextToolService.ToolResult
+                {
+                    Ok = Done > 0,
+                    Message = (cancelled ? "已取消，" : "") + "已导出 " + Done + " / " + Total + " 页到：" + _dir +
+                              (Failed > 0 ? "（" + Failed + " 页失败）" : ""),
+                    Changed = Done
+                };
+            }
+        }
+
+        /// <summary>逐页导出图片（同步版：非桥调用方使用；桥走 ExportImagesJob 分片执行）。</summary>
         public static TextToolService.ToolResult ExportImages(string dir, string format, int width)
         {
             try
             {
-                if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
-                    return new TextToolService.ToolResult { Ok = false, Message = "导出目录不存在。" };
-                var pres = App.ActivePresentation;
-                if (pres == null)
-                    return new TextToolService.ToolResult { Ok = false, Message = "没有打开的演示文稿。" };
-
-                bool isJpg = "JPG".Equals(format, StringComparison.OrdinalIgnoreCase);
-                int w = width > 0 ? width : 0;
-                int done = 0;
-                int failed = 0;
-                for (int i = 1; i <= pres.Slides.Count; i++)
-                {
-                    string file = Path.Combine(dir, "slide" + i.ToString("D2") + "." + (isJpg ? "jpg" : "png"));
-                    try { pres.Slides[i].Export(file, isJpg ? "JPG" : "PNG", w, 0); done++; }
-                    catch { failed++; }
-                }
-                if (failed > 0 && done == 0)
-                    return new TextToolService.ToolResult { Ok = false, Message = "导出失败：" + failed + " 页均无法导出（请检查目录权限/格式支持）。", Changed = 0 };
-                return new TextToolService.ToolResult
-                {
-                    Ok = done > 0,
-                    Message = "已导出 " + done + " 页到：" + dir + (failed > 0 ? "（" + failed + " 页失败）" : ""),
-                    Changed = done
-                };
+                string err;
+                var job = ExportImagesJob.Create(dir, format, width, out err);
+                if (job == null) return new TextToolService.ToolResult { Ok = false, Message = err };
+                for (int i = 0; i < job.Total; i++) job.Step(i);
+                return job.Finish(false);
             }
             catch (Exception ex)
             {
@@ -122,55 +181,94 @@ namespace PPTShapeLibrary
         private static CleanStats CleanCore(CleanOptions o, bool dryRun)
         {
             var st = new CleanStats();
-            var pres = App.ActivePresentation;
-            if (pres == null) return st;
-            var slideW = (float)pres.PageSetup.SlideWidth;
-            var slideH = (float)pres.PageSetup.SlideHeight;
+            string err;
+            var job = CleanJob.Create(o, dryRun, out err);
+            if (job == null) return st;
+            for (int i = 0; i < job.Total; i++) job.Step(i);
+            return job.Stats;
+        }
 
-            int remainingSlides = pres.Slides.Count;
-            for (int slideIndex = pres.Slides.Count; slideIndex >= 1; slideIndex--)
+        /// <summary>
+        /// "清理瘦身"的分片作业：按**页**切片（从后往前，避免删页后索引错位）。
+        /// 由桥在 UI 线程上一片一片执行 → 大文档清理不再卡死 PowerPoint、取消即时生效。
+        /// 注意：分片执行期间用户可以继续操作文档，因此每片都重新确认目标页是否还存在。
+        /// </summary>
+        public class CleanJob
+        {
+            public CleanStats Stats { get; private set; }
+            public int Total { get; private set; }
+
+            private readonly PowerPoint.Presentation _pres;
+            private readonly CleanOptions _o;
+            private readonly bool _dryRun;
+            private readonly float _slideW;
+            private readonly float _slideH;
+            private int _remainingSlides;
+
+            private CleanJob(PowerPoint.Presentation pres, CleanOptions o, bool dryRun)
             {
-                var slide = pres.Slides[slideIndex];
-                for (int i = slide.Shapes.Count; i >= 1; i--)
+                _pres = pres;
+                _o = o;
+                _dryRun = dryRun;
+                Stats = new CleanStats();
+                _slideW = (float)pres.PageSetup.SlideWidth;
+                _slideH = (float)pres.PageSetup.SlideHeight;
+                Total = pres.Slides.Count;
+                _remainingSlides = Total;
+            }
+
+            public static CleanJob Create(CleanOptions o, bool dryRun, out string error)
+            {
+                error = null;
+                var pres = ShapeExporter.ActiveUserPresentation();
+                if (pres == null)
                 {
-                    var shp = slide.Shapes[i];
+                    error = "没有打开的演示文稿。";
+                    return null;
+                }
+                return new CleanJob(pres, o ?? new CleanOptions(), dryRun);
+            }
+
+            /// <summary>处理第 i 片（0-based，对应从后往前数的第 i 页）。</summary>
+            public void Step(int i)
+            {
+                int slideIndex = Total - i;                 // 从最后一页开始
+                if (slideIndex < 1 || slideIndex > _pres.Slides.Count) return;   // 期间被删了：跳过
+                PowerPoint.Slide slide;
+                try { slide = _pres.Slides[slideIndex]; }
+                catch { return; }
+
+                for (int k = slide.Shapes.Count; k >= 1; k--)
+                {
+                    PowerPoint.Shape shp;
+                    try { shp = slide.Shapes[k]; } catch { Stats.Failed++; continue; }
                     try
                     {
-                        if (o.DelHiddenShapes && shp.Visible == MsoTriState.msoFalse)
+                        if (_o.DelHiddenShapes && shp.Visible == MsoTriState.msoFalse)
                         {
-                            if (dryRun) st.HiddenShapes++;
-                            else
-                            {
-                                try { shp.Delete(); st.HiddenShapes++; }
-                                catch { st.Failed++; }
-                            }
+                            if (_dryRun) Stats.HiddenShapes++;
+                            else { try { shp.Delete(); Stats.HiddenShapes++; } catch { Stats.Failed++; } }
                             continue;
                         }
-                        if (o.DelOffSlideShapes)
+                        if (_o.DelOffSlideShapes)
                         {
-                            float l = 0, t = 0, r = 0, b = 0;
+                            float l, t, r, b;
                             try { l = (float)shp.Left; t = (float)shp.Top; r = l + (float)shp.Width; b = t + (float)shp.Height; }
-                            catch { st.Failed++; continue; }
-                            // 完全在画布外才删，避免误伤半出画布对象
-                            if (r < -5 || b < -5 || l > slideW + 5 || t > slideH + 5)
+                            catch { Stats.Failed++; continue; }
+                            if (r < -5 || b < -5 || l > _slideW + 5 || t > _slideH + 5)
                             {
-                                if (dryRun) st.OffSlideShapes++;
-                                else
-                                {
-                                    try { shp.Delete(); st.OffSlideShapes++; }
-                                    catch { st.Failed++; }
-                                }
+                                if (_dryRun) Stats.OffSlideShapes++;
+                                else { try { shp.Delete(); Stats.OffSlideShapes++; } catch { Stats.Failed++; } }
                                 continue;
                             }
                         }
-                        if (o.RemoveActions)
+                        if (_o.RemoveActions)
                         {
                             try
                             {
                                 if (shp.ActionSettings != null)
                                 {
-                                    bool any = false;
-                                    bool changedAny = false;
+                                    bool any = false, changedAny = false;
                                     var activations = new[]
                                     {
                                         PowerPoint.PpMouseActivation.ppMouseClick,
@@ -183,32 +281,28 @@ namespace PPTShapeLibrary
                                             var act = shp.ActionSettings[actKey];
                                             if (act.Action != PowerPoint.PpActionType.ppActionNone)
                                             {
-                                                if (dryRun) any = true;
-                                                else
-                                                {
-                                                    try { act.Action = PowerPoint.PpActionType.ppActionNone; changedAny = true; }
-                                                    catch { st.Failed++; }
-                                                }
+                                                if (_dryRun) any = true;
+                                                else { try { act.Action = PowerPoint.PpActionType.ppActionNone; changedAny = true; } catch { Stats.Failed++; } }
                                             }
                                         }
-                                        catch { st.Failed++; }
+                                        catch { Stats.Failed++; }
                                     }
-                                    if (any || changedAny) st.Actions++;
+                                    if (any || changedAny) Stats.Actions++;
                                 }
                             }
-                            catch { st.Failed++; }
+                            catch { Stats.Failed++; }
                         }
                     }
-                    catch { st.Failed++; }
+                    catch { Stats.Failed++; }
                 }
+
                 bool slideWillBeDeleted = false;
-                if (o.DelEmptySlides && remainingSlides > 1
-                    && !HasVisibleContent(slide, o, slideW, slideH))
+                if (_o.DelEmptySlides && _remainingSlides > 1 && !HasVisibleContent(slide, _o, _slideW, _slideH))
                 {
-                    if (dryRun)
+                    if (_dryRun)
                     {
-                        st.EmptySlides++;
-                        remainingSlides--;
+                        Stats.EmptySlides++;
+                        _remainingSlides--;
                         slideWillBeDeleted = true;
                     }
                     else
@@ -216,14 +310,14 @@ namespace PPTShapeLibrary
                         try
                         {
                             slide.Delete();
-                            st.EmptySlides++;
-                            remainingSlides--;
+                            Stats.EmptySlides++;
+                            _remainingSlides--;
                             slideWillBeDeleted = true;
                         }
-                        catch { st.Failed++; }
+                        catch { Stats.Failed++; }
                     }
                 }
-                if (o.ClearNotes && !slideWillBeDeleted)
+                if (_o.ClearNotes && !slideWillBeDeleted)
                 {
                     try
                     {
@@ -231,21 +325,29 @@ namespace PPTShapeLibrary
                         var tr = notes.TextFrame.TextRange;
                         if (tr != null && !string.IsNullOrWhiteSpace(tr.Text))
                         {
-                            if (dryRun) st.Notes++;
-                            else
-                            {
-                                try { tr.Text = ""; st.Notes++; }
-                                catch { st.Failed++; }
-                            }
+                            if (_dryRun) Stats.Notes++;
+                            else { try { tr.Text = ""; Stats.Notes++; } catch { Stats.Failed++; } }
                         }
                     }
-                    catch { st.Failed++; }
+                    catch { Stats.Failed++; }
                 }
             }
-            return st;
+
+            public TextToolService.ToolResult Finish(bool cancelled)
+            {
+                bool scan = _dryRun;
+                return new TextToolService.ToolResult
+                {
+                    Ok = Stats.Failed == 0,
+                    Message = (cancelled ? "已取消（部分完成）：" : (scan ? "" : (Stats.Failed == 0 ? "清理完成：" : "清理部分完成："))) +
+                              StatsText(Stats),
+                    Changed = Stats.EmptySlides + Stats.HiddenShapes + Stats.OffSlideShapes + Stats.Notes + Stats.Actions
+                };
+            }
         }
 
-        /// <summary>页是否有实质可见内容：占位符且无文字视为空；其它可见对象均算内容。</summary>
+        /// <summary>页是否有实质可见内容：占位符且无文字视为空；其它可见对象均算内容。
+        /// 读不到内容时**保守判定为"有内容"**——宁可少删一页，也不要把用户的东西删掉。</summary>
         private static bool HasVisibleContent(PowerPoint.Slide slide, CleanOptions options, float slideW, float slideH)
         {
             try
@@ -294,53 +396,114 @@ namespace PPTShapeLibrary
         }
 
         // ================= ③ 统一尺寸 =================
+        /// <summary>
+        /// "统一尺寸"的分片作业：先把目标形状列表抓下来，再逐个处理。
+        /// 由桥分片执行 → 大文档批量改尺寸不再卡死 PowerPoint。
+        /// 分片期间形状可能被用户删掉：每片都 try/catch，失败只计数。
+        /// </summary>
+        public class ResizeShapesJob
+        {
+            public int Total { get; private set; }
+            public int Done { get; private set; }
+            public int Failed { get; private set; }
 
-        /// <summary>scope=selection/page/all；宽高至少一项；图片且 forceImageRatio 时等比（取 Min 比例）。</summary>
+            private readonly List<PowerPoint.Shape> _shapes;
+            private readonly float? _width;
+            private readonly float? _height;
+            private readonly bool _forceImageRatio;
+
+            private ResizeShapesJob(List<PowerPoint.Shape> shapes, float? width, float? height, bool forceImageRatio)
+            {
+                _shapes = shapes;
+                _width = width;
+                _height = height;
+                _forceImageRatio = forceImageRatio;
+                Total = shapes.Count;
+            }
+
+            public static ResizeShapesJob Create(string scope, float? width, float? height, bool forceImageRatio,
+                                                 out string error)
+            {
+                error = null;
+                if (width == null && height == null)
+                {
+                    error = "请至少填写宽度或高度。";
+                    return null;
+                }
+                try
+                {
+                    var shapes = ShapesByScope(scope);
+                    if (shapes.Count == 0)
+                    {
+                        error = "所选范围内没有形状。";
+                        return null;
+                    }
+                    return new ResizeShapesJob(shapes, width, height, forceImageRatio);
+                }
+                catch (Exception ex)
+                {
+                    error = ex.Message;
+                    return null;
+                }
+            }
+
+            public void Step(int i)
+            {
+                if (i < 0 || i >= _shapes.Count) return;
+                var shp = _shapes[i];
+                try
+                {
+                    float w = (float)shp.Width, h = (float)shp.Height;
+                    if (w <= 0 || h <= 0) return;
+                    bool isPic = false;
+                    try { isPic = shp.Type == MsoShapeType.msoPicture; } catch { }
+                    if (_width != null && _height != null)
+                    {
+                        if (isPic && _forceImageRatio)
+                        {
+                            float scale = Math.Min(_width.Value / w, _height.Value / h);
+                            shp.Width = w * scale; shp.Height = h * scale;
+                        }
+                        else { shp.Width = _width.Value; shp.Height = _height.Value; }
+                    }
+                    else if (_width != null)
+                    {
+                        float scale = _width.Value / w;
+                        shp.Width = _width.Value; shp.Height = h * scale;
+                    }
+                    else
+                    {
+                        float scale = _height.Value / h;
+                        shp.Height = _height.Value; shp.Width = w * scale;
+                    }
+                    Done++;
+                }
+                catch { Failed++; }
+            }
+
+            public TextToolService.ToolResult Finish(bool cancelled)
+            {
+                return new TextToolService.ToolResult
+                {
+                    Ok = Failed == 0,
+                    Message = (cancelled ? "已取消，" : "") + "已统一 " + Done + " / " + Total + " 个形状尺寸" +
+                              (Failed > 0 ? "，" + Failed + " 个形状调整失败。" : "。"),
+                    Changed = Done
+                };
+            }
+        }
+
+        /// <summary>scope=selection/page/all；宽高至少一项；图片且 forceImageRatio 时等比（取 Min 比例）。
+        /// 同步版：桥走 ResizeShapesJob 分片执行。</summary>
         public static TextToolService.ToolResult ResizeShapes(string scope, float? width, float? height, bool forceImageRatio)
         {
             try
             {
-                if (width == null && height == null)
-                    return new TextToolService.ToolResult { Ok = false, Message = "请至少填写宽度或高度。" };
-                var shapes = ShapesByScope(scope);
-                int done = 0, failed = 0;
-                foreach (var shp in shapes)
-                {
-                    try
-                    {
-                        float w = (float)shp.Width, h = (float)shp.Height;
-                        if (w <= 0 || h <= 0) continue;
-                        bool isPic = false;
-                        try { isPic = shp.Type == MsoShapeType.msoPicture; } catch { }
-                        if (width != null && height != null)
-                        {
-                            if (isPic && forceImageRatio)
-                            {
-                                float scale = Math.Min(width.Value / w, height.Value / h);
-                                shp.Width = w * scale; shp.Height = h * scale;
-                            }
-                            else { shp.Width = width.Value; shp.Height = height.Value; }
-                        }
-                        else if (width != null)
-                        {
-                            float scale = width.Value / w;
-                            shp.Width = width.Value; shp.Height = h * scale;
-                        }
-                        else
-                        {
-                            float scale = height.Value / h;
-                            shp.Height = height.Value; shp.Width = w * scale;
-                        }
-                        done++;
-                    }
-                    catch { failed++; }
-                }
-                return new TextToolService.ToolResult
-                {
-                    Ok = failed == 0,
-                    Message = "已统一 " + done + " 个形状尺寸" + (failed > 0 ? "，" + failed + " 个形状调整失败。" : "。"),
-                    Changed = done
-                };
+                string err;
+                var job = ResizeShapesJob.Create(scope, width, height, forceImageRatio, out err);
+                if (job == null) return new TextToolService.ToolResult { Ok = false, Message = err };
+                for (int i = 0; i < job.Total; i++) job.Step(i);
+                return job.Finish(false);
             }
             catch (Exception ex)
             {
@@ -357,7 +520,7 @@ namespace PPTShapeLibrary
             {
                 if (files == null || files.Count == 0)
                     return new TextToolService.ToolResult { Ok = false, Message = "请先选择图片文件。" };
-                var pres = App.ActivePresentation;
+                var pres = ShapeExporter.ActiveUserPresentation();
                 if (pres == null)
                     return new TextToolService.ToolResult { Ok = false, Message = "没有打开的演示文稿。" };
                 if (cols < 1) cols = 1;
@@ -426,27 +589,43 @@ namespace PPTShapeLibrary
 
         private static List<PowerPoint.Shape> ShapesByScope(string scope)
         {
+            // 与 TextToolService.ShapesByScope 保持一致：范围非法/无文稿/无选中都抛明确异常，
+            // 由上层转成 Ok=false 的提示。旧实现 catch 后返回空列表 → "已统一 0 个形状"的假成功，
+            // 且 scope 写错时会静默落到"整稿"，把不该动的形状全改掉。
+            if (string.IsNullOrEmpty(scope)) scope = "all";
+            if (scope != "selection" && scope != "page" && scope != "all")
+                throw new InvalidOperationException("范围参数无效：" + scope);
+
             var result = new List<PowerPoint.Shape>();
             try
             {
+                var pres = ShapeExporter.ActiveUserPresentation();
+                if (pres == null) throw new InvalidOperationException("没有打开的演示文稿。");
                 if (scope == "selection")
                 {
-                    var sel = App.ActiveWindow.Selection;
+                    var win = App.ActiveWindow;
+                    if (win == null) throw new InvalidOperationException("没有可用的活动窗口。");
+                    var sel = win.Selection;
                     if (sel != null && sel.Type == PowerPoint.PpSelectionType.ppSelectionShapes && sel.ShapeRange != null)
                         for (int i = 1; i <= sel.ShapeRange.Count; i++) result.Add(sel.ShapeRange[i]);
+                    if (result.Count == 0) throw new InvalidOperationException("未选中形状。请先选中要处理的形状。");
                 }
                 else if (scope == "page")
                 {
-                    var slide = App.ActivePresentation.Slides[App.ActiveWindow.View.Slide.SlideIndex];
+                    var win = App.ActiveWindow;
+                    if (win == null || win.View == null || win.View.Slide == null)
+                        throw new InvalidOperationException("没有可用的活动窗口/页面。");
+                    var slide = pres.Slides[win.View.Slide.SlideIndex];
                     for (int i = 1; i <= slide.Shapes.Count; i++) result.Add(slide.Shapes[i]);
                 }
                 else
                 {
-                    foreach (PowerPoint.Slide slide in App.ActivePresentation.Slides)
+                    foreach (PowerPoint.Slide slide in pres.Slides)
                         for (int i = 1; i <= slide.Shapes.Count; i++) result.Add(slide.Shapes[i]);
                 }
             }
-            catch { }
+            catch (InvalidOperationException) { throw; }
+            catch { throw new InvalidOperationException("没有打开的演示文稿或活动窗口。"); }
             return result;
         }
     }
