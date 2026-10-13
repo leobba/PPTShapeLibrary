@@ -72,6 +72,25 @@ Copy-Item "$Root\installer\bin\Release\安装 PPTShapeLibrary.exe" $dist -Force
 Copy-Item "$publish\PPTShapeLibrary.vsto" "$dist\App" -Force
 Copy-Item "$publish\Application Files" "$dist\App" -Recurse -Force
 
+# 内置依赖包：VSTO Runtime 只有约 3MB（比 .NET 4.8 的 110MB 小两个数量级），
+# 直接随分发包带上，用户装的时候点「安装本地包」即可，**完全不依赖网络**。
+# 微软官方源在国内基本打不开，这一步是国内用户能不能装上的关键。
+$offline = "$dist\离线安装包"
+New-Item -ItemType Directory -Path $offline -Force | Out-Null
+$hasVsto = @(Get-ChildItem $offline -File -ErrorAction SilentlyContinue | Where-Object {
+    $_.Name -like 'vstor*' -and $_.Name -match '\.(exe|zip)$' }).Count -gt 0
+if (-not $hasVsto) {
+    Write-Host "   离线包里没有 VSTO Runtime，自动取一份（走 GitHub 固定 tag + 加速站）…" -ForegroundColor Yellow
+    & pwsh -NoProfile -File (Join-Path $PSScriptRoot "fetch-prerequisites.ps1") -OutDir $offline -Only vsto
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "   取包失败（不影响本次打包，但 dist 将不具备离线装 VSTO 的能力）" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "   已内置 VSTO Runtime 离线包：" -ForegroundColor Green
+    Get-ChildItem $offline -File | Where-Object { $_.Name -like 'vstor*' } |
+        ForEach-Object { "     $($_.Name)  $([math]::Round($_.Length/1MB,2)) MB" }
+}
+
 # 拆掉"陷阱"：构建产物 bin\Release\PPTShapeLibrary.vsto 一旦被双击，会把加载项注册成
 # …\bin\Release\…|vstolocal（开发式），与正式安装抢注册表并导致"已安装另一版本"报错。
 # 删除前必须先把指向它的开发式注册清掉（两处键），否则注册表会指向一个已不存在的清单文件。

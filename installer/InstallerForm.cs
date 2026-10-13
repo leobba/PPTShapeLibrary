@@ -1381,9 +1381,20 @@ namespace PPTShapeLibraryInstaller
             return null;
         }
 
+        /// <summary>写日志：界面里显示，同时**落盘**（%TEMP%\pptsl_installer.log）——
+        /// 界面上那个框会滚动、也不好整段复制，出问题直接把这个文件发出来最省事。</summary>
         private void Log(string msg)
         {
-            _log.AppendText(DateTime.Now.ToString("HH:mm:ss") + "  " + msg + Environment.NewLine);
+            var line = DateTime.Now.ToString("HH:mm:ss") + "  " + msg + Environment.NewLine;
+            try { _log.AppendText(line); } catch { }
+            try
+            {
+                var path = Path.Combine(Path.GetTempPath(), "pptsl_installer.log");
+                // 超过约 1MB 就重开，避免无限增长
+                if (File.Exists(path) && new FileInfo(path).Length > 1024 * 1024) File.Delete(path);
+                File.AppendAllText(path, line, System.Text.Encoding.UTF8);
+            }
+            catch { }
         }
     }
 }
