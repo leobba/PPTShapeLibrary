@@ -103,6 +103,16 @@ $manifest = [ordered]@{
     notes       = if ($Notes) { $Notes } else { "见 Release 说明" }
 }
 ($manifest | ConvertTo-Json -Depth 5) | Set-Content $updateJson -Encoding UTF8
+
+# 关键：三个资产（zip / .sha256 / update.json）的哈希必须**同源**。
+# 实测踩过：上传失败后重跑脚本，zip 被重新压缩（字节变了）但另两个没重新生成 → 三者不一致，
+# 用户下载后校验失败。所以每次上传前都**用当前 zip 重算**哈希并同步改写另两个文件。
+$hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+"$hash  $(Split-Path $zip -Leaf)" | Set-Content $shaFile -Encoding ASCII
+$manifest.sha256 = $hash
+$manifest.sizeBytes = (Get-Item $zip).Length
+($manifest | ConvertTo-Json -Depth 5) | Set-Content $updateJson -Encoding UTF8
+Write-Host "  已按当前 zip 同步 .sha256 与 update.json：$hash"
 Write-Host "  已生成 update.json（更新器的固定地址会取最新 Release 里的这一份）"
 
 Write-Host "== 5/6 打 tag 并推送（可选）==" -ForegroundColor Cyan
