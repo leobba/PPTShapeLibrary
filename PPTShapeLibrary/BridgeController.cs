@@ -233,6 +233,57 @@ namespace PPTShapeLibrary
                     case "init":
                         Ok(reqId, BuildInit());
                         break;
+                    // 检查更新：给前端用（插件内直接提示升级，不必让用户跑去开安装器）。
+                    // 通道与安装器一致：① 固定地址 update.json → ② GitHub API 兜底 → ③ 加速站回退。
+                    case "checkUpdate":
+                        {
+                            var u = UpdateService.Check();
+                            var d = new Dictionary<string, object>
+                            {
+                                { "ok", u.Ok },
+                                { "hasUpdate", u.HasUpdate },
+                                { "currentVersion", u.CurrentVersion },
+                                { "latestVersion", u.LatestVersion },
+                                { "releaseUrl", u.ReleaseUrl },
+                                { "downloadUrl", u.DownloadUrl },
+                                { "sha256", u.Sha256 },
+                                { "notes", u.Notes },
+                                { "error", u.Error },
+                            };
+                            Ok(reqId, d);
+                        }
+                        break;
+                    case "openRelease":
+                        {
+                            string url = ToStr(payload, "url");
+                            // 一律以**发布页**为准：清单里的直连地址可能失效（旧版本/资产被删）→ 404；
+                            // 而发布页永远存在，还能看到更新说明与历史版本。
+                            // （早期版本会先 HEAD 探测直连包，但实测在复杂网络下容易误判成不可用，故放弃探测。）
+                            if (string.IsNullOrEmpty(url) || url.Contains("/releases/download/"))
+                            {
+                                url = UpdateService.ReleasesPageUrl;
+                            }
+                            try
+                            {
+                                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+                                Ok(reqId, new Dictionary<string, object> { { "opened", true } });
+                            }
+                            catch (Exception ex)
+                            {
+                                Result(reqId, false, null, ex.Message);
+                            }
+                            break;
+                        }
+                    // 定时提醒：前端可设提醒间隔（分钟，0=关闭）。C# 侧起定时器，
+                    // 到点检查一次，有新版就**主动推** updateAvailable 给前端，不等用户下次手点。
+                    case "setUpdateReminder":
+                        {
+                            int minutes = 0;
+                            int.TryParse(ToStr(payload, "minutes"), out minutes);
+                            UpdateReminder.SetInterval(minutes);
+                            Ok(reqId, new Dictionary<string, object> { { "minutes", UpdateReminder.Minutes } });
+                            break;
+                        }
                     case "list":
                         Ok(reqId, DoList(payload));
                         break;
@@ -1351,6 +1402,28 @@ namespace PPTShapeLibrary
                 { "cleanLayoutsOnInsertPage", s.CleanLayoutsOnInsertPage },
                 { "accentColor", s.AccentColor ?? "blue" }
             };
+        }
+
+        /// <summary>主动告诉前端"有新版本"，前端据此弹窗/显示提示条。
+        /// （定时提醒由 UpdateReminder 负责，它在插件启动时就跑，不依赖面板是否打开。）</summary>
+        private void PushUpdateAvailable(object u)
+        {
+            var ur = u as UpdateResult;
+            if (ur == null) return;
+            Post(new Dictionary<string, object>
+            {
+                { "type", "updateAvailable" },
+                {
+                    "payload", new Dictionary<string, object>
+                    {
+                        { "currentVersion", ur.CurrentVersion },
+                        { "latestVersion", ur.LatestVersion },
+                        { "notes", ur.Notes },
+                        { "releaseUrl", ur.ReleaseUrl },
+                        { "downloadUrl", ur.DownloadUrl },
+                    }
+                }
+            });
         }
 
         // ---------------- 下行 ----------------

@@ -55,6 +55,12 @@ namespace PPTShapeLibrary
                     catch (Exception ex) { Log.Error(ex, "CollectOrphanDirs"); }
                     try { ShapeLibraryService.AutoBackupIfNeeded(); Log.Write("Auto backup checked"); }
                     catch (Exception ex) { Log.Error(ex, "AutoBackupIfNeeded"); }
+
+                    // 更新提醒定时器：**插件启动时就起**，不等面板打开。
+                    // 任务窗格是"首次打开才创建"（Startup 不建，避免幽灵窗口绑定），
+                    // 若只靠前端来开定时器，用户没打开过面板就永远不会被提醒——与"定时提醒"的意图相悖。
+                    try { UpdateReminder.StartDefault(); }
+                    catch (Exception ex) { Log.Write("UpdateReminder 启动失败：" + ex.Message); }
                 };
                 timer.Start();
                 Log.Write("Startup done");

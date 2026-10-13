@@ -135,6 +135,12 @@ export const bridge = {
   openFolder: (id: string) => send("openFolder", { id }),
   getSettings: () => send("getSettings"),
   saveSettings: (patch: object) => send("saveSettings", { patch }),
+  /** 检查更新（插件内直接提示，不必跑去开安装器）。 */
+  checkUpdate: () => send("checkUpdate", {}, 0),
+  /** 打开发布页 / 下载地址。 */
+  openRelease: (url: string) => send("openRelease", { url }),
+  /** 设置更新提醒间隔（分钟；0=关闭定时提醒）。 */
+  setUpdateReminder: (minutes: number) => send("setUpdateReminder", { minutes }),
   undo: () => send("undo", {}),
   redo: () => send("redo", {}),
   trashList: () => send("trashList", {}),

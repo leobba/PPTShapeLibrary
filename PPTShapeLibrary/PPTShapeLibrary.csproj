@@ -165,6 +165,8 @@
     <Compile Include="ClipboardGuard.cs" />
     <Compile Include="ToolPopupHostForm.cs" />
     <Compile Include="BridgeController.cs" />
+    <Compile Include="UpdateService.cs" />
+    <Compile Include="UpdateReminder.cs" />
     <Compile Include="Log.cs" />
     <Compile Include="StylePreset.cs" />
     <Compile Include="Settings.cs" />

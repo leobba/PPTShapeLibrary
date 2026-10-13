@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { bridge, ListItem } from "@/lib/bridge";
 import { useLibrary } from "@/hooks/useLibrary";
 import { dialogs } from "@/lib/dialogs";
+import { UpdateBanner } from "@/components/library/UpdateBanner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -99,6 +100,8 @@ export default function LibraryView() {
   const [showGroups, setShowGroups] = useState(false);
   const [showCats, setShowCats] = useState(false);   // 管理二级分类（按当前一级组）
   const [showDupes, setShowDupes] = useState(false);
+  /** 更新提醒间隔（分钟）。0=关闭定时提醒，只在打开面板时显示提示条。 */
+  const [reminderMinutes, setReminderMinutes] = useState<number>(10);
   const [trashConfirmIds, setTrashConfirmIds] = useState<string[] | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const toastTimer = useRef<number | undefined>(undefined);
@@ -236,6 +239,14 @@ export default function LibraryView() {
   useEffect(() => {
     setHoverImg(null);
   }, [items]);
+
+  // 面板打开时把提醒间隔告诉 C#（默认 10 分钟；用户可在「⋯ → 更新提醒间隔」改）
+  const reminderInit = useRef(false);
+  useEffect(() => {
+    if (reminderInit.current) return;
+    reminderInit.current = true;
+    void bridge.setUpdateReminder(reminderMinutes).catch(() => {});
+  }, [reminderMinutes]);
   const cats = useMemo(() => {
     if (lib.group === "全部") {
       const set = new Set<string>();
@@ -367,6 +378,46 @@ export default function LibraryView() {
               <Download className="size-4" /> 导入素材包…
             </DropdownMenuItem>
             <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={async () => {
+                try {
+                  const u = (await bridge.checkUpdate()) as any;
+                  if (!u?.ok) {
+                    dialogs.alert("检查更新失败：" + (u?.error || "未知原因") + "\r\n\r\n也可能是网络暂时不通，稍后再试。");
+                    return;
+                  }
+                  if (u.hasUpdate) {
+                    const notes = (u.notes || "").trim();
+                    dialogs.alert(
+                      "发现新版本 " + u.latestVersion + "（当前 " + u.currentVersion + "）\r\n\r\n" +
+                      (notes && !notes.startsWith("（") ? notes + "\r\n\r\n" : "") +
+                      "顶部已出现更新提示，点「去下载」即可。"
+                    );
+                  } else {
+                    dialogs.alert("当前已是最新版本 " + (u.currentVersion || "") + "。");
+                  }
+                } catch (e: any) {
+                  dialogs.alert("检查更新失败：" + (e?.message || e));
+                }
+              }}
+            >
+              <RefreshCw className="size-4" /> 检查更新
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-[11px]">更新提醒间隔</DropdownMenuLabel>
+            {[0, 10, 30, 60].map((m) => (
+              <DropdownMenuItem
+                key={m}
+                onSelect={() => {
+                  void bridge.setUpdateReminder(m).then(() => {
+                    setReminderMinutes(m);
+                  });
+                }}
+                className={reminderMinutes === m ? "bg-accent text-accent-foreground" : ""}
+              >
+                <RefreshCw className="size-4" /> {m === 0 ? "关闭（只打开面板时提示）" : m + " 分钟"}
+              </DropdownMenuItem>
+            ))}
             <DropdownMenuLabel className="text-[11px]">窗格停靠</DropdownMenuLabel>
             <DropdownMenuItem
               onSelect={() => bridge.setPaneDock("left").then(() => lib.refreshMeta())}
