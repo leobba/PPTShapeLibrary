@@ -758,6 +758,7 @@ namespace PPTShapeLibraryInstaller
         private void CheckVsto(ReqItem it)
         {
             string ver = null;
+            string installPath = null;
             foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
             {
                 try
@@ -768,24 +769,52 @@ namespace PPTShapeLibraryInstaller
                         if (k != null)
                         {
                             object v = k.GetValue("Version");
-                            if (v != null) { ver = v.ToString(); break; }
+                            if (v != null)
+                            {
+                                ver = v.ToString();
+                                installPath = k.GetValue("InstallPath") as string;
+                                break;
+                            }
                         }
                     }
                 }
                 catch { }
             }
-            if (!string.IsNullOrEmpty(ver))
-            {
-                it.State = CheckState.Ok;
-                it.Detail = "已安装 VSTO Runtime（版本 " + ver + "）";
-                Log("✓ VSTO Runtime：" + ver);
-            }
-            else
+
+            if (string.IsNullOrEmpty(ver))
             {
                 it.State = CheckState.Missing;
                 it.Detail = "未安装 VSTO Runtime 4.0（缺失时插件无法被 PowerPoint 加载）";
                 Log("✗ 未检测到 VSTO Runtime 4.0");
+                return;
             }
+
+            // 光看注册表不够：实测卸载 VSTO 后（未重启）**注册表键会残留**，
+            // 只查键会误报"已安装"，用户点开始安装后才发现插件根本加载不了。
+            // 所以再校验运行时文件是否真的还在（卸载后这些文件会被安排到重启时删除）。
+            string dir = installPath;
+            if (string.IsNullOrEmpty(dir))
+            {
+                // 32 位视图的键没有 InstallPath，退回默认位置
+                dir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFiles),
+                    "Microsoft Shared", "VSTO", "10.0");
+            }
+            bool loaderOk = false;
+            try { loaderOk = File.Exists(Path.Combine(dir, "VSTOLoader.dll")); } catch { }
+
+            if (!loaderOk)
+            {
+                it.State = CheckState.Missing;
+                it.Detail = "VSTO Runtime 已卸载但注册表项残留（版本 " + ver + "）：运行时文件不在 " + dir +
+                            "。请重启计算机完成卸载，或重新安装 VSTO Runtime（缺失时插件无法被 PowerPoint 加载）";
+                Log("✗ VSTO Runtime 注册表项残留但运行时文件缺失（刚卸载且未重启？）版本 " + ver);
+                return;
+            }
+
+            it.State = CheckState.Ok;
+            it.Detail = "已安装 VSTO Runtime（版本 " + ver + "）";
+            Log("✓ VSTO Runtime：" + ver);
         }
 
         private void CheckWebView2(ReqItem it)
