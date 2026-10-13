@@ -1,12 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import { bridge } from "@/lib/bridge";
-import { X, ChevronDown } from "lucide-react";
+import { dialogs } from "@/lib/dialogs";
+import { X, ChevronDownIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import {
   Select,
   SelectContent,
@@ -18,7 +28,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 
 const META: Record<string, { title: string; desc: string }> = {
   tool1: { title: "文字样式", desc: "批量修改字体/字号/颜色/对齐" },
-  tool2: { title: "一键换字体", desc: "文档内字体整体替换" },
+  tool2: { title: "一键换字体", desc: "取消原字体，直接改为新中/英文字体" },
   tool3: { title: "查找 / 替换", desc: "跨页文本替换" },
   tool4: { title: "文字清理", desc: "去多余空白 / 统一标点" },
   tool5: { title: "导出图片", desc: "整稿导出 PNG/JPG" },
@@ -80,7 +90,40 @@ function useFontData() {
   return { docFonts, systemFonts, noDoc, refresh };
 }
 
-/** 字体下拉选择器：文档字体优先 + 系统全部字体（可输入过滤），含预览样式 */
+/** 字体名匹配：大小写不敏感的子串匹配（对中文/英文混排的字体名都直观） */
+function fontFilter(value: string, search: string) {
+  const s = search.trim().toLowerCase();
+  if (!s) return 1;
+  return value.toLowerCase().includes(s) ? 1 : 0;
+}
+
+/** 单条字体选项：用字体本身渲染名字，选中项显示勾选 */
+function FontPickerItem({
+  name,
+  selected,
+  onSelect,
+}: {
+  name: string;
+  selected: boolean;
+  onSelect: (v: string) => void;
+}) {
+  return (
+    <CommandItem
+      value={name}
+      data-checked={selected ? "true" : undefined}
+      onSelect={() => onSelect(name)}
+      className="py-2"
+    >
+      <span className="truncate" style={{ fontFamily: name }}>{name}</span>
+    </CommandItem>
+  );
+}
+
+/**
+ * 字体下拉选择器：Popover + Command（可搜索、全量列出、按"文稿/系统"分组）。
+ * 之前是自绘 div 弹层：宽度只有触发按钮那么宽、列表 max-h-56、且被 slice(0,80) 截断，
+ * 系统 197 个字体只能看到 80 个；现在改为 portal 弹层（不被面板裁剪）+ 可滚动全量列表。
+ */
 function FontPicker({
   value,
   onChange,
@@ -95,64 +138,65 @@ function FontPicker({
   placeholder?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [q, setQ] = useState("");
-  const allFonts = Array.from(new Set([...(docFonts || []), ...(systemFonts || [])])).sort((a, b) => a.localeCompare(b, "zh"));
-  const kw = q.trim().toLowerCase();
-  const filtered = allFonts.filter((f) => f.toLowerCase().includes(kw)).slice(0, 80);
+  const docSet = new Set(docFonts || []);
+  const allFonts = Array.from(new Set([...(docFonts || []), ...(systemFonts || [])])).sort((a, b) =>
+    a.localeCompare(b, "zh"),
+  );
+  const docList = allFonts.filter((f) => docSet.has(f));
+  const sysList = allFonts.filter((f) => !docSet.has(f));
+  const loading = allFonts.length === 0;
+
+  const select = (f: string) => {
+    onChange(f);
+    setOpen(false);
+  };
+
   return (
-    <div className="relative">
-      {/* 触发区：显示当前值 */}
-      <button
-        type="button"
-        className="flex h-8 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 text-sm shadow-sm transition-colors hover:bg-accent"
-        onClick={() => { setQ(""); setOpen((o) => !o); }}
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button type="button" variant="outline" className="h-8 w-full justify-between px-3 font-normal">
+          <span className="truncate" style={value ? { fontFamily: value } : undefined}>
+            {value || placeholder || "选择字体…"}
+          </span>
+          <ChevronDownIcon data-icon="inline-end" className="opacity-60" />
+        </Button>
+      </PopoverTrigger>
+      {/* 宽高都跟着 Radix 的"可用空间"收缩，靠近窗口边缘也不会被裁剪 */}
+      <PopoverContent
+        align="start"
+        sideOffset={4}
+        collisionPadding={8}
+        className="w-[min(92vw,var(--radix-popover-content-available-width,22rem),22rem)] gap-0 p-0"
       >
-        <span className="truncate" style={value ? { fontFamily: value } : undefined}>
-          {value || placeholder || "选择字体…"}
-        </span>
-        <span className="ml-2 flex shrink-0 text-muted-foreground">
-          <ChevronDown className="size-3.5" />
-        </span>
-      </button>
-      {open && (
-        <>
-          {/* 点击外部关闭 */}
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover text-popover-foreground shadow-md">
-            <input
-              autoFocus
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="搜索字体…"
-              className="w-full border-b bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground"
-            />
-            <div className="max-h-56 overflow-y-auto p-1">
-              {filtered.length === 0 && (
-                <div className="px-2 py-3 text-center text-xs text-muted-foreground">
-                  {q ? "无匹配字体" : "加载字体中或系统字体为空"}
-                </div>
-              )}
-              {filtered.map((f) => (
-                <button
-                  key={f}
-                  type="button"
-                  className={
-                    "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent " +
-                    (f === value ? "bg-accent text-accent-foreground" : "")
-                  }
-                  onClick={() => { onChange(f); setOpen(false); }}
-                >
-                  <span className="truncate" style={{ fontFamily: f }}>{f}</span>
-                  {docFonts.includes(f) && (
-                    <span className="ml-auto shrink-0 rounded bg-muted px-1 text-[9px] text-muted-foreground">文稿</span>
-                  )}
-                </button>
+        <Command filter={fontFilter}>
+          <CommandInput
+            autoFocus
+            placeholder={loading ? "字体加载中…" : `搜索字体（共 ${allFonts.length} 个）`}
+          />
+          <CommandList className="max-h-[min(65vh,var(--radix-popover-content-available-height,22rem),22rem)]">
+            <CommandEmpty>{loading ? "字体列表加载中…" : "无匹配字体"}</CommandEmpty>
+            {docList.length > 0 && (
+              <CommandGroup heading={`文稿字体（${docList.length}）`}>
+                {docList.map((f) => (
+                  <FontPickerItem key={`doc-${f}`} name={f} selected={f === value} onSelect={select} />
+                ))}
+              </CommandGroup>
+            )}
+            <CommandGroup heading={`系统字体（${sysList.length}）`}>
+              {sysList.map((f) => (
+                <FontPickerItem key={`sys-${f}`} name={f} selected={f === value} onSelect={select} />
               ))}
-            </div>
+            </CommandGroup>
+          </CommandList>
+          <div className="flex items-center justify-between border-t px-3 py-1.5 text-[11px] text-muted-foreground">
+            <span>共 {allFonts.length} 个字体</span>
+            <span className="truncate pl-2" style={value ? { fontFamily: value } : undefined}>
+              {value || "未选择"}
+            </span>
           </div>
-        </>
-      )}
-    </div>
+        </Command>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -415,30 +459,36 @@ function Tool1() {
 /** tool2 一键换字体 */
 function Tool2() {
   const { out, run } = useRun();
-  const { docFonts, systemFonts, noDoc, refresh } = useFontData();
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("微软雅黑");
+  const { docFonts, systemFonts, noDoc } = useFontData();
+  const [cnFont, setCnFont] = useState("");
+  const [enFont, setEnFont] = useState("");
   const [all, setAll] = useState(true);
+  const cn = cnFont.trim();
+  const en = enFont.trim();
+  const ready = !!cn || !!en;
   return (
-    <Shell title="一键换字体" desc="把文档中某种字体统一替换为另一字体">
+    <Shell title="一键换字体" desc="取消原有字体设置，直接改为新的中文字体 / 英文字体">
       {noDoc && <p className="rounded-md bg-muted px-2 py-1.5 text-xs text-muted-foreground">未检测到打开的演示文稿——字体列表已含系统全部字体，可直接选用。</p>}
-      <Field label="原字体（要替换掉的）">
-        <FontPicker value={from} onChange={setFrom} docFonts={docFonts} systemFonts={systemFonts} placeholder="选择/搜索原字体…" />
+      <Field label="中文字体（覆盖原中文字体）">
+        <FontPicker value={cnFont} onChange={setCnFont} docFonts={docFonts} systemFonts={systemFonts} placeholder="选择/搜索中文字体…" />
       </Field>
-      <Field label="新字体（替换为）">
-        <FontPicker value={to} onChange={setTo} docFonts={docFonts} systemFonts={systemFonts} placeholder="选择/搜索新字体…" />
+      <Field label="英文字体（覆盖原英文字体）">
+        <FontPicker value={enFont} onChange={setEnFont} docFonts={docFonts} systemFonts={systemFonts} placeholder="选择/搜索英文字体…" />
       </Field>
       <div className="flex items-center gap-2">
         <Checkbox id="t2all" checked={all} onCheckedChange={(v) => setAll(!!v)} />
         <Label htmlFor="t2all" className="text-sm">整份演示文稿（取消则当前页）</Label>
       </div>
       <Button
-        disabled={!from.trim()}
-        onClick={() => run(() => bridge.replaceFont({ fromFont: from.trim(), toFont: to.trim() || from.trim(), allSlides: all }))}
+        disabled={!ready}
+        onClick={() => run(() => bridge.setFonts({ chineseFont: cn, latinFont: en, allSlides: all }))}
       >
-        开始替换
+        直接改为新字体
       </Button>
-      {!from.trim() && <p className="text-xs text-muted-foreground">请先选择要替换的原字体。</p>}
+      {!ready && <p className="text-xs text-muted-foreground">请选择新字体：中文字体、英文字体至少选一个。</p>}
+      {ready && (!cn || !en) && (
+        <p className="text-xs text-muted-foreground">未填写的一项保持原样；两项都填可同时覆盖中英文（含表格与组合形状内文字）。</p>
+      )}
       <Result out={out} />
     </Shell>
   );
@@ -651,7 +701,12 @@ function Tool8() {
       <Field label="图片">
         <div className="flex gap-1.5">
           <Input value={files.length ? files.length + " 张已选" : ""} readOnly placeholder="未选择图片" />
-          <Button variant="outline" onClick={() => bridge.requestFiles("选择图片", "图片文件 (*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp)|*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp").then((d) => setFiles(d.files || []))}>选择…</Button>
+          <Button variant="outline" onClick={() =>
+            bridge
+              .requestFiles("选择图片", "图片文件 (*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp)|*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp")
+              .then((d) => setFiles(d.files || []))
+              .catch((e: Error) => dialogs.alert("选择图片失败：" + (e?.message || e)).catch(() => {}))
+          }>选择…</Button>
         </div>
       </Field>
       <Field label="每行张数"><Input value={cols} onChange={(e) => setCols(e.target.value)} inputMode="numeric" /></Field>

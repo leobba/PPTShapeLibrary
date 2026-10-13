@@ -38,18 +38,35 @@ type UiState = {
 
 function showConfirm(message: string, cfg?: Cfg) {
   return new Promise<boolean>((resolve) => {
+    // 覆盖前先把上一个未决的同类型请求按"取消"结掉：全局单例 resolver 若被覆盖，
+    // 前一个 await 会永远不 settle（调用方的后续逻辑静默不执行）。
+    if (confirmResolve) {
+      const prev = confirmResolve;
+      confirmResolve = null;
+      prev(false);
+    }
     confirmResolve = resolve;
     _setUi?.((s) => ({ ...s, confirm: { message, cfg } }));
   });
 }
 function showPrompt(message: string, cfg?: Pcfg) {
   return new Promise<string | null>((resolve) => {
+    if (promptResolve) {
+      const prev = promptResolve;
+      promptResolve = null;
+      prev(null);
+    }
     promptResolve = resolve;
     _setUi?.((s) => ({ ...s, prompt: { message, cfg } }));
   });
 }
 function showAlert(message: string) {
   return new Promise<void>((resolve) => {
+    if (alertResolve) {
+      const prev = alertResolve;
+      alertResolve = null;
+      prev();
+    }
     alertResolve = resolve;
     _setUi?.((s) => ({ ...s, alert: { message } }));
   });

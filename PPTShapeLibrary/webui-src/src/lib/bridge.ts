@@ -51,6 +51,16 @@ function on(type: string, fn: (payload: any) => void): () => void {
   };
 }
 
+/** 订阅"任意请求已结束"（含成功与失败）。长任务的进度浮层靠它精确收尾，而不是靠猜超时。 */
+const resultListeners: Array<(reqId: string, ok: boolean) => void> = [];
+function onResult(fn: (reqId: string, ok: boolean) => void): () => void {
+  resultListeners.push(fn);
+  return () => {
+    const i = resultListeners.indexOf(fn);
+    if (i >= 0) resultListeners.splice(i, 1);
+  };
+}
+
 const wv = (window as any).chrome?.webview;
 if (wv?.addEventListener) {
   wv.addEventListener("message", (e: any) => {
@@ -69,6 +79,14 @@ if (wv?.addEventListener) {
         if (msg.ok) p.resolve(msg.data || {});
         else p.reject(new Error(msg.error || "unknown error"));
       }
+      // 通知进度浮层等订阅者：该请求已结束（无论成功失败）
+      resultListeners.slice().forEach((fn) => {
+        try {
+          fn(msg.reqId, !!msg.ok);
+        } catch (err) {
+          console.error(err);
+        }
+      });
       return;
     }
     (listeners[msg.type] || []).forEach((fn) => {
@@ -92,6 +110,9 @@ window.addEventListener("error", (e) => {
 export const bridge = {
   send,
   on,
+  onResult,
+  /** 请求取消当前长任务（整稿收藏 / 重建缩略图 / 整稿导出图片）。 */
+  cancel: () => send("cancel", {}),
   init: () => send("init"),
   list: (filter: string, category: string, kind: string, group: string, sort: string, offset: number, limit: number, unusedOnly?: boolean, colorLike?: string) =>
     send("list", { filter, category, kind, group, sort, offset, limit, unusedOnly: !!unusedOnly, colorLike: colorLike || "" }),
@@ -121,6 +142,7 @@ export const bridge = {
   trashPurge: () => send("trashPurge", {}),
   trashPurgeOne: (id: string) => send("trashPurgeOne", { id }),
   rebuildPreviews: () => send("rebuildPreviews", {}, 120000), // 逐个打开文稿重建，可能较慢
+  collectAllSlides: () => send("collectAllSlides", {}, 0),    // 整稿收藏：分片执行 + 进度浮层，不设超时
   setPaneDock: (dock: string) => send("setPaneDock", { dock }),
   getToolPrefs: () => send("getToolPrefs"),
   setToolPref: (key: string, value: string) => send("setToolPref", { key, value }),
@@ -135,15 +157,15 @@ export const bridge = {
   // 工具
   toolGetFonts: () => send("toolGetFonts", {}),
   applyTextStyle: (p: object) => send("applyTextStyle", p),
-  replaceFont: (p: object) => send("replaceFont", p),
+  setFonts: (p: object) => send("setFonts", p, 0), // 整稿换字体：分片执行 + 进度浮层，不设超时（用取消按钮中断）
   findReplace: (p: object) => send("findReplace", p),
   cleanText: (p: object) => send("cleanText", p),
   requestFolder: (title: string) => send("requestFolder", { title }, 0), // 模态目录对话框：不设超时
   requestFiles: (title: string, filter: string) => send("requestFiles", { title, filter }, 0),
-  formatExportImages: (p: object) => send("formatExportImages", p),
-  formatScanClean: (p: object) => send("formatScanClean", p),
-  formatRunClean: (p: object) => send("formatRunClean", p),
-  formatResize: (p: object) => send("formatResize", p),
+  formatExportImages: (p: object) => send("formatExportImages", p, 0), // 整稿导出图片：分片执行 + 进度浮层
+  formatScanClean: (p: object) => send("formatScanClean", p, 0),  // 扫描：分片执行 + 进度浮层
+  formatRunClean: (p: object) => send("formatRunClean", p, 0),    // 清理瘦身：分片执行 + 进度浮层
+  formatResize: (p: object) => send("formatResize", p, 0),        // 统一尺寸：分片执行 + 进度浮层
   formatImageGrid: (p: object) => send("formatImageGrid", p),
   academicFooter: (p: object) => send("academicFooter", p),
   academicExportPdf: (p: object) => send("academicExportPdf", p),

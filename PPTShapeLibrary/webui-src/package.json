@@ -8,9 +8,10 @@
     "build": "vite build",
     "deploy": "node scripts/deploy.mjs",
     "smoke": "node scripts/smoke.mjs",
-    "build:all": "npm run build && npm run smoke && npm run deploy",
+    "build:all": "npm run typecheck && npm run check:promises && npm run build && npm run smoke && npm run deploy",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:promises": "node scripts/check-bridge-promises.mjs"
   },
   "keywords": [],
   "type": "module",

@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -90,10 +89,6 @@ const GROUP_ICONS: Record<string, React.ReactNode> = {
   图例: <ChartPie className="size-4" />,
 };
 
-function tooltip(e: React.MouseEvent) {
-  /* noop */
-}
-
 export default function LibraryView() {
   const lib = useLibrary();
   const { init, items, selected, loadMore } = lib;
@@ -145,8 +140,11 @@ export default function LibraryView() {
         lib.reload(true);
       })
       .catch((e: Error) => {
-        insertingRef.current = false;
-        const msg = /timeout/i.test(e.message)
+        const isTimeout = /timeout/i.test(e.message);
+        // 超时 ≠ 失败：宿主可能仍在执行 COM 插入（首次插入/整页插入常 >1s，冷启动更久）。
+        // 若此时解锁防连点，用户再点一次就会真的插入第二份，因此超时后保持锁定。
+        if (!isTimeout) insertingRef.current = false;
+        const msg = isTimeout
           ? "插入处理超时：若已出现在页面请勿重复点击；稍后可重试"
           : e.message || "插入失败";
         showToast(msg);
@@ -175,8 +173,9 @@ export default function LibraryView() {
         lib.reload(true);
       })
       .catch((e: Error) => {
-        insertingRef.current = false;
-        const msg = /timeout/i.test(e.message)
+        const isTimeout = /timeout/i.test(e.message);
+        if (!isTimeout) insertingRef.current = false;   // 同上：超时保持锁定，防重复插页
+        const msg = isTimeout
           ? "插入处理超时：请检查演示文稿中是否已出现该页，勿重复点击"
           : e.message || "插入失败";
         showToast(msg);
@@ -186,10 +185,14 @@ export default function LibraryView() {
     if (item.snapshotPage) insertPageItem(item.id);
     else insertItem(item.id);
   };
-  const applyStyleWithFeedback = (id: string, all?: boolean) => {
-    const p = all ? bridge.applyStyleSameTypeAllSlides(id) : bridge.applyStyle(id);
+  const applyStyleWithFeedback = (id: string, all?: boolean, sameType?: boolean) => {
+    const p = all
+      ? bridge.applyStyleSameTypeAllSlides(id)
+      : sameType
+      ? bridge.applyStyleSameType(id)
+      : bridge.applyStyle(id);
     p.then(() => {
-      showToast("样式已应用");
+      showToast(sameType ? "已应用到本页同类形状" : "样式已应用");
       lib.refreshMeta();
       lib.reload(true); // TouchUsed 更新了使用统计/最近使用排序，重载列表
     }).catch((e: Error) => showToast(e.message || "应用失败（请先选中形状）"));
@@ -202,6 +205,19 @@ export default function LibraryView() {
       ? "repeat(auto-fill, minmax(120px, 1fr))"
       : `repeat(${gridCols === "3" ? 3 : gridCols === "4" ? 4 : 2}, minmax(0, 1fr))`;
   const gridRef = useRef<HTMLDivElement | null>(null);
+  // 分页补足：loadMore 只由 onScroll 触发，若第一页没撑出滚动条就永远滚不到底 →
+  // 后续条目在界面上不可达（设置里把"分页数量"调小时尤其明显）。
+  // 这里在"列表没有溢出且还有更多"时自动追加下一页；用长度做哨兵，避免宿主返回空页时死循环。
+  const autoFillLen = useRef(-1);
+  useEffect(() => {
+    const el = gridRef.current;
+    if (!el || lib.loading) return;
+    if (items.length === 0 || items.length >= lib.filteredTotal) return;
+    if (el.scrollHeight > el.clientHeight + 8) return;
+    if (autoFillLen.current === items.length) return;
+    autoFillLen.current = items.length;
+    loadMore();
+  }, [items, lib.loading, lib.filteredTotal]);
 
   // 强调色（设置项 accentColor）→ 左栏选中样式类
   const accentMap: Record<string, { text: string; solid: string; hover: string }> = {
@@ -592,10 +608,10 @@ export default function LibraryView() {
             </span>
             {/* 撤销/重做 */}
             <span className="flex items-center gap-1">
-              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => bridge.undo()}>
+              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => bridge.undo().catch(() => {})}>
                 <RotateCcw className="size-3.5" />
               </Button>
-              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => bridge.redo()}>
+              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => bridge.redo().catch(() => {})}>
                 <RotateCw className="size-3.5" />
               </Button>
             </span>
@@ -754,6 +770,8 @@ export default function LibraryView() {
                       onInsert={() => insertAny(item)}
                       onInsertPage={(pos: string) => insertPageItem(item.id, pos)}
                       onApplyStyle={() => applyStyleWithFeedback(item.id)}
+                      onApplyStyleSameType={() => applyStyleWithFeedback(item.id, false, true)}
+                      onNotify={showToast}
                       onChanged={() => {
                         lib.refreshMeta(); // 刷新侧栏组计数/元数据
                         lib.reload(true); // 重载当前列表（删除/重命名/移动后即时生效）
@@ -1055,10 +1073,20 @@ export default function LibraryView() {
             <AlertDialogAction
               onClick={() => {
                 if (trashConfirmIds)
-                  bridge.del(trashConfirmIds).then(() => {
-                    lib.clearSelection();
-                    lib.reload(true);
-                  });
+                  bridge
+                    .del(trashConfirmIds)
+                    .then(() => {
+                      lib.clearSelection();
+                      lib.reload(true);
+                    })
+                    .catch((e: Error) => {
+                      // 宿主是"部分成功"语义（有失败项即 ok=false，成功的已进回收站）。
+                      // 必须提示并照样刷新，否则已删除的卡片仍留在界面上、还能被点击插入。
+                      showToast(e.message || "移入回收站失败");
+                      lib.clearSelection();
+                      lib.refreshMeta();
+                      lib.reload(true);
+                    });
               }}
             >
               移入回收站
@@ -1067,7 +1095,11 @@ export default function LibraryView() {
         </AlertDialogContent>
       </AlertDialog>
       {toastMsg && (
-        <div className="pointer-events-none fixed bottom-6 left-1/2 z-[200] -translate-x-1/2 rounded-lg bg-foreground px-3.5 py-2 text-sm text-background shadow-lg">
+        <div
+          role="status"
+          aria-live="polite"
+          className="pointer-events-none fixed bottom-6 left-1/2 z-[200] -translate-x-1/2 rounded-lg bg-foreground px-3.5 py-2 text-sm text-background shadow-lg"
+        >
           {toastMsg}
         </div>
       )}
@@ -1084,6 +1116,8 @@ function ItemCard({
   onHover,
   onInsert,
   onApplyStyle,
+  onApplyStyleSameType,
+  onNotify,
   onChanged,
   dragEnabled,
   onDropCard,
@@ -1099,7 +1133,11 @@ function ItemCard({
   /** 整页快照：按位置插入（after/end/newDoc） */
   onInsertPage?: (position: string) => void;
   onApplyStyle: () => void;
+  /** 样式应用到"本页同类形状"（带错误提示） */
+  onApplyStyleSameType?: () => void;
   onChanged: () => void;
+  /** 向上层弹 toast（卡片内部的失败提示用） */
+  onNotify?: (msg: string) => void;
   dragEnabled?: boolean;
   onDropCard?: (fromId: string, toId: string) => void;
   /** 设置：true=单击即插；false=单击预览、双击插入 */
@@ -1173,6 +1211,21 @@ function ItemCard({
           onMouseEnter={() => onHover({ url: item.previewUrl, kind: item.kind, page: !!item.snapshotPage })}
           onMouseLeave={() => onHover(null)}
           title={item.name}
+          // 键盘可达：Tab 聚焦、Enter 执行主操作（插入/应用样式）、Ctrl+Enter 多选
+          role="button"
+          tabIndex={0}
+          aria-label={
+            (isStyle ? "应用样式：" : item.snapshotPage ? "插入整页：" : "插入：" ) + item.name
+          }
+          onFocus={() => onHover({ url: item.previewUrl, kind: item.kind, page: !!item.snapshotPage })}
+          onBlur={() => onHover(null)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              if (e.ctrlKey || e.metaKey) onToggle();
+              else handleClick({ ctrlKey: false } as React.MouseEvent);
+            }
+          }}
         >
           <div className="aspect-[1/.92] w-full overflow-hidden bg-muted/30">
             <img
@@ -1212,8 +1265,10 @@ function ItemCard({
           )
         ) : (
           <>
-            <ContextMenuItem onSelect={() => bridge.applyStyle(item.id)}>应用样式到选中形状</ContextMenuItem>
-            <ContextMenuItem onSelect={() => bridge.applyStyleSameType(item.id)}>应用到本页同类</ContextMenuItem>
+            <ContextMenuItem onSelect={() => onApplyStyle()}>应用样式到选中形状</ContextMenuItem>
+            <ContextMenuItem onSelect={() => (onApplyStyleSameType ? onApplyStyleSameType() : onApplyStyle())}>
+              应用到本页同类
+            </ContextMenuItem>
           </>
         )}
         <ContextMenuItem onSelect={onPreview}>预览大图…</ContextMenuItem>
@@ -1256,7 +1311,15 @@ function ItemCard({
           重命名
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem onSelect={() => bridge.openFolder(item.id)}>打开收藏文件夹</ContextMenuItem>
+        <ContextMenuItem
+          onSelect={() =>
+            bridge
+              .openFolder(item.id)
+              .catch((e: Error) => onNotify?.(e.message || "打开文件夹失败"))
+          }
+        >
+          打开收藏文件夹
+        </ContextMenuItem>
         <ContextMenuItem
           onSelect={() => {
             bridge
@@ -1276,7 +1339,15 @@ function ItemCard({
               okText: "移入回收站",
               danger: true,
             });
-            if (ok) bridge.del([item.id]).then(onChanged);
+            if (ok)
+              bridge
+                .del([item.id])
+                .then(onChanged)
+                .catch((e: Error) => {
+                  // 失败也要刷新（宿主可能已删除成功但整体返回 ok=false）
+                  onChanged();
+                  dialogs.alert(e.message || "移入回收站失败").catch(() => {});
+                });
           }}
         >
           移入回收站
@@ -1329,7 +1400,12 @@ function TrashDialog({ onClose }: { onClose: () => void }) {
                     variant="outline"
                     size="sm"
                     className="h-6 px-2 text-[11px]"
-                    onClick={() => bridge.trashRestore(m.id).then(refresh)}
+                    onClick={() =>
+                      bridge
+                        .trashRestore(m.id)
+                        .then(refresh)
+                        .catch((e: Error) => dialogs.alert(e.message || "恢复失败").catch(() => {}))
+                    }
                   >
                     恢复
                   </Button>
@@ -1343,7 +1419,11 @@ function TrashDialog({ onClose }: { onClose: () => void }) {
                         okText: "彻底删除",
                         danger: true,
                       });
-                      if (ok) bridge.trashPurgeOne(m.id).then(refresh);
+                      if (ok)
+                        bridge
+                          .trashPurgeOne(m.id)
+                          .then(refresh)
+                          .catch((e: Error) => dialogs.alert(e.message || "彻底删除失败").catch(() => {}));
                     }}
                   >
                     删除

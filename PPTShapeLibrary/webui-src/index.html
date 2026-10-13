@@ -3,6 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      CSP：界面只允许加载自己的资源（app.pptshapes.local），缩略图来自 data.pptshapes.local 虚拟域。
+      目的：即使将来有人往界面里塞了外部内容（素材名/来源 URL 等），也无法加载外部脚本或被当成脚本执行。
+      style-src 保留 'unsafe-inline'：Vite 开发模式与部分 UI 组件会注入内联样式。
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://data.pptshapes.local; font-src 'self' data:; connect-src 'self' http://127.0.0.1:*; object-src 'none'; base-uri 'self'; form-action 'none'"
+    />
     <title>素材库</title>
   </head>
   <body>

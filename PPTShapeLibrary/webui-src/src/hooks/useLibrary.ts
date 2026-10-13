@@ -57,7 +57,13 @@ export function useLibrary() {
           setFilteredTotal(d.filteredTotal);
           setTotal(d.total);
           if (resetPage) setItems(d.items || []);
-          else setItems((prev) => [...prev, ...(d.items || [])]);
+          else
+            setItems((prev) => {
+              // 按 id 去重：两次 loadMore 之间数据变化时宿主可能返回重叠页，
+              // 直接拼接会产生重复 key 并让部分卡片错位
+              const seen = new Set(prev.map((x) => x.id));
+              return [...prev, ...(d.items || []).filter((x: ListItem) => !seen.has(x.id))];
+            });
           page.current = offset + (d.items ? d.items.length : 0);
         })
         .catch((e) => {
@@ -165,7 +171,15 @@ export function useLibrary() {
         });
     };
     const offRefresh = bridge.on("refresh", fn);
-    const offSettings = bridge.on("settingsChanged", (s) => setInit((prev) => (prev ? { ...prev, ...s } : prev)));
+    const offSettings = bridge.on("settingsChanged", (s) => {
+      setInit((prev) => (prev ? { ...prev, ...s } : prev));
+      // 分页数量变化必须重载：pageSizeRef 只在 init 时写过一次，否则改设置后列表仍按旧页长加载
+      const ps = (s as any)?.pageSize;
+      if (typeof ps === "number" && ps > 0 && ps <= 500 && ps !== pageSizeRef.current) {
+        pageSizeRef.current = ps;
+        if (didInitialLoad.current) reloadRef.current(true);
+      }
+    });
     return () => {
       offRefresh();
       offSettings();
