@@ -96,6 +96,22 @@ foreach ($k in @($keyVersioned, $keyVersionless)) {
     Set-ItemProperty -Path $k -Name "FriendlyName" -Value "PPTShapeLibrary"
     Set-ItemProperty -Path $k -Name "LoadBehavior" -Value 3 -Type DWord
     Set-ItemProperty -Path $k -Name "Manifest"     -Value $manifest
+    # 插件内"检查更新"要读当前版本。开发模式（|vstolocal）下 ARP 里的版本可能陈旧（来自早期 vsto 清单），
+    # 程序集版本也不随发版变 → 会把"当前版本"读成旧值（实测读到 1.0.1.0），于是误报/显示错误。
+    # 所以这里把真实版本写进注册表，UpdateService.CurrentVersion() 会**优先**读它。
+    $ver = $null
+    try { $ver = (Get-Item $dll).VersionInfo.FileVersion } catch { }
+    if (-not $ver) {
+        $asmInfo = Join-Path $Root "PPTShapeLibrary\Properties\AssemblyInfo.cs"
+        if (Test-Path $asmInfo) {
+            $mm = Select-String -Path $asmInfo -Pattern 'AssemblyVersion\("([\d\.]+)"\)' | Select-Object -First 1
+            if ($mm) { $ver = $mm.Matches[0].Groups[1].Value }
+        }
+    }
+    if ($ver) {
+        Set-ItemProperty -Path $k -Name "ProductVersion" -Value $ver
+        Write-Host "   版本 → $ver"
+    }
     Write-Host "已写入：$k"
 }
 

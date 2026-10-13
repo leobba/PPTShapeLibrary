@@ -97,6 +97,23 @@ namespace PPTShapeLibrary
         {
             // ① 开发模式（|vstolocal）：dev-register.ps1 会把真实版本写进加载项注册表的 ProductVersion。
             //    这一路优先，因为开发模式下没有 ARP 项、程序集版本也不随发版变。
+            var regVer = RegistryProductVersion();
+            var arpVer = ArpVersion();
+            // 两个来源都可能不准：注册表 ProductVersion 是 dev-register 写的（开发模式），
+            // ARP DisplayVersion 来自早期 vsto 清单（可能陈旧，实测见过 1.0.1.0）。
+            // 取**较大的**那个，避免被陈旧值拖成"永远有新版本"或显示错误的当前版本。
+            var best = regVer;
+            if (!string.IsNullOrEmpty(arpVer) &&
+                (string.IsNullOrEmpty(best) || CompareVersions(arpVer, best) > 0))
+            {
+                best = arpVer;
+            }
+            return string.IsNullOrEmpty(best) ? null : best;
+        }
+
+        /// <summary>开发模式：dev-register.ps1 写入加载项注册表的 ProductVersion。</summary>
+        private static string RegistryProductVersion()
+        {
             try
             {
                 foreach (var keyPath in new[]
@@ -114,8 +131,12 @@ namespace PPTShapeLibrary
                 }
             }
             catch { }
+            return null;
+        }
 
-            // ② 正式安装（ClickOnce）：控制面板卸载项里的 DisplayVersion
+        /// <summary>正式安装：控制面板卸载项里的 DisplayVersion（HKLM 两视图 + HKCU）。</summary>
+        private static string ArpVersion()
+        {
             try
             {
                 foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
@@ -138,7 +159,6 @@ namespace PPTShapeLibrary
                         }
                     }
                 }
-                // HKCU（VSTO 的 ClickOnce 安装写的是用户级）
                 using (var root = RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, RegistryView.Default)
                         .OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall"))
                 {
