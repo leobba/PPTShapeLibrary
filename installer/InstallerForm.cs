@@ -502,6 +502,12 @@ namespace PPTShapeLibraryInstaller
                 return;
             }
 
+            // 修复前先把会让 VSTO 拒绝加载/安装的残留清掉：
+            // 光写加载项注册是不够的 —— 实测若 VSTA\Solutions 里还留着本产品记录，
+            // 或 ARP 里有指向 bin\Debug 的陈旧卸载项，VSTO 会认为"已安装另一版本"而拒绝加载。
+            ClearVstaRecords(Log);
+            ClearDevArpRecords(Log);
+
             int n = WriteAddinKeys(manifest, true, IsAdmin());
             Log("修复加载项注册：写入 " + n + " 处（当前用户" + (IsAdmin() ? " + 所有用户" : "") + "）");
 
@@ -843,48 +849,56 @@ namespace PPTShapeLibraryInstaller
                     }
                 }
 
-                // ⚠️ 还要删掉**陈旧的 ARP 卸载项**：VSTO 判断"是否已安装另一版本"看的就是它。
-                // 实测踩过：把 Addins 键和 SolutionMetadata 都清了，VSTOInstaller 仍报
-                // "已安装另一版本的自定义项"，就是这条 ARP 记录（早期装开发版时留下的）在作怪。
-                // 只删**指向开发路径**的那些（bin\Debug / bin\Release / |vstolocal），正式安装的记录保持不动。
-                foreach (var hive in new[] { Registry.CurrentUser, Registry.LocalMachine })
-                {
-                    try
-                    {
-                        using (var root = hive.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall"))
-                        {
-                            if (root == null) continue;
-                            foreach (var sub in root.GetSubKeyNames())
-                            {
-                                using (var k = root.OpenSubKey(sub))
-                                {
-                                    if (k == null) continue;
-                                    var name = k.GetValue("DisplayName") as string;
-                                    if (string.IsNullOrEmpty(name)) continue;
-                                    if (name.IndexOf("PPTShapeLibrary", StringComparison.OrdinalIgnoreCase) < 0) continue;
-                                    var un = k.GetValue("UninstallString") as string;
-                                    var norm = (un ?? "").Replace('/', '\\');
-                                    bool isDev = norm.IndexOf("bin\\Debug", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                                                 norm.IndexOf("bin\\Release", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                                                 norm.IndexOf("vstolocal", StringComparison.OrdinalIgnoreCase) >= 0;
-                                    if (!isDev) continue;
-                                    try
-                                    {
-                                        hive.DeleteSubKeyTree(@"Software\Microsoft\Windows\CurrentVersion\Uninstall\" + sub, false);
-                                        say("已删除陈旧的卸载项（开发版残留）：" + sub);
-                                    }
-                                    catch (Exception ex) { say("删除卸载项失败（忽略）：" + ex.Message); }
-                                }
-                            }
-                        }
-                    }
-                    catch { }
-                }
+                // ⚠️ 还要删掉**陈旧的 ARP 卸载项**（指向开发路径的那些），详见 ClearDevArpRecords 注释。
+                ClearDevArpRecords(say);
+
                 // ★ 最关键的一条：VSTA\Solutions —— VSTO 用它记"这个产品装过哪个版本"，
                 //   是 AddInAlreadyInstalledException（"已安装另一版本的自定义项"）的**真正判定来源**。
                 ClearVstaRecords(say);
             }
             catch (Exception ex) { say("清理开发式注册异常（忽略）：" + ex.Message); }
+        }
+
+        /// <summary>删掉 ARP 里**指向开发路径**的卸载项（bin\Debug / bin\Release / |vstolocal）。
+        /// 这种记录不是 VSTOInstaller 正规装的，用 /Uninstall 去卸会**挂死**（实测卡满 120s 超时）；
+        /// 而且它同样会让 VSTO 认为"已安装另一版本"。正式安装（指向别人机器/cache 的）保持不动。</summary>
+        private static void ClearDevArpRecords(Action<string> say)
+        {
+            foreach (var hive in new[] { Registry.CurrentUser, Registry.LocalMachine })
+            {
+                try
+                {
+                    using (var root = hive.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall"))
+                    {
+                        if (root == null) continue;
+                        foreach (var sub in root.GetSubKeyNames())
+                        {
+                            using (var k = root.OpenSubKey(sub))
+                            {
+                                if (k == null) continue;
+                                var name = k.GetValue("DisplayName") as string;
+                                if (string.IsNullOrEmpty(name)) continue;
+                                if (name.IndexOf("PPTShapeLibrary", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                                var un = k.GetValue("UninstallString") as string;
+                                // 卸载串里是**正斜杠**（file:///E:/…/bin/Debug/…）→ 必须先统一分隔符，
+                                // 否则按 "bin\Debug" 匹配会漏判（实测踩过）。
+                                var norm = (un ?? "").Replace('/', '\\');
+                                bool isDev = norm.IndexOf("bin\\Debug", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                             norm.IndexOf("bin\\Release", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                             norm.IndexOf("vstolocal", StringComparison.OrdinalIgnoreCase) >= 0;
+                                if (!isDev) continue;
+                                try
+                                {
+                                    hive.DeleteSubKeyTree(@"Software\Microsoft\Windows\CurrentVersion\Uninstall\" + sub, false);
+                                    say("已删除陈旧的卸载项（开发版残留）：" + sub);
+                                }
+                                catch (Exception ex) { say("删除卸载项失败（忽略）：" + ex.Message); }
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
         }
 
         /// <summary>清掉 VSTA\Solutions 里本产品的记录（"已安装另一版本"的判定来源）。</summary>
@@ -1605,6 +1619,13 @@ namespace PPTShapeLibraryInstaller
                 // 已安装过其它位置的版本时，ClickOnce 会拒绝安装（"已安装另一版本"）→ 先卸载
                 DetectExistingInstall();
                 UpdateExistingUi();
+
+                // 装之前无条件清掉会让 VSTO 拒绝安装的残留（VSTA 记录 / 开发版 ARP）。
+                // 不清的话，即使 Addins 键和 ARP 都没了，VSTOInstaller 仍会报
+                // "已安装另一版本的自定义项"（见 docs/PowerPoint-COM经验与坑.md §9.8）。
+                ClearVstaRecords(Log);
+                ClearDevArpRecords(Log);
+
                 if (!string.IsNullOrEmpty(_existingUninstallString))
                 {
                     var ask = MessageBox.Show(
