@@ -10,6 +10,33 @@ $msb = "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\
 $bootPath = "C:\Program Files (x86)\Microsoft SDKs\ClickOnce Bootstrapper\"
 
 Write-Host "== 1/4 发布 ClickOnce（插件本体）==" -ForegroundColor Cyan
+
+# 把 AssemblyInfo 的版本对齐到发版号。
+# 为什么要做：插件内"检查更新"要拿当前版本和 GitHub 最新版比较，而
+#   · ARP DisplayVersion / vsto 清单版本 都来自 AssemblyVersion（默认停在 1.0.1.0 不再动）
+#   · ClickOnce 的 ApplicationVersion（如 1.0.5.0）**不会**反映到上面两处
+# 于是插件会读到旧的 AssemblyVersion → 误报"有新版本"或显示错误的当前版本。
+# 同时 dev-register.ps1 也读 DLL 的 FileVersion 写进注册表 ProductVersion，保持一致。
+$asmInfo = "$Root\PPTShapeLibrary\Properties\AssemblyInfo.cs"
+if (Test-Path $asmInfo) {
+    $changed = $false
+    $aiLines = Get-Content $asmInfo -Encoding UTF8
+    for ($i = 0; $i -lt $aiLines.Count; $i++) {
+        if ($aiLines[$i] -match '^\[assembly:\s*AssemblyVersion\("([\d\.]+)"\)\]') {
+            if ($Matches[1] -ne $Version) { $aiLines[$i] = '[assembly: AssemblyVersion("' + $Version + '")]'; $changed = $true }
+        }
+        elseif ($aiLines[$i] -match '^\[assembly:\s*AssemblyFileVersion\("([\d\.]+)"\)\]') {
+            if ($Matches[1] -ne $Version) { $aiLines[$i] = '[assembly: AssemblyFileVersion("' + $Version + '")]'; $changed = $true }
+        }
+    }
+    if ($changed) {
+        Set-Content $asmInfo -Value $aiLines -Encoding UTF8
+        Write-Host "   AssemblyInfo 版本 → $Version（否则插件内读到的是旧版本，会误报有新版本）" -ForegroundColor Yellow
+    } else {
+        Write-Host "   AssemblyInfo 版本已是 $Version"
+    }
+}
+
 & $msb "$Root\PPTShapeLibrary\PPTShapeLibrary.csproj" /t:Publish /p:Configuration=Release `
     /p:ApplicationVersion=$Version `
     "/p:PublishUrl=$Root\publish" "/p:InstallUrl=file:///$($Root.Replace('\','/'))/publish/" `
