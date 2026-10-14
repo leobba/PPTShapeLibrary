@@ -524,6 +524,31 @@ namespace PPTShapeLibrary
                              && CompareVersions(info.LatestVersion, info.CurrentVersion) > 0;
         }
 
+        /// <summary>是否存在**有可见窗口**的 PowerPoint 进程。
+        ///
+        /// 用途：更新流程要判断"PowerPoint 是否真的还开着"。
+        /// 不能只看进程名 —— 实测见过"僵尸 PowerPoint"（用户关掉窗口后进程没退干净、
+        /// 无主窗口却常驻几小时）。安装器那边用的是同一判据，两边必须一致，
+        /// 否则会出现"安装器已经在装了，插件还催用户去关 PowerPoint"的矛盾提示。</summary>
+        public static bool HasWindowedPowerPoint()
+        {
+            try
+            {
+                foreach (var p in System.Diagnostics.Process.GetProcesses())
+                {
+                    try
+                    {
+                        if (!string.Equals(p.ProcessName, "POWERPNT", StringComparison.OrdinalIgnoreCase)) continue;
+                        if (p.MainWindowHandle != IntPtr.Zero) return true;
+                    }
+                    catch { }
+                    finally { try { p.Dispose(); } catch { } }
+                }
+            }
+            catch { }
+            return false;
+        }
+
         /// <summary>检查更新（24h 内直接返回缓存，不联网）。</summary>
         public static UpdateResult Check()
         {

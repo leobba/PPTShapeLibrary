@@ -545,12 +545,38 @@ namespace PPTShapeLibrary
                     _quitTimer = null;
                     _progress.Indeterminate = false;
                     _progress.Value = 100;
-                    _stage.Text = "请手动关闭 PowerPoint —— 安装器正在等待，关闭后会自动完成升级";
                     _close.Enabled = true;
-                    _later.Visible = true;
-                    _later.Text = "关闭本窗口";
-                    _later.SetBounds(_go.Left, _go.Top, S(120), S(38));
-                    Log.Write("[update] 自动关闭未生效 → 请手动关闭 PowerPoint，安装器会自动完成升级");
+
+                    // 关键判断：**有没有"有窗口"的 PowerPoint**。
+                    // 没有窗口（僵尸进程 / 宿主本来就没界面）时，安装器的同一判据也不会等它，
+                    // 所以**不能再催用户去关 PowerPoint** —— 用户会找不到可关的东西，
+                    // 以为卡死了（这正是用户反馈的"没有 PPT 却让我关 PPT"）。
+                    if (!UpdateService.HasWindowedPowerPoint())
+                    {
+                        _stage.Text = "PowerPoint 已关闭，安装器正在后台完成升级…";
+                        _later.Visible = true;
+                        _later.Text = "关闭本窗口";
+                        _later.SetBounds(_go.Left, _go.Top, S(120), S(38));
+                        Log.Write("[update] 无可见 PowerPoint 窗口 → 安装器会直接安装（无需用户操作）");
+
+                        // 5 秒后自动关掉本窗口：更新已经交给安装器，别让用户以为要一直等
+                        var auto = new System.Windows.Forms.Timer { Interval = 5000 };
+                        auto.Tick += (s2, e2) =>
+                        {
+                            auto.Stop();
+                            auto.Dispose();
+                            try { Close(); } catch { }
+                        };
+                        auto.Start();
+                    }
+                    else
+                    {
+                        _stage.Text = "请手动关闭 PowerPoint —— 安装器正在等待，关闭后会自动完成升级";
+                        _later.Visible = true;
+                        _later.Text = "关闭本窗口";
+                        _later.SetBounds(_go.Left, _go.Top, S(120), S(38));
+                        Log.Write("[update] 自动关闭未生效 → 请手动关闭 PowerPoint，安装器会自动完成升级");
+                    }
                 }
             };
             _quitTimer.Start();
