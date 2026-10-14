@@ -29,7 +29,12 @@ param(
     [switch]$Machine,                    # 额外写入 HKLM（所有用户，需管理员）——见下方说明
     [string]$Configuration = "Debug",
     [string]$OfficeVersion = "16.0",
-    [string]$Root = "E:\code\PPTShapeLibrary"
+    [string]$Root = "E:\code\PPTShapeLibrary",
+    # 手动指定"当前版本"（写进注册表 ProductVersion，插件内"检查更新"读它）。
+    # 用途：发版后本地 DLL 版本会跟线上一样 → 看不到更新提示，没法测更新流程。
+    # 这时用 -ProductVersion <旧版本> 注册，插件就会认为自己是旧版，从而看到新版本。
+    # 不指定时按 DLL 的 FileVersion 写（正常开发用这个）。
+    [string]$ProductVersion = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -155,12 +160,17 @@ foreach ($k in @($keyVersioned, $keyVersionless)) {
     # 程序集版本也不随发版变 → 会把"当前版本"读成旧值（实测读到 1.0.1.0），于是误报/显示错误。
     # 所以这里把真实版本写进注册表，UpdateService.CurrentVersion() 会**优先**读它。
     $ver = $null
-    try { $ver = (Get-Item $dll).VersionInfo.FileVersion } catch { }
-    if (-not $ver) {
-        $asmInfo = Join-Path $Root "PPTShapeLibrary\Properties\AssemblyInfo.cs"
-        if (Test-Path $asmInfo) {
-            $mm = Select-String -Path $asmInfo -Pattern 'AssemblyVersion\("([\d\.]+)"\)' | Select-Object -First 1
-            if ($mm) { $ver = $mm.Matches[0].Groups[1].Value }
+    if ($ProductVersion) {
+        $ver = $ProductVersion
+        Write-Host "   版本 → $ver（-ProductVersion 指定，用于测试更新流程）" -ForegroundColor Yellow
+    } else {
+        try { $ver = (Get-Item $dll).VersionInfo.FileVersion } catch { }
+        if (-not $ver) {
+            $asmInfo = Join-Path $Root "PPTShapeLibrary\Properties\AssemblyInfo.cs"
+            if (Test-Path $asmInfo) {
+                $mm = Select-String -Path $asmInfo -Pattern 'AssemblyVersion\("([\d\.]+)"\)' | Select-Object -First 1
+                if ($mm) { $ver = $mm.Matches[0].Groups[1].Value }
+            }
         }
     }
     if ($ver) {

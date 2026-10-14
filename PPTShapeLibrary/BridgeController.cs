@@ -53,6 +53,12 @@ namespace PPTShapeLibrary
         /// 没有时退化为一次性 WinForms 计时器（同样依赖消息循环）。</summary>
         private static void PostToUi(Action action)
         {
+            PostToUiStatic(action);
+        }
+
+        /// <summary>供其它类（如 UpdateDialog）投递到 UI 队列用。</summary>
+        internal static void PostToUiStatic(Action action)
+        {
             var ctx = System.Threading.SynchronizationContext.Current;
             if (ctx != null)
             {
@@ -276,16 +282,14 @@ namespace PPTShapeLibrary
                         }
                     // 定时提醒：前端可设提醒间隔（分钟，0=关闭）。C# 侧起定时器，
                     // 到点检查一次，有新版就**主动推** updateAvailable 给前端，不等用户下次手点。
-                    // 一键更新：下载+校验+解压，返回准备好的目录（真正的安装由安装器在 PowerPoint 退出后完成）
+                    // 一键更新：打开**本地更新弹窗**（下载进度/速度 → 检查未保存文稿 → 保存按钮 → 卸载+安装）
                     case "applyUpdate":
                         {
-                            var ap = UpdateService.ApplyUpdate(null);
+                            string err = UpdateDialog.ShowForUpdate();
                             var d = new Dictionary<string, object>
                             {
-                                { "ok", ap.Ok },
-                                { "message", ap.Message },
-                                { "dir", ap.Dir ?? "" },
-                                { "installer", ap.Installer ?? "" },
+                                { "ok", err == null },
+                                { "message", err ?? "更新窗口已打开" },
                             };
                             Ok(reqId, d);
                             break;

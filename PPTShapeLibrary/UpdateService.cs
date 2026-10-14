@@ -16,6 +16,7 @@ namespace PPTShapeLibrary
         public string Message;
         public string Dir;        // 新版解压目录
         public string Installer;  // 解压出来的安装器路径
+        public string Version;    // 新版版本号
     }
 
     /// <summary>下载结果类型。</summary>
@@ -500,8 +501,20 @@ namespace PPTShapeLibrary
         /// </summary>
         public static UpdateApply ApplyUpdate(Action<long, long> progress)
         {
+            return ApplyUpdateEx((stage, got, total) =>
+            {
+                if (progress != null) progress(got, total);
+            });
+        }
+
+        /// <summary>带**阶段**上报的一键更新（供更新弹窗显示"下载中 / 校验中 / 解压中"）。
+        /// stage: download / verify / extract；download 时 got/total 为字节数，其它阶段为 0。</summary>
+        public static UpdateApply ApplyUpdateEx(Action<string, long, long> progress)
+        {
+            Action<string, long, long> say = (s, g, t) => { if (progress != null) progress(s, g, t); };
             var res = new UpdateApply();
             var info = Check();
+            res.Version = info.LatestVersion;
             if (!info.Ok || !info.HasUpdate)
             {
                 res.Message = info.Ok ? "当前已是最新版本，无需更新。" : ("检查更新失败：" + info.Error);
@@ -518,9 +531,11 @@ namespace PPTShapeLibrary
             {
                 zip = Path.Combine(Path.GetTempPath(), info.LatestVersion + "-dist.zip");
                 Log.Write("[update] 下载 " + info.DownloadUrl);
-                if (Download(info.DownloadUrl, zip, progress) != DownloadStatus.Ok)
+                say("download", 0, -1);
+                if (Download(info.DownloadUrl, zip, (got, total) => say("download", got, total)) != DownloadStatus.Ok)
                     throw new Exception("下载失败（直连与加速站都试过了）");
 
+                say("verify", 0, 0);
                 if (!string.IsNullOrEmpty(info.Sha256))
                 {
                     var actual = Sha256(zip);
@@ -529,6 +544,7 @@ namespace PPTShapeLibrary
                     Log.Write("[update] SHA256 校验通过");
                 }
 
+                say("extract", 0, 0);
                 // 解压到**持久目录**，不要用 %TEMP%：
                 // ClickOnce 会把"安装源 URL"记下来（后续升级/修复/卸载都要回到这个路径），
                 // 放 temp 里迟早被清理，安装源失效会导致以后无法升级或卸载。
