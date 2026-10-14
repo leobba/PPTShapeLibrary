@@ -378,46 +378,8 @@ export default function LibraryView() {
               <Download className="size-4" /> 导入素材包…
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onSelect={async () => {
-                try {
-                  const u = (await bridge.checkUpdate()) as any;
-                  if (!u?.ok) {
-                    dialogs.alert("检查更新失败：" + (u?.error || "未知原因") + "\r\n\r\n也可能是网络暂时不通，稍后再试。");
-                    return;
-                  }
-                  if (u.hasUpdate) {
-                    const notes = (u.notes || "").trim();
-                    dialogs.alert(
-                      "发现新版本 " + u.latestVersion + "（当前 " + u.currentVersion + "）\r\n\r\n" +
-                      (notes && !notes.startsWith("（") ? notes + "\r\n\r\n" : "") +
-                      "顶部已出现更新提示，点「去下载」即可。"
-                    );
-                  } else {
-                    dialogs.alert("当前已是最新版本 " + (u.currentVersion || "") + "。");
-                  }
-                } catch (e: any) {
-                  dialogs.alert("检查更新失败：" + (e?.message || e));
-                }
-              }}
-            >
-              <RefreshCw className="size-4" /> 检查更新
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel className="text-[11px]">更新提醒间隔</DropdownMenuLabel>
-            {[0, 10, 30, 60].map((m) => (
-              <DropdownMenuItem
-                key={m}
-                onSelect={() => {
-                  void bridge.setUpdateReminder(m).then(() => {
-                    setReminderMinutes(m);
-                  });
-                }}
-                className={reminderMinutes === m ? "bg-accent text-accent-foreground" : ""}
-              >
-                <RefreshCw className="size-4" /> {m === 0 ? "关闭（只打开面板时提示）" : m + " 分钟"}
-              </DropdownMenuItem>
-            ))}
+            {/* 「检查更新 / 更新提醒间隔」已移到功能区「工具 → 关于/更新」——
+                更新属于插件级信息，放在素材库的操作菜单里不合适。 */}
             <DropdownMenuLabel className="text-[11px]">窗格停靠</DropdownMenuLabel>
             <DropdownMenuItem
               onSelect={() => bridge.setPaneDock("left").then(() => lib.refreshMeta())}

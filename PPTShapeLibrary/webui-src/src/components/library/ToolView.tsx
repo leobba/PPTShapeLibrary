@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { bridge } from "@/lib/bridge";
 import { dialogs } from "@/lib/dialogs";
-import { X, ChevronDownIcon } from "lucide-react";
+import { X, ChevronDownIcon, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -40,6 +40,7 @@ const META: Record<string, { title: string; desc: string }> = {
   tool11: { title: "图表美化", desc: "预设调色板美化图表" },
   tool12: { title: "成套模板", desc: "插入封面/目录/内容/结束成套页" },
   settings: { title: "设置", desc: "偏好设置" },
+  about: { title: "关于 / 更新", desc: "版本信息、检查更新与更新提醒" },
 };
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -310,6 +311,7 @@ export default function ToolView({ view }: { view: string }) {
 function ToolBody({ view }: { view: string }) {
   const metaObj = META[view] || { title: "工具", desc: "" };
   if (view === "settings") return <SettingsForm />;
+  if (view === "about") return <AboutForm />;
 
   switch (view) {
     case "tool1": return <Tool1 />;
@@ -884,6 +886,118 @@ function Tool12() {
       </Field>
       <Button onClick={() => run(() => bridge.insertTemplatePack({ type, contentSlides: 3 }))}>插入成套模板</Button>
       <Result out={out} />
+    </Shell>
+  );
+}
+
+/** 关于 / 更新：版本信息 + 检查更新 + 更新内容 + 提醒间隔。
+ *  从素材库面板的「⋯」菜单里搬过来的 —— 更新是插件级信息，与设置并列更符合预期。 */
+function AboutForm() {
+  const [info, setInfo] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const [minutes, setMinutes] = useState<number>(10);
+
+  const check = useCallback(async () => {
+    setBusy(true);
+    try {
+      setInfo(await bridge.checkUpdate());
+    } catch (e: any) {
+      setInfo({ ok: false, error: e?.message || String(e) });
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void check();
+  }, [check]);
+
+  const notes = ((info?.notes as string) || "").trim();
+  const hasNotes = notes.length > 0 && !notes.startsWith("（");
+
+  return (
+    <Shell title="关于 / 更新" desc="版本信息、检查更新与更新提醒">
+      <div className="space-y-5">
+        <div className="rounded-lg border bg-muted/30 px-4 py-3">
+          <div className="flex items-baseline gap-2">
+            <span className="text-xs text-muted-foreground">当前版本</span>
+            <span className="text-lg font-semibold">{info?.currentVersion || "…"}</span>
+            {info?.ok && info?.hasUpdate && (
+              <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-700">
+                有新版本 {info.latestVersion}
+              </span>
+            )}
+            {info?.ok && !info?.hasUpdate && (
+              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                已是最新
+              </span>
+            )}
+          </div>
+          <div className="mt-3 flex items-center gap-2">
+            <Button variant="outline" onClick={() => void check()} disabled={busy}>
+              <RefreshCw className="mr-1 size-4" />
+              {busy ? "检查中…" : "检查更新"}
+            </Button>
+            {info?.ok && info?.hasUpdate && (
+              <Button
+                onClick={async () => {
+                  try {
+                    const r = (await bridge.applyUpdate()) as any;
+                    if (!r?.ok) dialogs.alert("无法开始更新：" + (r?.message || "未知原因"));
+                  } catch (e: any) {
+                    dialogs.alert("无法开始更新：" + (e?.message || e));
+                  }
+                }}
+              >
+                立即更新到 {info.latestVersion}
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              onClick={() => {
+                void bridge.openRelease(info?.releaseUrl || "").catch(() => {});
+              }}
+            >
+              打开发布页
+            </Button>
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-1.5 text-xs text-muted-foreground">更新内容</div>
+          {hasNotes ? (
+            <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg border bg-card p-3 font-sans text-[12px] leading-relaxed">
+              {notes}
+            </pre>
+          ) : (
+            <div className="rounded-lg border bg-card px-3 py-2 text-[12px] text-muted-foreground">
+              {info?.ok ? "当前版本没有更新说明。" : busy ? "正在获取…" : "暂时获取不到更新内容（可能网络不通）。"}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <div className="mb-1.5 text-xs text-muted-foreground">更新提醒间隔</div>
+          <div className="flex flex-wrap gap-1.5">
+            {[0, 10, 30, 60].map((m) => (
+              <Button
+                key={m}
+                variant={minutes === m ? "default" : "outline"}
+                size="sm"
+                onClick={() => {
+                  setMinutes(m);
+                  void bridge.setUpdateReminder(m).catch(() => {});
+                }}
+              >
+                {m === 0 ? "关闭提醒" : m + " 分钟"}
+              </Button>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[11px] text-muted-foreground">
+            有新版时到点弹窗提醒（默认 10 分钟）。打开素材库面板时也会在顶部显示一条提示。
+          </p>
+        </div>
+      </div>
     </Shell>
   );
 }

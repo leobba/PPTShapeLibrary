@@ -19,6 +19,7 @@ namespace PPTShapeLibrary
         private static Timer _timer;
         private static int _minutes = 10;   // 默认 10 分钟
         private static DateTime _lastPrompt = DateTime.MinValue;
+        private static string _lastPromptedVersion = null;
 
         public static int Minutes { get { return _minutes; } }
 
@@ -52,22 +53,61 @@ namespace PPTShapeLibrary
 
         private static void OnTick(object sender, EventArgs e)
         {
+            // 定时器跑在 UI 线程上，检查要联网 → 丢到后台，避免卡住 PowerPoint
+            CheckAsync();
+        }
+
+        /// <summary>启动时调用：后台查一次，有新版就弹窗（无新版什么都不做）。</summary>
+        public static void CheckOnStartupAsync()
+        {
+            // 延后 4 秒再查：启动瞬间 PowerPoint 自己也在忙，且测速（后台）还没出结果
+            UiDispatcher.RunBackgroundDelayed(4000, () => CheckCore(prompt: true), null);
+        }
+
+        /// <summary>后台检查 + 回 UI 线程弹窗（定时器用）。</summary>
+        private static void CheckAsync()
+        {
+            UiDispatcher.RunBackground(() => CheckCore(prompt: true), null);
+        }
+
+        /// <summary>
+        /// 检查一次更新；<paramref name="prompt"/> = true 时，**有新版才弹窗**
+        /// （无新版什么都不做 —— 不要把"已是最新"这种信息弹出来打扰人）。
+        ///
+        /// 网络请求在后台线程做；弹窗回到 UI 线程做。
+        /// </summary>
+        public static void CheckCore(bool prompt)
+        {
+            UpdateResult u;
+            try { u = UpdateService.Check(); }
+            catch (Exception ex) { Log.Write("[update] 检查更新失败：" + ex.Message); return; }
+
+            if (!u.Ok || !u.HasUpdate) return;      // 没更新 → 静默，绝不弹窗
+            Log.Write("[update] 发现新版本 " + u.LatestVersion + "（当前 " + u.CurrentVersion + "）");
+            if (!prompt) return;
+
+            UiDispatcher.Post(() => PromptAndAct(u));
+        }
+
+        private static void PromptAndAct(UpdateResult u)
+        {
             try
             {
-                var u = UpdateService.Check();
-                if (!u.Ok || !u.HasUpdate) return;
-
-                // 同一版本不重复弹（用户点"知道了"后至少隔 1 小时再说）
-                if ((DateTime.Now - _lastPrompt).TotalMinutes < 60) return;
+                // 同一版本不重复弹（用户处理过之后至少隔 1 小时再说）
+                if (_lastPromptedVersion == u.LatestVersion &&
+                    (DateTime.Now - _lastPrompt).TotalMinutes < 60)
+                {
+                    Log.Write("[update] 同版本 1 小时内已提醒过，跳过");
+                    return;
+                }
 
                 var notes = (u.Notes ?? "").Trim();
-                if (notes.StartsWith("（")) notes = "";      // "（仓库还没有发布任何 Release）"这类不算更新内容
+                if (notes.StartsWith("（")) notes = "";      // 占位说明不算更新内容
+                if (notes.Length > 280) notes = notes.Substring(0, 280) + "…";
 
                 var msg = "发现新版本 " + u.LatestVersion + "（当前 " + u.CurrentVersion + "）\r\n\r\n" +
                           (notes.Length > 0 ? notes + "\r\n\r\n" : "") +
-                          "点「确定」前往发布页下载新版；或稍后到安装器里点「检查更新」。";
-
-                Log.Write("[update] 提醒：新版本 " + u.LatestVersion);
+                          "点「立即更新」可直接下载安装（会显示下载进度/速度，并检查文稿是否已保存）。";
 
                 var r = MessageBox.Show(
                     msg,
@@ -77,23 +117,19 @@ namespace PPTShapeLibrary
                     MessageBoxDefaultButton.Button1);
 
                 _lastPrompt = DateTime.Now;
+                _lastPromptedVersion = u.LatestVersion;
 
                 if (r == DialogResult.OK)
                 {
-                    try
-                    {
-                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(UpdateService.ReleasesPageUrl) { UseShellExecute = true });
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Write("[update] 打开发布页失败：" + ex.Message);
-                    }
+                    // 直接用刚拿到的结果开窗（里面不再联网检查，避免又等一轮）
+                    try { UpdateDialog.ShowWith(u); }
+                    catch (Exception ex) { Log.Write("[update] 打开更新弹窗失败：" + ex.Message); }
                 }
             }
             catch (Exception ex)
             {
                 // 提醒失败绝不能影响正常使用
-                Log.Write("[update] 定时检查失败：" + ex.Message);
+                Log.Write("[update] 弹窗提醒失败：" + ex.Message);
             }
         }
     }

@@ -283,15 +283,15 @@ namespace PPTShapeLibrary
                     // 定时提醒：前端可设提醒间隔（分钟，0=关闭）。C# 侧起定时器，
                     // 到点检查一次，有新版就**主动推** updateAvailable 给前端，不等用户下次手点。
                     // 一键更新：打开**本地更新弹窗**（下载进度/速度 → 检查未保存文稿 → 保存按钮 → 卸载+安装）
+                    // 检查要联网 → 丢后台线程，绝不卡住 PowerPoint 界面；有结果再回 UI 线程开窗。
                     case "applyUpdate":
                         {
-                            string err = UpdateDialog.ShowForUpdate();
-                            var d = new Dictionary<string, object>
+                            Ok(reqId, new Dictionary<string, object>
                             {
-                                { "ok", err == null },
-                                { "message", err ?? "更新窗口已打开" },
-                            };
-                            Ok(reqId, d);
+                                { "ok", true },
+                                { "message", "正在检查更新…" },
+                            });
+                            UiDispatcher.RunBackground(() => UpdateReminder.CheckCore(prompt: true), null);
                             break;
                         }
                     // 关掉 PowerPoint 并让安装器完成更新（用户在弹窗里点"立即更新"后走这里）

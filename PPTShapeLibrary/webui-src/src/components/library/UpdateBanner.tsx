@@ -27,6 +27,7 @@ export function UpdateBanner() {
   const [info, setInfo] = useState<UpdateInfo | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [showNotes, setShowNotes] = useState(false);   // 更新内容默认收起，点按钮才展开
   const tried = useRef(false);
 
   const check = useCallback(async (silent: boolean) => {
@@ -52,25 +53,25 @@ export function UpdateBanner() {
 
     // 定时提醒：C# 侧到点会主动推 updateAvailable，这里收到就**弹窗提醒**
     // （不是下次打开面板才显示 —— 用户要的是"每隔一段时间提醒"）
+    // 更新检查现在由 C# 侧在**插件启动时**就做（后台线程，不卡界面），
+    // 结果通过 updateAvailable 事件推过来；这里只负责显示提示条。
+    // 面板打开时再查一次是为了覆盖"启动时网络不通、后来通了"的情况（有 24h 缓存，开销很小）。
     const off = bridge.on("updateAvailable", (p: any) => {
-      setInfo((cur) => ({
+      setInfo({
         ok: true,
         hasUpdate: true,
-        currentVersion: p?.currentVersion || cur?.currentVersion || "",
+        currentVersion: p?.currentVersion || "",
         latestVersion: p?.latestVersion || "",
         releaseUrl: p?.releaseUrl || "",
         downloadUrl: p?.downloadUrl || "",
         sha256: "",
         notes: p?.notes || "",
         error: "",
-      }));
+      });
       setOpen(true);
-      const nv = p?.latestVersion || "新版本";
-      const nt = (p?.notes || "").trim();
-      dialogs.alert(
-        "发现新版本 " + nv + "（当前 " + (p?.currentVersion || "?") + "）\r\n\r\n" + (nt ? nt + "\r\n\r\n" : "") +
-        "点下方「去下载」即可获取新版。"
-      );
+      setShowNotes(false);
+      // 不再弹网页里的对话框：C# 侧已经有弹窗提醒了，重复弹很烦。
+      // 这里只把顶部提示条显示出来。
     });
     return off;
   }, [check]);
@@ -86,16 +87,10 @@ export function UpdateBanner() {
       role="status"
       aria-live="polite"
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="font-medium">
-            发现新版本 {info.latestVersion}（当前 {info.currentVersion}）
-          </div>
-          {hasNotes && (
-            <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap break-words font-sans text-[11px] leading-relaxed text-blue-800/90">
-              {notes}
-            </pre>
-          )}
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0 truncate font-medium">
+          发现新版本 {info.latestVersion}
+          <span className="ml-1 font-normal text-blue-700/80">（当前 {info.currentVersion}）</span>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           <button
@@ -109,7 +104,7 @@ export function UpdateBanner() {
                 const r = (await bridge.applyUpdate()) as any;
                 setBusy(false);
                 if (!r?.ok) {
-                  await dialogs.alert("无法开始更新：" + (r?.message || "未知原因") + "\r\n\r\n也可点「查看更新」到发布页手动下载。");
+                  await dialogs.alert("无法开始更新：" + (r?.message || "未知原因") + "\r\n\r\n也可点「更新内容」查看说明，或打开发布页手动下载。");
                 }
               } catch (e: any) {
                 setBusy(false);
@@ -119,23 +114,27 @@ export function UpdateBanner() {
           >
             {busy ? "打开中…" : "立即更新"}
           </button>
-          <button
-            className="rounded-md border border-blue-300 px-2.5 py-1 text-[11px] text-blue-700 hover:bg-blue-100"
-            onClick={() => {
-              // 打开发布页（一定存在，还能看到更新说明和历史版本），不会出现 404
-              void bridge.openRelease(info.releaseUrl).catch(() => {});
-            }}
-          >
-            查看更新
-          </button>
+          {hasNotes && (
+            <button
+              className="rounded-md border border-blue-300 px-2.5 py-1 text-[11px] text-blue-700 hover:bg-blue-100"
+              onClick={() => setShowNotes((v) => !v)}
+            >
+              {showNotes ? "收起内容" : "更新内容"}
+            </button>
+          )}
           <button
             className="rounded-md px-2 py-1 text-[11px] text-blue-700 hover:bg-blue-100"
             onClick={() => setOpen(false)}
           >
-            知道了
+            稍后
           </button>
         </div>
       </div>
+      {showNotes && hasNotes && (
+        <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md border border-blue-200 bg-white/70 p-3 font-sans text-[11px] leading-relaxed text-blue-900/90">
+          {notes}
+        </pre>
+      )}
     </div>
   );
 }

@@ -33,6 +33,7 @@ namespace PPTShapeLibrary
         private RibbonButton btnExportPptx;
         private RibbonButton btnAdvancedTools;
         private RibbonButton btnSettings;
+        private RibbonButton btnAbout;   // 关于/更新（与设置并列）
         private Microsoft.Office.Tools.Ribbon.RibbonButton[] _toolButtons;   // 工具组按钮（Web 工具逐个平铺）
 
         private void InitializeComponent()
@@ -55,6 +56,7 @@ namespace PPTShapeLibrary
             this.btnExportPptx = f.CreateRibbonButton();
             this.btnAdvancedTools = f.CreateRibbonButton();
             this.btnSettings = f.CreateRibbonButton();
+            this.btnAbout = f.CreateRibbonButton();
 
             // ---- 收藏组（彩色自绘图标）----
             this.btnCollectShapes.Label = "收藏形状";
@@ -187,6 +189,19 @@ namespace PPTShapeLibrary
             this.btnSettings.SuperTip = "主题（浅色/深色）、插入位置、卡片大小、面板宽度等。";
             this.btnSettings.Click += OnSettings;
 
+            // ---- 关于 / 更新（与「设置」并列）----
+            this.btnAbout.Label = "关于/更新";
+            this.btnAbout.ShowImage = true;
+            try
+            {
+                Image aboutIcon = RibbonIconFactory.GetActionGlyph(RibbonIconFactory.SettingsIcon, "About", 32);
+                if (aboutIcon != null) btnAbout.Image = aboutIcon;
+            }
+            catch (Exception aex) { Log.Error(aex, "about icon"); }
+            this.btnAbout.ScreenTip = "关于 / 更新";
+            this.btnAbout.SuperTip = "查看版本、检查更新、查看更新内容、设置更新提醒间隔。";
+            this.btnAbout.Click += OnAbout;
+
             this.btnAdvancedTools.Label = "高级批处理";
             this.btnAdvancedTools.ShowImage = true;
             this.btnAdvancedTools.Image = RibbonIconFactory.GetActionGlyph(RibbonIconFactory.AdvancedIcon, "Advanced");
@@ -196,6 +211,7 @@ namespace PPTShapeLibrary
 
             this.grpTools.Label = "工具";
             this.grpTools.Items.Add(this.btnSettings);
+            this.grpTools.Items.Add(this.btnAbout);
             this.grpTools.Items.Add(this.btnAdvancedTools);
             this.grpAcademic.Label = "学术/学习";
 
@@ -345,6 +361,20 @@ namespace PPTShapeLibrary
                 }
             }
             catch (Exception ex) { Log.Error(ex, "Ribbon Settings"); }
+        }
+
+        /// <summary>关于 / 更新：版本信息、检查更新、更新内容、更新提醒间隔。
+        /// 与「设置」并列放在「工具」组里 —— 更新相关操作属于插件级信息，不该塞在素材库面板的菜单里。</summary>
+        private void OnAbout(object sender, RibbonControlEventArgs e)
+        {
+            try
+            {
+                using (var popup = new ToolPopupHostForm("about"))
+                {
+                    popup.ShowDialog();
+                }
+            }
+            catch (Exception ex) { Log.Error(ex, "Ribbon About"); }
         }
     }
 }

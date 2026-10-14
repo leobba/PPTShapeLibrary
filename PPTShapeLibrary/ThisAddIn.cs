@@ -56,11 +56,21 @@ namespace PPTShapeLibrary
                     try { ShapeLibraryService.AutoBackupIfNeeded(); Log.Write("Auto backup checked"); }
                     catch (Exception ex) { Log.Error(ex, "AutoBackupIfNeeded"); }
 
-                    // 更新提醒定时器：**插件启动时就起**，不等面板打开。
-                    // 任务窗格是"首次打开才创建"（Startup 不建，避免幽灵窗口绑定），
-                    // 若只靠前端来开定时器，用户没打开过面板就永远不会被提醒——与"定时提醒"的意图相悖。
+                    // 更新相关：**启动即用，且不阻塞启动**
+                    //  ① 记下 UI 线程投递器（后面联网检查完要回 UI 线程弹窗）
+                    //  ② 后台并发测速，选出能连且最快的 GitHub 线路（直连/加速站），
+                    //     记住它 —— 之后检查更新与下载都直接走这条，
+                    //     不再每次先等直连超时（这是"点更新要等很久、下载很慢"的根因）
+                    //  ③ 起定时提醒器（默认 10 分钟一次）；**有新版才弹窗**，没新版不打扰
+                    //  ④ 启动后立刻在后台查一次，有更新就弹窗（用户不用打开面板也能知道）
+                    try { UiDispatcher.Init(); }
+                    catch (Exception ex) { Log.Write("UiDispatcher 初始化失败：" + ex.Message); }
+                    try { UpdateService.StartSpeedTest(); }
+                    catch (Exception ex) { Log.Write("测速启动失败：" + ex.Message); }
                     try { UpdateReminder.StartDefault(); }
                     catch (Exception ex) { Log.Write("UpdateReminder 启动失败：" + ex.Message); }
+                    try { UpdateReminder.CheckOnStartupAsync(); }
+                    catch (Exception ex) { Log.Write("启动检查更新失败：" + ex.Message); }
                 };
                 timer.Start();
                 Log.Write("Startup done");

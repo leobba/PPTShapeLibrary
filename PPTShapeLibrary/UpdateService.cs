@@ -72,6 +72,180 @@ namespace PPTShapeLibrary
             "https://ghfast.top/",
         };
 
+        // ---------------- 最佳线路（启动时测速选定，之后检查+下载都用它） ----------------
+        //
+        // 为什么需要：原来每次请求都按 MirrorPrefixes 顺序**从直连开始试**，
+        // 而 github.com 在国内基本连不上 —— 每次都要等 20 秒超时才回退到加速站。
+        // 表现就是"点立即更新要等很久才开始"、"更新很慢"。
+        //
+        // 现在：插件启动时并发探测各线路（直连 + 各加速站），选出最快的并记住，
+        // 之后检查更新、下载更新包都**直接走这条线路**；只有它中途失败才按顺序回退。
+
+        private static string _bestPrefix = null;          // 选中的前缀（""=直连）
+        private static readonly object _probeLock = new object();
+        private static bool _probeStarted;
+        private static readonly System.Threading.ManualResetEventSlim _probeDone =
+            new System.Threading.ManualResetEventSlim(false);
+
+        /// <summary>等测速结束（最多 maxMs 毫秒）。
+        /// 用于消除竞态：启动后"检查更新"可能比测速先跑，那时还没有最佳线路，
+        /// 就会退化成"先试直连、超时 8 秒"——用户又要等。检查反正跑在后台线程上，等一下没关系。</summary>
+        public static void WaitForProbe(int maxMs)
+        {
+            try
+            {
+                bool started;
+                lock (_probeLock) started = _probeStarted;
+                if (!started) return;                 // 没启动过测速就别白等
+                if (_probeDone.IsSet) return;
+                _probeDone.Wait(maxMs);
+            }
+            catch { }
+        }
+
+        private static string BestPathFile
+        {
+            get
+            {
+                return Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    "PPTShapeLibrary", "best-mirror.txt");
+            }
+        }
+
+        /// <summary>当前选中的线路前缀（"" = 直连）。未测速时为 null，此时按旧顺序回退。</summary>
+        public static string BestPrefix
+        {
+            get
+            {
+                if (_bestPrefix != null) return _bestPrefix;
+                // 读上次的结果，避免每次启动都重新测速
+                try
+                {
+                    if (File.Exists(BestPathFile))
+                    {
+                        var s = File.ReadAllText(BestPathFile).Trim();
+                        // 只接受已知前缀，防止文件被改坏
+                        foreach (var p in MirrorPrefixes)
+                            if (p == s) { _bestPrefix = s; return _bestPrefix; }
+                    }
+                }
+                catch { }
+                return null;
+            }
+        }
+
+        /// <summary>把"使用某前缀"的候选顺序排出来：最佳线路优先，其余按原顺序兜底。</summary>
+        private static string[] PrefixOrder()
+        {
+            var best = BestPrefix;
+            if (best == null) return MirrorPrefixes;
+            var list = new List<string> { best };
+            foreach (var p in MirrorPrefixes) if (p != best) list.Add(p);
+            return list.ToArray();
+        }
+
+        /// <summary>启动时调用：后台并发测速，选出能连且最快的线路并记住。</summary>
+        public static void StartSpeedTest()
+        {
+            lock (_probeLock)
+            {
+                if (_probeStarted) return;
+                _probeStarted = true;
+            }
+
+            var t = new System.Threading.Thread(() =>
+            {
+                try
+                {
+                    // **并发**探测：串行的话四条线路各要等 2~4 秒超时，用户要等十几秒；
+                    // 并发后最慢也就一条的探测时间（≤4 秒）。
+                    int n = MirrorPrefixes.Length;
+                    var msArr = new long[n];
+                    var okArr = new bool[n];
+                    var threads = new System.Threading.Thread[n];
+                    for (int i = 0; i < n; i++)
+                    {
+                        int idx = i;
+                        threads[i] = new System.Threading.Thread(() =>
+                        {
+                            msArr[idx] = ProbeOne(MirrorPrefixes[idx], out okArr[idx]);
+                        });
+                        threads[i].IsBackground = true;
+                        threads[i].Start();
+                    }
+                    foreach (var th in threads) th.Join(6000);   // 每条最多 6 秒
+
+                    string best = null;
+                    long bestMs = long.MaxValue;
+                    for (int i = 0; i < n; i++)
+                    {
+                        if (!okArr[i]) { Log.Write("[update] 线路不可用：" + Label(MirrorPrefixes[i])); continue; }
+                        Log.Write("[update] 线路可用：" + Label(MirrorPrefixes[i]) + "  " + msArr[i] + " ms");
+                        if (msArr[i] < bestMs) { bestMs = msArr[i]; best = MirrorPrefixes[i]; }
+                    }
+                    if (best != null)
+                    {
+                        _bestPrefix = best;
+                        try
+                        {
+                            Directory.CreateDirectory(Path.GetDirectoryName(BestPathFile));
+                            File.WriteAllText(BestPathFile, best);
+                        }
+                        catch { }
+                        Log.Write("[update] 已选用最佳线路：" + Label(best) + "（" + bestMs + " ms）");
+                    }
+                    else
+                    {
+                        Log.Write("[update] 所有线路都不可用，稍后按顺序重试");
+                    }
+                }
+                catch (Exception ex) { Log.Write("[update] 测速失败：" + ex.Message); }
+                finally { _probeDone.Set(); }
+            });
+            t.IsBackground = true;
+            t.Start();
+        }
+
+        private static string Label(string prefix)
+        {
+            if (prefix.Length == 0) return "直连 github.com";
+            return prefix.TrimEnd('/').Replace("https://", "");
+        }
+
+        /// <summary>探测单条线路：HEAD 一下 releases/latest 的重定向目标即可，超时 4 秒。</summary>
+        private static long ProbeOne(string prefix, out bool ok)
+        {
+            ok = false;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            try
+            {
+                // 用一个稳定存在的小文件（update.json 可能还没发布）
+                string url = prefix + "https://github.com/" + Owner + "/" + Repo + "/releases/latest";
+                if (prefix.Length == 0) url = "https://github.com/" + Owner + "/" + Repo + "/releases/latest";
+
+                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+                var req = (HttpWebRequest)WebRequest.Create(url);
+                req.Method = "HEAD";
+                req.UserAgent = "PPTShapeLibrary-speedtest";
+                req.Timeout = 4000;
+                req.ReadWriteTimeout = 4000;
+                req.AllowAutoRedirect = true;
+                req.Proxy = null;
+                using (var resp = (HttpWebResponse)req.GetResponse())
+                {
+                    sw.Stop();
+                    ok = (int)resp.StatusCode < 400;
+                    return sw.ElapsedMilliseconds;
+                }
+            }
+            catch
+            {
+                sw.Stop();
+                return long.MaxValue;
+            }
+        }
+
         private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(24);
 
         /// <summary>
@@ -115,18 +289,19 @@ namespace PPTShapeLibrary
         {
             // ① 开发模式（|vstolocal）：dev-register.ps1 会把真实版本写进加载项注册表的 ProductVersion。
             //    这一路优先，因为开发模式下没有 ARP 项、程序集版本也不随发版变。
+            // 顺序很重要：
+            //  ① 注册表 ProductVersion —— 开发模式（|vstolocal）下由 dev-register.ps1 写入，
+            //     也是**唯一**能人为指定版本的来源（-ProductVersion，用于测试更新流程）。
+            //     有值就**优先采信**，不要再和别的来源"取较大值"：
+            //     实测踩过 —— 机器上留有旧的 ClickOnce 安装记录（ARP DisplayVersion 比它新）时，
+            //     取较大值会让"故意注册成旧版本"失效，于是永远看不到更新提示。
+            //  ② ARP DisplayVersion —— 正式安装（ClickOnce）的正确来源。
+            //  ③ 程序集版本 —— 兜底。
             var regVer = RegistryProductVersion();
+            if (!string.IsNullOrEmpty(regVer)) return regVer;
             var arpVer = ArpVersion();
-            // 两个来源都可能不准：注册表 ProductVersion 是 dev-register 写的（开发模式），
-            // ARP DisplayVersion 来自早期 vsto 清单（可能陈旧，实测见过 1.0.1.0）。
-            // 取**较大的**那个，避免被陈旧值拖成"永远有新版本"或显示错误的当前版本。
-            var best = regVer;
-            if (!string.IsNullOrEmpty(arpVer) &&
-                (string.IsNullOrEmpty(best) || CompareVersions(arpVer, best) > 0))
-            {
-                best = arpVer;
-            }
-            return string.IsNullOrEmpty(best) ? null : best;
+            if (!string.IsNullOrEmpty(arpVer)) return arpVer;
+            return null;
         }
 
         /// <summary>开发模式：dev-register.ps1 写入加载项注册表的 ProductVersion。</summary>
@@ -352,6 +527,13 @@ namespace PPTShapeLibrary
         /// <summary>检查更新（24h 内直接返回缓存，不联网）。</summary>
         public static UpdateResult Check()
         {
+            // 等测速结果（最多 5 秒），避免在"还没选好线路"时先去试直连、白等 8 秒超时。
+            WaitForProbe(5000);
+            return CheckCore();
+        }
+
+        private static UpdateResult CheckCore()
+        {
             var info = new UpdateResult { CurrentVersion = CurrentVersion() };
 
             var cached = LoadCache();
@@ -387,7 +569,7 @@ namespace PPTShapeLibrary
         {
             error = null;
             Exception last = null;
-            foreach (var prefix in MirrorPrefixes)
+            foreach (var prefix in PrefixOrder())
             {
                 string url = prefix.Length == 0 ? UpdateJsonUrl : prefix + UpdateJsonUrl;
                 try
@@ -581,11 +763,11 @@ namespace PPTShapeLibrary
             }
         }
 
-        /// <summary>下载（直连优先，失败回退加速站）。</summary>
+        /// <summary>下载：**优先走测速选出的最佳线路**，失败再按顺序回退。</summary>
         public static DownloadStatus Download(string url, string destPath, Action<long, long> progress)
         {
             Exception last = null;
-            foreach (var prefix in MirrorPrefixes)
+            foreach (var prefix in PrefixOrder())
             {
                 string u = prefix.Length == 0 ? url : prefix + url;
                 try
@@ -594,9 +776,11 @@ namespace PPTShapeLibrary
                     var req = (HttpWebRequest)WebRequest.Create(u);
                     req.UserAgent = "PPTShapeLibrary-plugin-updater";
                     req.Accept = "application/octet-stream";
-                    req.Timeout = 30000;
-                    req.ReadWriteTimeout = 30000;
+                    // 连不上的线路别耗着：连上后读数据才需要长超时（大文件）
+                    req.Timeout = prefix.Length == 0 ? 8000 : 15000;
+                    req.ReadWriteTimeout = 60000;
                     req.Proxy = null;
+                    Log.Write("[update] 下载线路：" + Label(prefix));
                     using (var resp = (HttpWebResponse)req.GetResponse())
                     using (var src = resp.GetResponseStream())
                     using (var fs = new FileStream(destPath, FileMode.Create, FileAccess.Write))
@@ -641,7 +825,7 @@ namespace PPTShapeLibrary
             }
         }
 
-        /// <summary>判断一个 HTTP(S) 地址是否可用（只要响应码是 2xx 就算可用）。</summary>
+        /// <summary>抓取一个文本资源（update.json）。超时短一些：连不上就赶紧换线路。</summary>
         private static string GetString(string url)
         {
             ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
@@ -651,8 +835,8 @@ namespace PPTShapeLibrary
             // 对 update.json 这种普通文件下载会让 GitHub 返回 406/415。
             // 安装器那条链路实测能通用的是 application/json（见 installer/UpdateChecker.cs）。
             req.Accept = "application/json";
-            req.Timeout = 15000;
-            req.ReadWriteTimeout = 15000;
+            req.Timeout = 8000;          // 连不上就别耗着（测速已选好线路，正常情况很快）
+            req.ReadWriteTimeout = 8000;
             req.Proxy = null;
             using (var resp = (HttpWebResponse)req.GetResponse())
             using (var sr = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
