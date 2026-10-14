@@ -48,6 +48,51 @@ function Test-Admin {
         [Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+# ---------------------------------------------------------------------------
+# 清理"会让 VSTO 拒绝安装/加载"的两类残留（实测踩过多次，都是它们造成
+# VSTOInstaller 报 -400 / AddInAlreadyInstalledException：「已安装另一版本的自定义项」）
+# ---------------------------------------------------------------------------
+
+# ① VSTA\Solutions\<GUID>：这是 VSTO 判定"该产品已装过某版本"的**真正来源**。
+#    实测把所有其它位置（Addins 键 / SolutionMetadata / ARP）都清了，只要它还在，
+#    VSTOInstaller 依然拒绝安装 —— 必须删掉这条才能装上。
+function Clear-VstaRecords {
+    $sol = "HKCU:\Software\Microsoft\VSTA\Solutions"
+    if (-not (Test-Path $sol)) { return }
+    Get-ChildItem $sol -ErrorAction SilentlyContinue | ForEach-Object {
+        $p = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+        $hit = ($p.ProductName -like "*PPTShapeLibrary*") -or
+               ($p.Url         -like "*PPTShapeLibrary*") -or
+               ($p.ApplicationID -like "*PPTShapeLibrary*")
+        if ($hit) {
+            Remove-Item $_.PSPath -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Host "已移除 VSTA 记录（『已安装另一版本』的判定来源）：$($_.PSChildName)" -ForegroundColor Yellow
+        }
+    }
+}
+
+# ② ARP 里指向**开发路径**的卸载项（bin\Debug / bin\Release / vstolocal）：
+#    这种记录不是 VSTOInstaller 正规装的，用 /Uninstall 去卸会**挂死**（实测卡满 120s 超时）。
+#    注意卸载串里是正斜杠（file:///E:/…/bin/Debug/…），必须先统一分隔符再匹配。
+function Clear-DevArpRecords {
+    $roots = @(
+        @{ Path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall"; Hive = "HKCU" },
+        @{ Path = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall"; Hive = "HKLM" }
+    )
+    foreach ($r in $roots) {
+        if (-not (Test-Path $r.Path)) { continue }
+        Get-ChildItem $r.Path -ErrorAction SilentlyContinue | ForEach-Object {
+            $p = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+            if ($p.DisplayName -notlike "*PPTShapeLibrary*") { return }
+            $norm = ("$($p.UninstallString)" -replace '/', '\')
+            if ($norm -like "*bin\Debug*" -or $norm -like "*bin\Release*" -or $norm -like "*vstolocal*") {
+                Remove-Item $_.PSPath -Recurse -Force -ErrorAction SilentlyContinue
+                Write-Host "已移除陈旧的开发版卸载项（$($r.Hive)）：$($_.PSChildName)" -ForegroundColor Yellow
+            }
+        }
+    }
+}
+
 if ($Unregister) {
     foreach ($k in @($keyVersioned, $keyVersionless)) {
         if (-not (Test-Path $k)) { continue }
@@ -79,7 +124,11 @@ if ($Unregister) {
             }
         }
     }
-    Write-Host "开发版加载项已注销（注册表两处 + AddinsData 缓存 + 本仓库的 VSTO 信任项）。" -ForegroundColor Yellow
+    # 清掉会让 VSTO 拒绝安装/加载的两类残留（详见上面的函数注释）
+    Clear-VstaRecords
+    Clear-DevArpRecords
+
+    Write-Host "开发版加载项已注销（注册表两处 + AddinsData 缓存 + 本仓库的 VSTO 信任项 + VSTA/ARP 残留）。" -ForegroundColor Yellow
     return
 }
 
@@ -89,6 +138,12 @@ if (-not (Test-Path $vsto)) { throw "找不到 $vsto —— 请先用 $Configura
 if (-not (Test-Path $dll))  { throw "找不到 $dll —— 请先构建" }
 
 $manifest = "file:///" + ($vsto -replace '\\','/') + "|vstolocal"
+
+# 注册前先把"会让 VSTO 拒绝后续正式安装"的残留清掉：
+# 否则开发版与正式版来回切换几次后，VSTO 会一直报「已安装另一版本的自定义项」，
+# 且表现为"插件突然不加载"（本项目实测踩过多次）。
+Clear-VstaRecords
+Clear-DevArpRecords
 
 foreach ($k in @($keyVersioned, $keyVersionless)) {
     if (-not (Test-Path $k)) { New-Item -Path $k -Force | Out-Null }

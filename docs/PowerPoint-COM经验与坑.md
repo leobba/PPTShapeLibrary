@@ -135,6 +135,43 @@ VSTOClean  →  UnregisterOfficeAddin  →  SetOffice2007AddInRegistration(Unreg
 - `HKCU\...\16.0\PowerPoint\AddInLoadTimes` 缓存、空的 `Resiliency` 键：删除后无效 → 无关。
 - 任务管理器里的加载项禁用列表（`Resiliency\DisabledItems`）：为空 → 无关。
 
+### 9.8 ⚠️ VSTO 的"已安装另一版本"到底记在哪（2026-10 彻底查清）
+
+**这是本项目最坑的一条**：`VSTOInstaller /Install` 报 `AddInAlreadyInstalledException`
+（"由于已经安装了另一版本的自定义项且不能从该位置升级"），表现是**插件突然不加载**、装了也没用。
+
+我依次清掉下面这些都**无效**（VSTOInstaller 依旧报同一个错）：
+
+| 位置 | 说明 |
+|---|---|
+| `HKCU\…\PowerPoint\Addins\PPTShapeLibrary`（两处） | 加载项注册本身 |
+| `HKCU\…\PowerPoint\AddinsData\PPTShapeLibrary` | 加载计数缓存 |
+| `HKCU\Software\Microsoft\VSTO\SolutionMetadata\<GUID>` | 有 `addInName=PPTShapeLibrary` 的那条 |
+| `%LOCALAPPDATA%\Apps\2.0\…` 部署缓存 | 移走会被 VSTOInstaller 重建 |
+| `Deployment\SideBySide\2.0\{Installations,Components,Assemblies,Categories,…}` | 全是空 |
+| ARP 卸载项 | 删了也不够 |
+
+**真正的判定来源是 `HKCU\Software\Microsoft\VSTA\Solutions\<GUID>`** —— 它记着
+`ProductName=PPTShapeLibrary` + `Url` + `ApplicationID`（含版本号）。
+**只要这条还在，VSTO 就认为"该产品已装过某版本"，任何位置都装不进去。** 删掉它立刻就能装。
+
+实测证据：删掉 `VSTA\Solutions\8c0b7721-…` 后，`VSTOInstaller /Install` 从 `-400` 变成
+"已成功安装 Microsoft Office 自定义项"。
+
+**配套的另外两个坑**（同一轮排查发现）：
+1. **ARP 里的开发版残留**（`UninstallString` 指向 `bin\Debug`）→ 对它跑
+   `VSTOInstaller /Uninstall` 会**挂死**（实测卡满 120s 超时）。这种记录只能直接删键。
+2. **卸载串里是正斜杠**（`file:///E:/…/bin/Debug/…`）→ 判"是否开发路径"时若按 `bin\Debug` 匹配会**漏判**
+   （踩过），必须先统一分隔符。
+
+**已内置的处理**：
+- `scripts\dev-register.ps1`：注册前/注销时都会清 `VSTA\Solutions` 与本仓库的 VSTO 信任项、
+  以及指向开发路径的 ARP 记录（`Clear-VstaRecords` / `Clear-DevArpRecords`）。
+- 安装器 `--pending-update`（一键更新）：装新版前**无条件**清 VSTA 记录。
+- **构建逃生开关**：VSTO 元数据存储损坏时 `msbuild` 会在注册/注销步骤抛
+  `MSB4018 SetOffice2007AddInRegistration → ClearMetadataStore → FileNotFoundException`，
+  用 `msbuild /p:VstoSkipRegistration=true` 跳过这两个步骤即可正常构建（注册交给 `dev-register.ps1`）。
+
 ## 三、排查套路（推荐复用）
 
 1. **别猜机制，读文件**：收藏条目是 `%APPDATA%\PPTShapeLibrary\items\<id>\shape.pptx`（本质是 zip）。
