@@ -39,6 +39,17 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# 无窗口的"僵尸 PowerPoint"进程：用户关掉 PPT 窗口后进程没退干净（实测能带 89 个线程活几小时），
+# 会让安装器的"请关闭 PowerPoint"误判、并让 --pending-update 白等 180 秒超时。
+# 这里只**报告**不自动杀（可能带着未保存内容）。
+function Get-ZombiePowerPoint {
+    $z = @()
+    Get-Process POWERPNT -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.MainWindowHandle -eq 0) { $z += $_ }
+    }
+    return ,$z
+}
+
 $keyVersioned   = "HKCU:\Software\Microsoft\Office\$OfficeVersion\PowerPoint\Addins\PPTShapeLibrary"
 $keyVersionless = "HKCU:\Software\Microsoft\Office\PowerPoint\Addins\PPTShapeLibrary"
 $machVersioned   = "HKLM:\Software\Microsoft\Office\$OfficeVersion\PowerPoint\Addins\PPTShapeLibrary"
@@ -210,6 +221,20 @@ if ($missingNow.Count -gt 0) {
 
 Write-Host ""
 Write-Host "开发版加载项已注册：$vsto" -ForegroundColor Green
+
+# 提醒僵尸 PowerPoint 进程（会让"请关闭 PowerPoint"误判、并让一键更新白等 180 秒）
+$z = Get-ZombiePowerPoint
+if ($z.Count -gt 0) {
+    Write-Host ""
+    Write-Host "！ 检测到 $($z.Count) 个**无窗口**的 PowerPoint 残留进程（僵尸）：" -ForegroundColor Yellow
+    $z | ForEach-Object {
+        Write-Host ("    PID={0}  已运行 {1} 分钟  内存 {2} MB" -f $_.Id,
+            [math]::Round(((Get-Date) - $_.StartTime).TotalMinutes), [math]::Round($_.WorkingSet64/1MB)) -ForegroundColor Gray
+    }
+    Write-Host "  它们没有窗口、不影响加载项，但会干扰更新流程（安装器会误以为 PPT 还开着）。" -ForegroundColor Gray
+    Write-Host "  建议结束它们（可能带着未保存内容，请自行确认）：" -ForegroundColor Gray
+    Write-Host "      Get-Process POWERPNT | Where-Object { \$_.MainWindowHandle -eq 0 } | Stop-Process -Force" -ForegroundColor Gray
+}
 Write-Host "请【完全退出】并重新打开 PowerPoint —— 功能区应出现「素材库」选项卡。" -ForegroundColor Green
 Write-Host "若仍没有：文件 → 选项 → 加载项，看 PPTShapeLibrary 是否在「非活动应用程序加载项」里。" -ForegroundColor Gray
 Write-Host "若连加载项列表都是空的，见 docs\PowerPoint-COM经验与坑.md 的『插件在 PPT 里消失』一节。" -ForegroundColor Gray

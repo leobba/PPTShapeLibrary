@@ -507,6 +507,10 @@ namespace PPTShapeLibraryInstaller
             // 或 ARP 里有指向 bin\Debug 的陈旧卸载项，VSTO 会认为"已安装另一版本"而拒绝加载。
             ClearVstaRecords(Log);
             ClearDevArpRecords(Log);
+            // 还要清损坏的 ClickOnce 部署状态（UpdateSkipTime 之类的元数据坏了会让安装永远 -400，
+            // 表现就是"更新一直失败"，用户完全无从下手）
+            int coc = ClearBrokenClickOnceState(Log);
+            if (coc > 0) Log("已清理 " + coc + " 条损坏的 ClickOnce 记录");
 
             int n = WriteAddinKeys(manifest, true, IsAdmin());
             Log("修复加载项注册：写入 " + n + " 处（当前用户" + (IsAdmin() ? " + 所有用户" : "") + "）");
@@ -672,6 +676,13 @@ namespace PPTShapeLibraryInstaller
                 }
 
                 // ① 等 PowerPoint 退出（它锁着插件 DLL/清单，装到一半失败会留半注册状态）
+                //    注意：只等**真有窗口**的 PowerPoint。实测见过"僵尸进程"——
+                //    用户关掉窗口后进程没退干净（无主窗口、却有近百线程常驻），
+                //    按进程名判断会白等 180 秒超时，用户完全不知道为什么。
+                int zombie = CountZombiePowerPoint();
+                if (zombie > 0)
+                    say("提示：检测到 " + zombie + " 个无窗口的 PowerPoint 残留进程（不影响安装，继续）");
+
                 say("等待 PowerPoint 退出…");
                 int waited = 0;
                 while (IsPowerPointRunning() && waited < 180)
@@ -681,7 +692,17 @@ namespace PPTShapeLibraryInstaller
                 }
                 if (IsPowerPointRunning())
                 {
-                    say("✗ 等待超时（" + waited + " 秒），PowerPoint 仍未退出，已放弃");
+                    say("✗ 等待超时（" + waited + " 秒），PowerPoint 仍在运行，已放弃");
+                    // 明确告诉用户该怎么办（原来只有一行日志，用户在安装器界面上看不到原因）
+                    try
+                    {
+                        MessageBox.Show(
+                            "PowerPoint 还在运行，安装无法继续（它会锁住插件文件）。\r\n\r\n" +
+                            "请**完全关闭 PowerPoint**（确认所有窗口都已关闭），然后重新点更新。\r\n\r\n" +
+                            "如果任务管理器里已经没有 PowerPoint 了，请告诉我，我再排查。",
+                            "请关闭 PowerPoint", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    }
+                    catch { }
                     return 3;
                 }
                 say("PowerPoint 已退出（等待 " + waited + " 秒）");
@@ -702,9 +723,19 @@ namespace PPTShapeLibraryInstaller
                     var uninstall = FindExistingUninstallString();
                     if (!string.IsNullOrEmpty(uninstall))
                     {
-                        say("卸载旧版：" + uninstall);
-                        try { RunCommandLineStatic(uninstall, say, 120000); }
-                        catch (Exception ex) { say("卸载异常（继续尝试安装）：" + ex.Message); }
+                        // 先清一次损坏的 ClickOnce 状态：状态坏了的时候 /Uninstall 也会**卡死**
+                        // （实测卡满 120 秒超时），而且卸载本来就是要重装的，不卸也行。
+                        int pre = ClearBrokenClickOnceState(say);
+                        if (pre > 0)
+                        {
+                            say("检测到 ClickOnce 状态损坏，已清理 " + pre + " 条 → 跳过卸载，直接重装");
+                        }
+                        else
+                        {
+                            say("卸载旧版：" + uninstall);
+                            try { RunCommandLineStatic(uninstall, say, 120000); }
+                            catch (Exception ex) { say("卸载异常（继续尝试安装）：" + ex.Message); }
+                        }
                     }
                     else { say("未检测到旧版安装记录，直接安装"); }
                 }
@@ -718,12 +749,31 @@ namespace PPTShapeLibraryInstaller
                 var vi = FindVstoInstaller();
                 var url = new Uri(manifest).AbsoluteUri;
                 say("安装源：" + url);
+
+                // 装之前先清一次损坏的 ClickOnce 状态：坏的时候任何位置都装不进去（-400），
+                // 且用户完全无从下手。清理只针对本产品，正常机器上是空操作。
+                int cleaned = ClearBrokenClickOnceState(say);
+                if (cleaned > 0) say("已清理 " + cleaned + " 条损坏的 ClickOnce 记录，准备重装");
+
+                int vstoCode = 0;
                 if (vi != null)
                 {
                     var p = Process.Start(new ProcessStartInfo(vi, "/Install \"" + url + "\"") { UseShellExecute = false });
                     if (p != null) p.WaitForExit();
-                    int code = p == null ? -1 : p.ExitCode;
-                    say("VSTOInstaller 退出码：" + code);
+                    vstoCode = p == null ? -1 : p.ExitCode;
+                    say("VSTOInstaller 退出码：" + vstoCode);
+
+                    // -400 = 部署状态坏了：再清一次（这次连缓存一起清）后重试一遍
+                    if (vstoCode != 0)
+                    {
+                        say("安装失败（" + vstoCode + "），按『ClickOnce 状态损坏』再清一次后重试…");
+                        int again = ClearBrokenClickOnceState(say);
+                        say("  本轮又清理 " + again + " 条");
+                        var p2 = Process.Start(new ProcessStartInfo(vi, "/Install \"" + url + "\"") { UseShellExecute = false });
+                        if (p2 != null) p2.WaitForExit();
+                        vstoCode = p2 == null ? -1 : p2.ExitCode;
+                        say("重试后 VSTOInstaller 退出码：" + vstoCode);
+                    }
                 }
                 else
                 {
@@ -960,12 +1010,174 @@ namespace PPTShapeLibraryInstaller
             say("退出码：" + p.ExitCode);
         }
 
-        /// <summary>PowerPoint 是否在运行。安装/卸载期间它会锁住加载项 DLL 与清单，
-        /// 导致 VSTOInstaller 半途失败、留下半注册状态。</summary>
+        /// <summary>
+        /// 清理**本产品**损坏的 ClickOnce 部署状态。
+        ///
+        /// 为什么需要（实测踩过的坑）：
+        ///   VSTOInstaller 报 -400，事件日志里是
+        ///     System.Deployment.Application.DeploymentException: 存储元数据"UpdateSkipTime"无效
+        ///        在 ClickOnceAddInDeploymentManager.GetManifests(...)
+        ///        在 ClickOnceAddInDeploymentManager.InstallAddIn()
+        ///   即 ClickOnce 在 HKCU\...\Deployment\SideBySide\2.0 下给本产品存的元数据坏了
+        ///   （PackageMetadata 里的 UpdateSkipTime 成了 0001/01/01），此后**任何位置都装不进去**，
+        ///   表现就是"更新一直失败 / 插件装不上"。
+        ///
+        /// 处理：把 SideBySide\2.0 下 **只属于本产品**（按公钥 token 或 ppts.. 前缀识别）的
+        /// PackageMetadata / Installations / Components / Marks / StateManager 等条目删掉，
+        /// 让 ClickOnce 重新生成。**不动**其它产品的记录。
+        /// </summary>
+        private static int ClearBrokenClickOnceState(Action<string> say)
+        {
+            int deleted = 0;
+            try
+            {
+                const string basePath = @"Software\Classes\Software\Microsoft\Windows\CurrentVersion\Deployment\SideBySide\2.0";
+                string[] sections =
+                {
+                    "PackageMetadata", "Installations", "Components", "Marks",
+                    "StateManager", "Visibility", "VisibilityRoots", "Categories", "Assemblies"
+                };
+
+                using (var root = Registry.CurrentUser.OpenSubKey(basePath, true))
+                {
+                    if (root == null) return 0;
+                    foreach (var sec in sections)
+                    {
+                        using (var s = root.OpenSubKey(sec, true))
+                        {
+                            if (s == null) continue;
+                            foreach (var name in CollectOurs(s, sec))
+                            {
+                                try { s.DeleteSubKeyTree(name, false); deleted++; } catch { }
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) { say("清理 ClickOnce 状态异常（忽略）：" + ex.Message); }
+
+            // 顺带删掉本产品在本地的部署缓存目录（Apps\2.0 里的散列目录）
+            try
+            {
+                string apps = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Apps", "2.0");
+                if (Directory.Exists(apps))
+                {
+                    foreach (var d in Directory.GetDirectories(apps))
+                    {
+                        string leaf = Path.GetFileName(d);
+                        string probe = Path.Combine(d, "manifests");
+                        if (!Directory.Exists(probe)) continue;
+                        bool ours = false;
+                        foreach (var f in Directory.GetFiles(probe))
+                        {
+                            if (Path.GetFileName(f).IndexOf("ppt", StringComparison.OrdinalIgnoreCase) >= 0) { ours = true; break; }
+                        }
+                        if (ours)
+                        {
+                            try { Directory.Delete(d, true); deleted++; say("已删除本地部署缓存：" + leaf); } catch { }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            return deleted;
+        }
+
+        /// <summary>收集某个 section 下"属于本产品"的**顶层**子键名（递归找出后归到顶层）。</summary>
+        private static List<string> CollectOurs(RegistryKey section, string sectionName)
+        {
+            var top = new List<string>();
+            foreach (var name in section.GetSubKeyNames())
+            {
+                if (IsOurs(name)) { top.Add(name); continue; }
+                using (var sub = section.OpenSubKey(name))
+                {
+                    if (sub == null) continue;
+                    if (HasOursDeep(sub)) top.Add(name);
+                }
+            }
+            return top;
+        }
+
+        private static bool HasOursDeep(RegistryKey k)
+        {
+            foreach (var n in k.GetSubKeyNames())
+            {
+                if (IsOurs(n)) return true;
+                using (var sub = k.OpenSubKey(n))
+                {
+                    if (sub != null && HasOursDeep(sub)) return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>名字是否属于本产品：ClickOnce 用公钥 token 做后缀，另有 ppts.. 前缀。</summary>
+        private static bool IsOurs(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            if (name.IndexOf("a8a7103479c94f3f", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            if (name.StartsWith("ppts..", StringComparison.OrdinalIgnoreCase)) return true;
+            if (name.IndexOf("PPTShapeLibrary", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            return false;
+        }
+
+        /// <summary>PowerPoint 是否**真的**还在用。安装/卸载期间它会锁住加载项 DLL 与清单，
+        /// 导致 VSTOInstaller 半途失败、留下半注册状态。
+        ///
+        /// ⚠️ 不能只看进程名：实测见过"僵尸 PowerPoint 进程"——用户关掉 PPT 窗口后进程没退干净，
+        /// 无主窗口（MainWindowHandle==0）却有近百个线程常驻，能存活几小时。
+        /// 只按进程名判断的后果：安装器一直等它退出（等满 180 秒超时），
+        /// 用户明明"任务管理器里没有 PPT"却只能手动关掉安装器。
+        ///
+        /// 判定：**有主窗口**才算真在用；无窗口的孤儿进程不算（也不去杀它，避免误伤）。</summary>
         private static bool IsPowerPointRunning()
         {
-            try { return Process.GetProcessesByName("POWERPNT").Length > 0; }
-            catch { return false; }
+            return CountRealPowerPoint() > 0;
+        }
+
+        /// <summary>返回"真正在用"的 PowerPoint 进程数（有主窗口的那些）。</summary>
+        private static int CountRealPowerPoint()
+        {
+            try
+            {
+                int n = 0;
+                foreach (var p in Process.GetProcesses())
+                {
+                    try
+                    {
+                        if (!string.Equals(p.ProcessName, "POWERPNT", StringComparison.OrdinalIgnoreCase)) continue;
+                        if (p.MainWindowHandle != IntPtr.Zero) n++;
+                    }
+                    catch { }
+                    finally { try { p.Dispose(); } catch { } }
+                }
+                return n;
+            }
+            catch { return 0; }
+        }
+
+        /// <summary>无主窗口的孤儿 PowerPoint 进程数（仅用于日志/提示）。</summary>
+        private static int CountZombiePowerPoint()
+        {
+            try
+            {
+                int n = 0;
+                foreach (var p in Process.GetProcesses())
+                {
+                    try
+                    {
+                        if (!string.Equals(p.ProcessName, "POWERPNT", StringComparison.OrdinalIgnoreCase)) continue;
+                        if (p.MainWindowHandle == IntPtr.Zero) n++;
+                    }
+                    catch { }
+                    finally { try { p.Dispose(); } catch { } }
+                }
+                return n;
+            }
+            catch { return 0; }
         }
 
         private void UpdateExistingUi()
@@ -1584,7 +1796,13 @@ namespace PPTShapeLibraryInstaller
         {
             try
             {
-                // PowerPoint 在运行会锁住加载项 DLL/清单，导致 VSTOInstaller 半途失败、留下半注册状态
+                // PowerPoint 在运行会锁住加载项 DLL/清单，导致 VSTOInstaller 半途失败、留下半注册状态。
+                // 只把**有窗口**的 PowerPoint 算作"正在运行"：无窗口的孤儿进程不锁文件，
+                // 没必要因此拦住用户（实测：任务管理器里看不到 PPT，却提示"请关闭 PowerPoint"）。
+                int zombiePpt = CountZombiePowerPoint();
+                if (zombiePpt > 0)
+                    Log("提示：有 " + zombiePpt + " 个无窗口的 PowerPoint 残留进程（不拦截安装）");
+
                 if (IsPowerPointRunning())
                 {
                     var c = MessageBox.Show(
@@ -1625,6 +1843,9 @@ namespace PPTShapeLibraryInstaller
                 // "已安装另一版本的自定义项"（见 docs/PowerPoint-COM经验与坑.md §9.8）。
                 ClearVstaRecords(Log);
                 ClearDevArpRecords(Log);
+                // 装之前也清一次损坏的 ClickOnce 状态（正常机器上是空操作）
+                int cocPre = ClearBrokenClickOnceState(Log);
+                if (cocPre > 0) Log("已清理 " + cocPre + " 条损坏的 ClickOnce 记录");
 
                 if (!string.IsNullOrEmpty(_existingUninstallString))
                 {

@@ -172,6 +172,58 @@ VSTOClean  →  UnregisterOfficeAddin  →  SetOffice2007AddInRegistration(Unreg
   `MSB4018 SetOffice2007AddInRegistration → ClearMetadataStore → FileNotFoundException`，
   用 `msbuild /p:VstoSkipRegistration=true` 跳过这两个步骤即可正常构建（注册交给 `dev-register.ps1`）。
 
+### 9.9 ⚠️ 两个"更新装不上"的真凶（2026-10 用户实测）
+
+用户反馈：**关掉 PPT 后仍会弹更新；点更新后安装器说"请关闭 PPT"，可任务管理器里根本没有 PPT**。
+排查后是**两个独立问题**，都已修。
+
+#### ① 僵尸 PowerPoint 进程
+
+用户关闭 PPT 窗口后进程没退干净：`MainWindowHandle == 0`（无任何窗口）、却有 89 个线程常驻、
+存活 3 小时以上。而原判据是 `Process.GetProcessesByName("POWERPNT").Length > 0` —— 只看进程名：
+
+- 插件的定时提醒照常弹（插件就在这个僵尸进程里跑着）
+- 安装器 `--pending-update` 一直等它退出 → 等满 180 秒超时 → 用户只能手动关掉安装器
+
+**修法**：判定"PPT 在用"必须**有主窗口**（`MainWindowHandle != 0`）。
+无窗口的孤儿进程不锁文件、不拦安装，只在日志里提示（也不去杀它 —— 可能带着用户未保存的内容）。
+
+#### ② ClickOnce 部署状态损坏 → VSTOInstaller 永远 -400
+
+```
+System.Deployment.Application.DeploymentException: 存储元数据"UpdateSkipTime"无效。
+   在 Microsoft.VisualStudio.Tools.Applications.Deployment.ClickOnceAddInDeploymentManager.GetManifests(TimeSpan)
+   在 ...ClickOnceAddInDeploymentManager.InstallAddIn()
+```
+
+（更早一次报的是 `ArgumentOutOfRangeException: entryValue`，来自 `MetadataStore.UpdateLastCheckedTime`。）
+
+损坏点：`HKCU\Software\Classes\Software\Microsoft\Windows\CurrentVersion\Deployment\SideBySide\2.0\PackageMetadata\{容器GUID}\ppts..vsto_<公钥token>_<散列>`
+里的 `{订阅GUID}!UpdateSkipTime` 成了非法的 `0001/01/01`。
+
+**只要这个状态坏了，任何位置都装不进去**（换目录、删 Addins 键、删 VSTA 记录全都无效），
+而且**卸载也会卡死**（`/Uninstall` 卡满 120 秒超时）。
+
+**修法**（已内置为安装器 `ClearBrokenClickOnceState`）：把 `SideBySide\2.0` 下
+`PackageMetadata / Installations / Components / Marks / StateManager / Visibility /
+VisibilityRoots / Categories / Assemblies` 里**只属于本产品**的条目删掉
+（识别依据：公钥 token `a8a7103479c94f3f`、`ppts..` 前缀、或含产品名），
+外加删掉 `%LOCALAPPDATA%\Apps\2.0\*\manifests` 里含本产品清单的缓存目录。
+**只动本产品，不碰别的 ClickOnce 应用**（本机还装着"方方格子"FFCell）。
+
+调用时机：
+- `--pending-update`：装之前先清；**若清到了东西就跳过卸载直接重装**（坏状态下 `/Uninstall` 必卡 120 秒）
+- `--pending-update`：装失败（非 0 退出码）时**再清一次并重试**一遍
+- 界面「开始安装」与「修复加载项注册」：同样先清一次（正常机器上是空操作）
+
+实测（同一台机器、故意注入坏值复现）：
+```
+21:10:31  检测到 ClickOnce 状态损坏，已清理 9 条 → 跳过卸载，直接重装
+21:10:33  VSTOInstaller 退出码：0
+21:10:33  ✓ 安装完成
+```
+耗时 **2.1 秒**（修复前：卡 120 秒卸载超时 + 安装 -400 失败）。
+
 ## 三、排查套路（推荐复用）
 
 1. **别猜机制，读文件**：收藏条目是 `%APPDATA%\PPTShapeLibrary\items\<id>\shape.pptx`（本质是 zip）。
