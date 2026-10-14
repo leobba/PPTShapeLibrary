@@ -435,6 +435,11 @@ export default function LibraryView() {
         </DropdownMenu>
       </header>
 
+      {/* 更新提示：有新版本时展示版本号与更新内容（插件内直接检查，不用打开安装器） */}
+      <div className="px-3 pt-2">
+        <UpdateBanner />
+      </div>
+
       <div className="flex min-h-0 flex-1">
         {/* 左侧分组栏：一级分组（类型 全部/形状/样式 已移至主区分类行上方） */}
         <nav className="flex w-[76px] shrink-0 flex-col items-stretch gap-0.5 overflow-y-auto border-r bg-card/40 px-1.5 py-2">

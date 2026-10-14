@@ -106,8 +106,9 @@ export function UpdateBanner() {
               const yes = await dialogs.confirm(
                 "将下载新版 " + info.latestVersion + " 并自动安装。\r\n\r\n" +
                 "安装需要**关闭 PowerPoint**（新版文件要替换正在使用的旧版），" +
-                "确认后会立即关闭，安装器会在后台完成升级，完成后重新打开 PowerPoint 即可。\r\n\r\n" +
-                "（素材库数据不受影响）\r\n\r\n是否现在更新？",
+                "确认后会自动关闭，安装器在后台完成升级，完成后重新打开 PowerPoint 即可。\r\n\r\n" +
+                "· 若 PowerPoint 没有自动关闭，请手动关闭 —— 安装器会一直等着，关掉后自动完成。\r\n" +
+                "· 建议先保存正在编辑的文稿。素材库数据不受影响。\r\n\r\n是否现在更新？",
                 { title: "立即更新", okText: "更新并关闭 PowerPoint" }
               );
               if (!yes) return;

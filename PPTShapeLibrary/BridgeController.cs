@@ -1446,27 +1446,38 @@ namespace PPTShapeLibrary
             };
         }
 
-        /// <summary>延后一点关闭 PowerPoint，让安装器进程先起来（它会等 PowerPoint 退出后再装）。</summary>
+        /// <summary>延后一点关闭 PowerPoint，让安装器进程先起来（它会等 PowerPoint 退出后再装）。
+        ///
+        /// ⚠️ 实测：在 WebView2 消息回调里调 `Application.Quit()` **有时会被 COM 吞掉**
+        /// （日志显示调用了，但 PowerPoint 不关）。所以这里**重试多次**；
+        /// 若始终关不掉（比如文稿有未保存改动、或 Office 处于某种模态状态），
+        /// 就明确提示用户手动关闭 —— 安装器会一直在等，手动关掉后自动完成升级。</summary>
         private void ScheduleQuitPowerPoint()
         {
             var t = new System.Windows.Forms.Timer();
-            t.Interval = 1500;
+            t.Interval = 2000;
+            int tries = 0;
             t.Tick += (s, e) =>
             {
-                t.Stop();
-                t.Dispose();
+                tries++;
                 try
                 {
                     var app = Globals.ThisAddIn != null ? Globals.ThisAddIn.Application : null;
                     if (app != null)
                     {
-                        Log.Write("[update] 正在关闭 PowerPoint 以完成更新…");
+                        if (tries == 1) Log.Write("[update] 正在关闭 PowerPoint 以完成更新…（最多重试 6 次）");
                         app.Quit();
                     }
                 }
                 catch (Exception ex)
                 {
                     Log.Write("[update] 关闭 PowerPoint 失败：" + ex.Message);
+                }
+                if (tries >= 6)
+                {
+                    t.Stop();
+                    t.Dispose();
+                    Log.Write("[update] 自动关闭未生效 → 请手动关闭 PowerPoint，安装器会自动完成升级");
                 }
             };
             t.Start();
