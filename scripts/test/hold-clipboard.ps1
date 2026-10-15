@@ -1,4 +1,4 @@
-# hold-clipboard.ps1 —— 模拟 Snipaste 之类的剪贴板工具"占用剪贴板"
+﻿# hold-clipboard.ps1 —— 模拟 Snipaste 之类的剪贴板工具"占用剪贴板"
 #
 # 用途：复现"插入/收藏形状时报剪贴板被占用"的真实场景，用来验证
 #       Copy/Paste 是否真的会被第三方剪贴板工具挡住，以及替代方案能否绕过。

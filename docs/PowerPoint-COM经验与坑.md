@@ -519,3 +519,61 @@ Shapes.Paste : Invalid request. Clipboard is empty or contains data which may no
 - 想进一步提升成功率：把固定 `Sleep` 改成**指数退避 + 更长上限**（Snipaste 占用窗口可能比现在的
   `40+30*attempt` ms 长得多；实测等约 3s 才恢复）。
 - **不要**为了绕开剪贴板去改 `BackupTo`/收藏格式（形状库必须存 pptx 才能保真，见 §2/§13）。
+
+### 15. 应用图标 + Ribbon 图标风格统一（2026-10）
+
+#### 15.1 应用图标：`assets\app.ico`
+
+之前 `<ApplicationIcon>` 一直是**空节点** → exe 用默认 .NET 图标。现在：
+
+- 图标源：用户自制图（**实际是 WebP**，扩展名却写成了 `.jpeg`）
+- 生成：`scripts\make-app-icon.py`（Pillow），产出 10 档尺寸的 `assets\app.ico`
+- 接入：`installer\PPTShapeLibraryInstaller.csproj` 与 `PPTShapeLibrary.csproj` 的 `<ApplicationIcon>`
+
+**三个踩过的坑**：
+1. **GDI+ 读不了 WebP**：`Image.FromFile` 对 WebP 报 `Out of memory`（这个错误信息完全不提格式问题，
+   极易误判成"文件损坏/太大"）。判断真实格式要看**文件头 magic bytes**：
+   `52 49 46 46 .... 57 45 42 50` = `RIFF....WEBP`。解码用 **Pillow**（本机有）。
+2. **要裁掉多余透明留白再统一边距**：原图 2048×2048，内容仅 1528×1472（四周留白 12.5%~14%）。
+   不裁的话图标在实际显示尺寸里会**比别的图标小一圈**（留白也算进图标画布）。
+   做法：按 alpha `getbbox()` 裁到内容 → 按 5% 边距重新居中成正方形 → 再逐尺寸 LANCZOS 缩放。
+3. **别对已有有损图重新编码**：曾把源图另存为 lossless WebP，体积 244KB → 755KB。
+   源图原字节复制即可。
+
+#### 15.2 Ribbon 图标风格：换成 **Material Symbols Outlined**（线性）
+
+**问题**：任务窗格 Web UI 用 **lucide**（线性描边），功能区却用 **Material Icons**（填充实心）+ 彩色，
+两处风格割裂（用户反馈"侧边栏的更好看、和顶部不一样"）。
+
+**做法**：功能区图标字体改为 **Material Symbols Outlined**，与 lucide 的线性语言一致。
+
+**关键：完整字体 10.4MB 不能发货，用 fontTools 两步瘦身**：
+
+```bash
+# 1) 固化变量轴（Material Symbols 是可变字体：FILL/GRAD/opsz/wght；图标只用默认外观）
+python -m fontTools.varLib.instancer MaterialSymbolsOutlined.ttf FILL=0.0 GRAD=0.0 opsz=24.0 wght=400.0 -o instanced.ttf
+#    10.16MB → 1.32MB
+# 2) 子集化：只保留用到的 23 个字形
+python -m fontTools.subset instanced.ttf --unicodes=U+E262,U+E167,... \
+       --output-file=MaterialSymbolsOutlined-subset.ttf --no-hinting --desubroutinize --layout-features=
+#    1.32MB → 5.0KB
+```
+
+产物：`PPTShapeLibrary\RibbonFonts\MaterialSymbolsOutlined-subset.ttf`（5KB）+ 同名 `.codepoints`（23 行）。
+MaterialIcons（348KB）降为**回退**（`RibbonIconFactory.EnsureLoaded` 里顺序已对调）。
+
+**⚠️ 维护要点**：`RibbonIconFactory` 的图标名常量**新增字形时**，必须把新码点补进
+subset 的 `.codepoints` 并**重新子集化**，否则该图标在 Outlined 里查不到会
+**静默回退成填充风格** → 功能区出现风格不一致的图标（不报错，很难发现）。
+
+**字号比例不用改**：绘制用的 `ss*0.92` 原本按 Material Icons 调的，实测 Outlined 的字形视觉大小
+平均只差 1.2%（73.6% vs 74.5%），沿用即可。
+
+**验证方式**（这类"看不出对错"的改动，靠程序判定）：
+- 逐个字形渲染后统计 **ink 像素数**（>阈值即非空白），23/23 通过；
+- 两个字体同参数渲染后比 **ink 包围盒占画布比例**，用于校准字号；
+- exe/DLL 图标用 `Icon.ExtractAssociatedIcon` 提取后**采样中心像素 + 统计主色占比**
+  （本例中心 `#2F9FFF`、蓝色占 37% → 确认嵌入的是自制图标而非默认图标）。
+- ⚠️ 注意 `AppDomain.CurrentDomain.BaseDirectory`：在 PowerShell/独立测试器里加载 DLL 时它指向
+  **宿主进程目录**，找不到 `RibbonFonts\`，会让图标工厂全部返回 null —— 这是**测试环境问题，不是代码问题**
+  （日志里会出现 `Ribbon fonts missing: ... C:\WINDOWS\System32\WindowsPowerShell\v1.0\\RibbonFonts`）。

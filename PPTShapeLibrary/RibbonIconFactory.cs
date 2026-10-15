@@ -36,26 +36,47 @@ namespace PPTShapeLibrary
                     _codepoints = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                     _codepointsAlt = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
-                    string mainTtf = Path.Combine(baseDir, "RibbonFonts", "MaterialIcons-Regular.ttf");
+                    // ⚠️ 字体选择顺序 = 功能区图标的**视觉风格**，2026-10 调整过：
+                    //
+                    //   首选 Material Symbols **Outlined**（线性描边）—— 任务窗格 Web UI 用的是
+                    //   lucide 线性图标，功能区若用 Material Icons（**填充实心**）两处风格割裂，
+                    //   用户反馈"侧边栏的更好看、和顶部不一样"。改线性后两边统一。
+                    //
+                    //   体积：完整 MaterialSymbolsOutlined.ttf 是 10.4MB（不能发货），
+                    //   已用 fontTools 做**变量轴固化 + 子集化**（只保留用到的 23 个字形）
+                    //   → MaterialSymbolsOutlined-subset.ttf 仅 5KB。
+                    //   生成方式见 scripts\test\ 的同名步骤（fontTools varLib.instancer + subset）。
+                    string mainTtf = Path.Combine(baseDir, "RibbonFonts", "MaterialSymbolsOutlined-subset.ttf");
                     if (File.Exists(mainTtf))
                     {
                         _fonts.AddFontFile(mainTtf);
-                        LoadCodepoints(Path.Combine(baseDir, "RibbonFonts", "MaterialIcons-Regular.codepoints"), _codepoints);
+                        LoadCodepoints(Path.Combine(baseDir, "RibbonFonts", "MaterialSymbolsOutlined-subset.codepoints"), _codepoints);
                     }
-                    string altTtf = Path.Combine(baseDir, "RibbonFonts", "MaterialSymbolsOutlined.ttf");
+                    else
+                    {
+                        // 回退 A：完整的 outlined 字体（体积大，只可能出现在开发机/旧包）
+                        string fullOutlined = Path.Combine(baseDir, "RibbonFonts", "MaterialSymbolsOutlined.ttf");
+                        if (File.Exists(fullOutlined))
+                        {
+                            _fonts.AddFontFile(fullOutlined);
+                            LoadCodepoints(Path.Combine(baseDir, "RibbonFonts", "MaterialSymbolsOutlined.codepoints"), _codepoints);
+                        }
+                    }
+                    // 回退 B：Material Icons 填充风格（旧样式；字形齐全，兜底用）
+                    string altTtf = Path.Combine(baseDir, "RibbonFonts", "MaterialIcons-Regular.ttf");
                     if (File.Exists(altTtf))
                     {
                         _fonts.AddFontFile(altTtf);
-                        LoadCodepoints(Path.Combine(baseDir, "RibbonFonts", "MaterialSymbolsOutlined.codepoints"), _codepointsAlt);
+                        LoadCodepoints(Path.Combine(baseDir, "RibbonFonts", "MaterialIcons-Regular.codepoints"), _codepointsAlt);
                     }
                     // 按字体族名匹配主/备字体（不依赖 Families 索引顺序，防止主 TTF 缺失时
                     // 把备字体误当主字体使用导致字形与码点表错位）
                     foreach (var fam in _fonts.Families)
                     {
                         string nm = fam.Name;
-                        if (nm.IndexOf("Material Icons", StringComparison.OrdinalIgnoreCase) >= 0 && _familyMain == null)
+                        if (nm.IndexOf("Material Symbols", StringComparison.OrdinalIgnoreCase) >= 0 && _familyMain == null)
                             _familyMain = fam;
-                        else if (nm.IndexOf("Material Symbols", StringComparison.OrdinalIgnoreCase) >= 0 && _familyAlt == null)
+                        else if (nm.IndexOf("Material Icons", StringComparison.OrdinalIgnoreCase) >= 0 && _familyAlt == null)
                             _familyAlt = fam;
                     }
                     if (_familyMain == null && _familyAlt != null) _familyMain = _familyAlt;

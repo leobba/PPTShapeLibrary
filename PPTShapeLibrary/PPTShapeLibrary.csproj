@@ -10,6 +10,10 @@
     <NoStandardLibraries>false</NoStandardLibraries>
     <RootNamespace>PPTShapeLibrary</RootNamespace>
     <AssemblyName>PPTShapeLibrary</AssemblyName>
+    <!-- 应用图标：与安装器共用 assets\app.ico（作为 Win32 图标资源嵌进 DLL，
+         资源管理器里看 DLL 也有图标）。注意：**不影响功能区图标** ——
+         功能区图标由 RibbonIconFactory 在运行时用 Material Icons 字体自绘。 -->
+    <ApplicationIcon>..\assets\app.ico</ApplicationIcon>
     <LoadBehavior>3</LoadBehavior>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <DefineConstants>VSTO40;UseOfficeInterop</DefineConstants>
@@ -186,7 +190,18 @@
     </Content>
   </ItemGroup>
   <ItemGroup>
-    <!-- Ribbon 图标字体：只打包主字体 MaterialIcons-Regular(约 350KB)，不打包 10.6MB 的 MaterialSymbols 备用字体（减小安装体积） -->
+    <!-- Ribbon 图标字体（2026-10 起改为**线性风格**，与任务窗格 Web UI 的 lucide 图标统一）
+         · MaterialSymbolsOutlined-subset : 首选。完整字体 10.4MB 不能发货，
+           已用 fontTools 做「变量轴固化 + 子集化」只留用到的 23 个字形 → **仅 5KB**
+         · MaterialIcons-Regular          : 回退（填充风格，字形齐全），348KB 留作兜底
+         ⚠️ 新增图标时：必须把新字形同时补进 subset 的码点表并重新做子集化，
+            否则该图标在 Outlined 里找不到会**静默回退**成填充风格（风格不一致）。 -->
+    <Content Include="RibbonFonts\MaterialSymbolsOutlined-subset.ttf">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="RibbonFonts\MaterialSymbolsOutlined-subset.codepoints">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="RibbonFonts\MaterialIcons-Regular.ttf">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
