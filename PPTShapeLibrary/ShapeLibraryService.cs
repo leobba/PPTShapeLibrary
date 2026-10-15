@@ -1270,12 +1270,15 @@ namespace PPTShapeLibrary
         // ---------------- 备份 / 恢复 ----------------
 
         /// <summary>把整个收藏库打包为 .zip 备份文件。</summary>
-        public static bool BackupTo(string zipPath)
+        /// <summary>导出备份。includePreviews=false 时**不打包 preview.png**
+        /// （缩略图可由面板「重建缩略图」从 shape.pptx 重新导出，实测占 22% 体积）。
+        /// 自动备份用 false（省空间），用户手动"导出备份"用 true（全量、搬到别的机器也完整）。</summary>
+        public static bool BackupTo(string zipPath, bool includePreviews = true)
         {
-            return WithLibraryMutationLock(() => BackupToCore(zipPath));
+            return WithLibraryMutationLock(() => BackupToCore(zipPath, includePreviews));
         }
 
-        private static bool BackupToCore(string zipPath)
+        private static bool BackupToCore(string zipPath, bool includePreviews = true)
         {
             string tempZip = null;
             try
@@ -1304,6 +1307,8 @@ namespace PPTShapeLibrary
                         foreach (string file in Directory.GetFiles(dir))
                         {
                             string name = Path.GetFileName(file);
+                            if (!includePreviews && string.Equals(name, "preview.png", StringComparison.OrdinalIgnoreCase))
+                                continue;   // 缩略图可从 shape.pptx 重建 → 自动备份时省掉（实测省 22%）
                             if (!string.Equals(name, "meta.json", StringComparison.OrdinalIgnoreCase)
                                 && !string.Equals(name, "shape.pptx", StringComparison.OrdinalIgnoreCase)
                                 && !string.Equals(name, "style.json", StringComparison.OrdinalIgnoreCase)
@@ -1329,9 +1334,15 @@ namespace PPTShapeLibrary
             }
         }
 
-        /// <summary>自动备份：当日尚未备份时把整库打包到 backups/backup-yyyyMMdd.zip，并只保留最近 7 份。
-        /// 失败静默（记日志由调用方处理），不阻塞启动。</summary>
-        public static void AutoBackupIfNeeded(int keep = 7)
+        /// <summary>自动备份：当日尚未备份时把整库打包到 backups/backup-yyyyMMdd.zip，并只保留最近 keep 份。
+        /// 失败静默（记日志由调用方处理），不阻塞启动。
+        ///
+        /// 【为什么默认从 7 份改成 3 份】实测用户库 43 MB、7 份备份共 281 MB，而内容几乎一样
+        /// （3 周内库基本没变），冗余约 238 MB。备份的价值是"能回滚到最近的几个状态"，
+        /// 保留 3 份已足够，且能省下大量磁盘。
+        /// 另外 backup-*.zip 现在**不含 preview.png**（缩略图可通过面板的「重建缩略图」从 shape.pptx 重新导出），
+        /// 单份体积再降约 22%。</summary>
+        public static void AutoBackupIfNeeded(int keep = 3)
         {
             try
             {
@@ -1341,7 +1352,8 @@ namespace PPTShapeLibrary
                 string target = Path.Combine(dir, "backup-" + today + ".zip");
                 if (!File.Exists(target))
                 {
-                    if (!BackupTo(target)) return;
+                    // 自动备份不打包缩略图（可从 shape.pptx 重建），单份体积降约 22%
+                    if (!BackupTo(target, includePreviews: false)) return;
                 }
                 // 轮转：仅保留最近 keep 份
                 var files = new DirectoryInfo(dir).GetFiles("backup-*.zip")
