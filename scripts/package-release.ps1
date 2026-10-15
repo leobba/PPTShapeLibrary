@@ -53,11 +53,28 @@ if (Test-Path $publish) { Remove-Item $publish -Recurse -Force }
 Copy-Item $appPublish $publish -Recurse -Force
 Write-Host "   产物 → $publish"
 
-# 兜底自愈：构建期有可能把加载项注册成 <bin\Release>\...vsto|vstolocal（开发式注册），
-# 它会与用户通过安装器安装的正式版抢注册表，导致再次安装时报"已安装另一版本"。
-# 若发现是 vstolocal 就清掉；是正式安装（ClickOnce）则保留不动。
-# 注意：加载项注册可能同时写在"版本无关"与"16.0 版本化"两处（scripts\dev-register.ps1 两处都写），
-# 只清一处会留下残留继续抢注册表 —— 两处都要检查。
+# 兜底自愈：构建期有可能把加载项注册成 <repo>\PPTShapeLibrary\bin\Release\...vsto|vstolocal
+# （开发式注册），它会与正式安装抢注册表，导致再次安装时报"已安装另一版本"。
+#
+# ⚠️ **不能只看 "|vstolocal" 就删**！2026-10 起正式版也走 |vstolocal
+#   （安装到 %LOCALAPPDATA%\PPTShapeLibrary\addin\<版本>\，见 installer/LocalInstall.cs）。
+#   用"清单路径是否在仓库 bin\Debug|bin\Release 下"判定开发式，才不会把用户的正式安装删掉。
+#   实测踩过：这条老判据在架构改版后把本机的**正式注册**清掉了（PowerPoint 里「素材库」消失）。
+#
+# 另：加载项注册可能同时写在"版本无关"与"16.0 版本化"两处，两处都要检查。
+function Test-IsDevLocalRegistration([string]$manifest) {
+    if ([string]::IsNullOrEmpty($manifest)) { return $false }
+    # ⚠️ 三个坑都踩过：
+    #  1. Manifest 是 URL 格式、**全正斜杠**（file:///E:/.../bin/Debug/...），判据要写 /bin/debug/。
+    #  2. PowerShell 的 -like wildcard 里 `\` 是转义符，`*\bin\debug\*` 匹配不到东西。用 .Contains()。
+    #  3. **不能要求必须有 "|vstolocal"**：误双击构建产物 bin\Debug\*.vsto 会装成
+    #     ClickOnce 注册（不带 vstolocal），同样会跟正式安装抢注册表 → 也要清。
+    # 判据就一条：清单路径落在仓库的 bin\Debug|bin\Release 下，即"开发式"。
+    $m = $manifest.ToLowerInvariant()
+    return ($m.Contains("/bin/debug/") -or $m.Contains("/bin/release/") -or
+            $m.Contains("\bin\debug\") -or $m.Contains("\bin\release\"))
+}
+
 function Clear-DevLocalAddinRegistration([string]$label) {
     $keys = @(
         "HKCU:\Software\Microsoft\Office\PowerPoint\Addins\PPTShapeLibrary",
@@ -66,11 +83,11 @@ function Clear-DevLocalAddinRegistration([string]$label) {
     foreach ($k in $keys) {
         if (-not (Test-Path $k)) { continue }
         $manifest = (Get-ItemProperty $k -ErrorAction SilentlyContinue).Manifest
-        if ($manifest -like "*vstolocal*") {
+        if (Test-IsDevLocalRegistration $manifest) {
             Remove-Item $k -Recurse -Force -ErrorAction SilentlyContinue
-            Write-Host "   $label 已清理 vstolocal 开发式注册：$k" -ForegroundColor Yellow
+            Write-Host "   $label 已清理开发式注册（指向仓库构建输出）：$k" -ForegroundColor Yellow
         } else {
-            Write-Host "   $label 检测到正式版注册，保留不动：$k" -ForegroundColor Yellow
+            Write-Host "   $label 保留现有注册（正式安装）：$k" -ForegroundColor Yellow
         }
     }
 }

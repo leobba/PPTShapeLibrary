@@ -112,13 +112,22 @@ function Clear-DevArpRecords {
 if ($Unregister) {
     foreach ($k in @($keyVersioned, $keyVersionless)) {
         if (-not (Test-Path $k)) { continue }
-        # 安全闸：这个键与"安装器/ClickOnce 正式版"共用。无脑删除会把用户已装好的正式版
-        # 注册表项删掉（ARP 记录还在）→ 插件从此不加载，只能重装。默认只清 vstolocal 开发式注册。
+        # 安全闸：默认只删"开发式"注册。⚠️ 判定标准是**清单路径在仓库 bin\Debug|bin\Release 下**，
+        # 不能只看 "|vstolocal" —— 2026-10 起正式版也走 |vstolocal（装到
+        # %LOCALAPPDATA%\PPTShapeLibrary\addin\<版本>\）。按老判据会把用户的正式安装删掉。
         $manifest = (Get-ItemProperty $k -ErrorAction SilentlyContinue).Manifest
-        if ($manifest -notlike "*vstolocal*" -and -not $Force) {
+        $m = "$manifest".ToLowerInvariant()
+        # ⚠️ 三个坑都踩过：
+        #  1. Manifest 是 URL 格式、**全正斜杠**（file:///E:/.../bin/Debug/...），判据要写 /bin/debug/。
+        #  2. PowerShell 的 -like wildcard 里 `\` 是转义符，`*\bin\debug\*` 匹配不到东西。用 .Contains()。
+        #  3. 不能要求必须有 "|vstolocal"：误双击构建产物装成的 ClickOnce 注册同样该清。
+        # 判据：清单路径落在仓库的 bin\Debug|bin\Release 下，即"开发式"。
+        $isDev = ($m.Contains("/bin/debug/") -or $m.Contains("/bin/release/") -or
+                  $m.Contains("\bin\debug\") -or $m.Contains("\bin\release\"))
+        if (-not $isDev -and -not $Force) {
             Write-Host "跳过（非开发式注册）：$k" -ForegroundColor Yellow
             Write-Host "  Manifest = $manifest" -ForegroundColor Gray
-            Write-Host "  这看起来是正式版安装。确实要删除请加 -Force。" -ForegroundColor Gray
+            Write-Host "  这不是指向仓库构建输出的注册（可能是正式安装）。确实要删除请加 -Force。" -ForegroundColor Gray
             continue
         }
         Remove-Item $k -Recurse -Force -ErrorAction Stop
