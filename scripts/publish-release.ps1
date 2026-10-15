@@ -65,6 +65,20 @@ if (-not $SkipBuild) {
 $dist = Join-Path $Root "dist"
 if (-not (Test-Path (Join-Path $dist "安装 PPTShapeLibrary.exe"))) { throw "dist 不完整，请先打包" }
 
+Write-Host "== 1.5/6 打单文件安装包（新分发方式：一个 exe）==" -ForegroundColor Cyan
+if (-not $SkipBuild) {
+    & pwsh -NoProfile -File (Join-Path $PSScriptRoot "build-setup.ps1") -Version $Version -Root $Root
+    if ($LASTEXITCODE -ne 0) { throw "单文件安装包构建失败" }
+} else { Write-Host "  已跳过构建（-SkipBuild）" }
+$setup = Join-Path $dist "PPTShapeLibrary-Setup-$Version.exe"
+$setupOk = Test-Path $setup
+if ($setupOk) {
+    $setupHash = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+    Write-Host "  $(Split-Path $setup -Leaf)  $([math]::Round((Get-Item $setup).Length/1MB,2)) MB  sha256=$($setupHash.Substring(0,16))…" -ForegroundColor Green
+} else {
+    Write-Warning "  没有生成单文件安装包（$setup）；update.json 将不含 setupUrl，客户端会退回老的 zip 流程"
+}
+
 Write-Host "== 2/6 校验打包出的版本号一致 ==" -ForegroundColor Cyan
 $vsto = Join-Path $dist "App\PPTShapeLibrary.vsto"
 $appFiles = Join-Path $dist "App\Application Files"
@@ -79,7 +93,14 @@ if ($bundled -ne $Version) {
 Write-Host "== 3/6 制作 zip 与 sha256 ==" -ForegroundColor Cyan
 $zip = Join-Path $Root "PPTShapeLibrary-$Version-dist.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }
-Compress-Archive -Path (Join-Path $dist '*') -DestinationPath $zip -CompressionLevel Optimal
+# 注意：dist 里现在还有**单文件安装包**（PPTShapeLibrary-Setup-*.exe）和它的 .cer/.sha256。
+# 它们本身就是独立资产，不能打进 zip —— 否则 zip 会被撑大一倍以上（实测 4MB → 16MB）。
+$zipItems = Get-ChildItem -Path $dist -Force | Where-Object {
+    $_.Name -notlike 'PPTShapeLibrary-Setup-*.exe' -and
+    $_.Name -notlike 'PPTShapeLibrary-Setup-*.exe.sha256' -and
+    $_.Name -notlike 'PPTShapeLibrary.cer'
+}
+Compress-Archive -Path ($zipItems | ForEach-Object { $_.FullName }) -DestinationPath $zip -CompressionLevel Optimal
 $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
 $shaFile = "$zip.sha256"
 "$hash  $(Split-Path $zip -Leaf)" | Set-Content $shaFile -Encoding ASCII
@@ -102,17 +123,32 @@ $manifest = [ordered]@{
     releaseUrl  = "$githubBase/releases/tag/$tag"
     notes       = if ($Notes) { $Notes } else { "见 Release 说明" }
 }
+# 新流程主资产：单文件安装包。新版客户端读 setupUrl → 下载 exe → 静默本地安装（**不用关 PowerPoint**）。
+# 同时保留上面的 zip/url，让还在用老版 ClickOnce 流程的客户端仍能升级（向后兼容）。
+if ($setupOk) {
+    $manifest.setupName     = Split-Path $setup -Leaf
+    $manifest.setupUrl      = "$githubBase/releases/download/$tag/$(Split-Path $setup -Leaf)"
+    $manifest.setupSha256   = $setupHash
+    $manifest.setupSizeBytes = (Get-Item $setup).Length
+}
 ($manifest | ConvertTo-Json -Depth 5) | Set-Content $updateJson -Encoding UTF8
 
-# 关键：三个资产（zip / .sha256 / update.json）的哈希必须**同源**。
+# 关键：所有资产的哈希必须**同源**。
 # 实测踩过：上传失败后重跑脚本，zip 被重新压缩（字节变了）但另两个没重新生成 → 三者不一致，
-# 用户下载后校验失败。所以每次上传前都**用当前 zip 重算**哈希并同步改写另两个文件。
+# 用户下载后校验失败。所以每次上传前都**用当前文件重算**哈希并同步改写另两个文件。
 $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
 "$hash  $(Split-Path $zip -Leaf)" | Set-Content $shaFile -Encoding ASCII
 $manifest.sha256 = $hash
 $manifest.sizeBytes = (Get-Item $zip).Length
+if ($setupOk) {
+    $setupHash = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+    $manifest.setupSha256 = $setupHash
+    $manifest.setupSizeBytes = (Get-Item $setup).Length
+}
 ($manifest | ConvertTo-Json -Depth 5) | Set-Content $updateJson -Encoding UTF8
-Write-Host "  已按当前 zip 同步 .sha256 与 update.json：$hash"
+$syncMsg = "  已同步 .sha256 与 update.json（zip=" + $hash
+if ($setupOk) { $syncMsg += "，setup=" + $setupHash.Substring(0, 16) + "…" }
+Write-Host ($syncMsg + "）")
 Write-Host "  已生成 update.json（更新器的固定地址会取最新 Release 里的这一份）"
 
 Write-Host "== 5/6 打 tag 并推送（可选）==" -ForegroundColor Cyan
@@ -207,7 +243,9 @@ function Upload-Asset($releaseId, $path) {
 }
 
 if ($release) {
-    foreach ($f in @($zip, $shaFile, $updateJson)) { Upload-Asset $release.id $f }
+    $assetsToUpload = @($zip, $shaFile, $updateJson)
+    if ($setupOk) { $assetsToUpload += $setup; $assetsToUpload += "$setup.sha256" }
+    foreach ($f in $assetsToUpload) { Upload-Asset $release.id $f }
 } else {
     Write-Warning "  未拿到 Release 对象，跳过上传。请在网络可用时重跑本脚本（构建结果已就绪）。"
 }
@@ -216,4 +254,11 @@ Write-Host ""
 Write-Host "发版完成：$tag" -ForegroundColor Green
 Write-Host "  发布页    $githubBase/releases/tag/$tag"
 Write-Host "  更新清单  $githubBase/releases/latest/download/update.json"
-Write-Host "  提示      已安装的旧版通过安装器「检查更新」即可升级；也可把 dist 直接发给别人"
+if ($setupOk) {
+    Write-Host "  单文件安装包（发给别人就发这一个）：" -ForegroundColor Green
+    Write-Host "    $setup"
+    Write-Host "    下载直链 $githubBase/releases/download/$tag/$(Split-Path $setup -Leaf)"
+    Write-Host "  受信任证书（可选，消除『未知发布者』）：$dist\PPTShapeLibrary.cer"
+} else {
+    Write-Host "  提示      本次没有单文件安装包；dist\ 整个目录发给别人，双击「安装 PPTShapeLibrary.exe」"
+}

@@ -1026,6 +1026,54 @@ namespace PPTShapeLibraryInstaller
         /// PackageMetadata / Installations / Components / Marks / StateManager 等条目删掉，
         /// 让 ClickOnce 重新生成。**不动**其它产品的记录。
         /// </summary>
+        /// <summary>
+        /// 清理历史遗留的安装状态（供本地安装模式调用）：
+        /// 老的 ClickOnce 部署记录、VSTA\Solutions、指向开发路径的 ARP、损坏的 SideBySide 元数据。
+        /// 迁到 |vstolocal 本地安装后这些都不再需要；留着会干扰（"已安装另一版本"、-400 等）。
+        /// 返回清理条数。
+        /// </summary>
+        public static int CleanLegacyState(Action<string> say)
+        {
+            int n = 0;
+            try { n += ClearBrokenClickOnceState(say); } catch { }
+            try { ClearVstaRecords(say); n++; } catch { }
+            try { ClearDevArpRecords(say); } catch { }
+            // 老的 ClickOnce 卸载项（指向 VSTOInstaller 的）也一并清掉，避免控制面板出现两个条目
+            try
+            {
+                foreach (var hive in new[] { Registry.CurrentUser, Registry.LocalMachine })
+                {
+                    using (var root = hive.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall"))
+                    {
+                        if (root == null) continue;
+                        foreach (var sub in root.GetSubKeyNames())
+                        {
+                            if (string.Equals(sub, "PPTShapeLibrary", StringComparison.OrdinalIgnoreCase)) continue;
+                            using (var k = root.OpenSubKey(sub))
+                            {
+                                if (k == null) continue;
+                                var name = k.GetValue("DisplayName") as string;
+                                if (string.IsNullOrEmpty(name)) continue;
+                                if (name.IndexOf("PPTShapeLibrary", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                                var un = k.GetValue("UninstallString") as string;
+                                if (string.IsNullOrEmpty(un)) continue;
+                                if (un.IndexOf("VSTOInstaller", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                                try
+                                {
+                                    hive.DeleteSubKeyTree(@"Software\Microsoft\Windows\CurrentVersion\Uninstall\" + sub, false);
+                                    say("已删除旧 ClickOnce 卸载项：" + sub);
+                                    n++;
+                                }
+                                catch { }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+            return n;
+        }
+
         private static int ClearBrokenClickOnceState(Action<string> say)
         {
             int deleted = 0;

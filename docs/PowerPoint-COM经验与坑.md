@@ -1,4 +1,4 @@
-# PowerPoint COM 经验与踩坑记录（收藏/插入外观一致性）
+﻿# PowerPoint COM 经验与踩坑记录（收藏/插入外观一致性）
 
 > 记录 2026-09-13 这一轮排查的结论。**这些坑都是实际发生过的**，改 `ShapeExporter.cs` 前请先读一遍，
 > 不要重复"逐形状刷属性"这类看起来合理、实际会踩 COM 语义坑的做法。
@@ -223,6 +223,53 @@ VisibilityRoots / Categories / Assemblies` 里**只属于本产品**的条目删
 21:10:33  ✓ 安装完成
 ```
 耗时 **2.1 秒**（修复前：卡 120 秒卸载超时 + 安装 -400 失败）。
+
+### 9.10 分发方式改版：放弃 ClickOnce，改用 `|vstolocal` 本地安装（2026-10）
+
+**背景**：§9.8、§9.9 记的那些坑（`AddInAlreadyInstalledException`、"已安装另一版本"、
+卸载卡 120 秒、`UpdateSkipTime` 元数据损坏导致 `VSTOInstaller` 永远 `-400`、
+升级必须关闭 PowerPoint）**根源都在 ClickOnce**。既然每次都要跟它斗争，索性不用它。
+
+**决定性实验**：`Manifest = file:///…\PPTShapeLibrary.vsto|vstolocal`（VS 按 F5 用的那种）
+在**完全没有 VSTO 信任项（Inclusion）**的情况下能否加载？
+
+结果：**能**。装到 `%LOCALAPPDATA%\PPTShapeLibrary\addin\<版本>\`，清空所有 Inclusion 项后
+重启 PowerPoint：插件正常加载、`LoadBehavior` 保持 3、无 VSTO 错误事件。
+
+**关键事实**：
+- 部署清单（`.vsto`）与 `PPTShapeLibrary.dll.manifest` 里引用的都是**真实文件名**，
+  `.deploy` 后缀只是 ClickOnce 下载时的约定 → `|vstolocal` 直接用真实名即可。
+- 扁平布局（`codebase="PPTShapeLibrary.dll.manifest"`）即可，不需要 ClickOnce 那套
+  `Application Files\PPTShapeLibrary_x_y_z_w\` 嵌套。
+- 插件载荷只有 **20 个文件 / 2.45 MB**（Release 构建输出），加上 VSTO 离线包约 4 MB 压成单 exe。
+
+**新旧对比**：
+
+| | ClickOnce | `|vstolocal` 本地安装 |
+|---|---|---|
+| 安装 | `VSTOInstaller /Install` | 复制文件 + 写 2 个注册表键（**亚秒级**） |
+| 升级 | 必须关 PowerPoint，`/Uninstall` + `/Install`（还可能卡 120 秒） | 装到**新版本目录** + 改注册表指向；**完全不用关 PowerPoint**（重启 PPT 生效） |
+| 卸载 | ClickOnce 托管 | 删键 + 删目录（自身在待删目录里 → 派生 `cmd` 延迟删除） |
+| 典型故障 | 已安装另一版本 / -400 / 卸载卡死 | 无（没有那套部署状态机） |
+
+**实测**（同一台机器）：
+```
+装机耗时       < 1 秒
+开着 PowerPoint 升级到新版本   0.4 秒，退出码 0；注册表已指向新目录；
+                              PowerPoint 仍在运行、「素材库」仍可用；旧目录被占用→留待下次清理
+卸载          注册/ARP/目录全清，素材库数据（92 条目）完好
+```
+
+**踩坑**：
+1. `.vsto` 的版本号来自 MSBuild 的 **`ApplicationVersion`**（不是 `AssemblyInfo`），
+   而且**增量构建不会重新生成已存在的 `.vsto`** → 打安装包前必须先删旧 `.vsto`，
+   再用 `/p:ApplicationVersion=<版本>` 构建，否则打进包里的清单是旧版本号。
+2. 升级时要装到**按版本分开的目录**（`addin\1.2.1.0\`）。若装到同一目录，
+   运行中的 PowerPoint 锁着 DLL/清单，`File.Copy` 会失败 → 装到新目录就完全不冲突。
+3. 卸载器自己住在待删目录里，直接 `Directory.Delete` 必然被拒 →
+   派生 `cmd /c ping -n 3 127.0.0.1 >nul & rmdir /s /q "<dir>"` 等进程退出后再删。
+4. `dist\` 同时放 setup exe 时，`Compress-Archive dist\*` 会把 4 MB 的 exe 也压进 zip
+   （实测 4 MB → 16 MB）→ 打 zip 时要按文件名排除 setup/cer/sha256。
 
 ## 三、排查套路（推荐复用）
 

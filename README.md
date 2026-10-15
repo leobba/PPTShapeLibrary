@@ -114,38 +114,81 @@ python scripts\verify-insert-fidelity.py
 python scripts\verify-font-switch.py
 ```
 
-### 发布与自动更新（GitHub Releases）
+### 分发（一个 exe）与自动更新
 
-仓库：<https://github.com/leobba/PPTShapeLibrary>（**必须公开**，否则更新检查拿不到清单）
+**给别人装：只发一个文件**
+
+```
+PPTShapeLibrary-Setup-x.y.z.exe     ← 约 4 MB，内嵌插件本体 + VSTO Runtime 离线包
+PPTShapeLibrary.cer                 ← 可选：让对方导入"受信任的根证书颁发机构"以消除"未知发布者"
+```
+
+用户双击即可 → 环境检测 → 安装（**1 秒内完成**）。控制面板可卸载。
+
+```powershell
+# 只打单文件安装包（开发自测）
+pwsh -File scripts\build-setup.ps1 -Version 1.2.1.0
+# 本机静默安装 / 卸载
+& dist\PPTShapeLibrary-Setup-1.2.1.0.exe --install-local --quiet
+& dist\PPTShapeLibrary-Setup-1.2.1.0.exe --uninstall --quiet
+```
+
+**安装原理：不用 ClickOnce**
+
+解压到 `%LOCALAPPDATA%\PPTShapeLibrary\addin\<版本>\`，写两处加载项注册
+（`Manifest=file:///…\PPTShapeLibrary.vsto|vstolocal`，即 VS 按 F5 调试用的那种），
+再写一条控制面板卸载项。**不需要 VSTOInstaller、不需要信任项、不需要管理员**。
+
+| | ClickOnce（旧） | 本地安装（新） |
+|---|---|---|
+| 安装 | VSTOInstaller，秒级~十几秒 | 复制文件 + 写 2 个键，**亚秒级** |
+| 升级 | 必须**关闭 PowerPoint** 后 `/Uninstall` + `/Install` | 装到**新版本目录** + 改注册表指向，**完全不用关 PowerPoint**（重启 PPT 生效） |
+| 卸载 | ClickOnce 托管，曾卡死 120 秒 | 删键 + 删目录（延迟删除兜底） |
+| 典型故障 | `AddInAlreadyInstalledException`、`UpdateSkipTime` 元数据损坏导致永远 `-400` | 无（没有那套部署状态） |
+
+发版（同时产出单 exe + 兼容老客户端的 zip + update.json）：
 
 ```powershell
 # 首次：复制 .env.example 为 .env，填入 Classic PAT（scope: repo + workflow，.env 已 gitignore）
 pwsh -File scripts\publish-to-github.ps1                     # 幂等建库 + 推送（token 不落 .git/config）
 pwsh -File scripts\publish-to-github.ps1 -Proxy http://127.0.0.1:7890   # 网络受限时走代理
 
-# 发版：构建 → zip+sha256 → update.json → 打 tag → 建 Release → 上传三个资产
-pwsh -File scripts\publish-release.ps1 -Version 1.0.2.0 -Notes "本次改动…"
+# 发版：构建插件 → 打单 exe（嵌入载荷+签名）→ zip+sha256 → update.json → tag → Release → 上传资产
+pwsh -File scripts\publish-release.ps1 -Version 1.2.1.0 -Notes "本次改动…"
+pwsh -File scripts\publish-release.ps1 -Version 1.2.1.0 -SkipPush -SkipBuild   # 网络受限时：复用构建产物，只建/更新 Release
 
-# 把三个官方前置包下到 dist\离线安装包\（别人装的时候完全离线，不用连微软）
+# 把官方前置包下到 dist\离线安装包\（别人装的时候完全离线，不用连微软）
 pwsh -File scripts\fetch-prerequisites.ps1
 ```
 
-**更新机制**（`installer/UpdateChecker.cs`）：
+`update.json` 同时带两种资产，做到**向后兼容**：
+
+```json
+{ "version": "...", "url": "...-dist.zip", "sha256": "...",          // 老客户端（ClickOnce 流程）读这个
+  "setupUrl": "...-Setup-x.y.z.exe", "setupSha256": "...",           // 新客户端读这个 → 静默本地安装，不用关 PPT
+  "releaseUrl": "...", "notes": "..." }
+```
+
+**更新机制**（`PPTShapeLibrary/UpdateService.cs`，插件面板内）：
 
 | 环节 | 做法 | 为什么 |
 |---|---|---|
 | 清单通道 | ① `releases/latest/download/update.json` → ② GitHub API | ①是**固定地址、不走 API**；匿名 API 每 IP 每小时仅 60 次，**实测本机就被限流 403** |
-| 下载 | 直连优先，失败回退加速站（ghproxy.net / gh-proxy.com / ghfast.top） | **实测本机 github.com 被墙**，只有加速站能通（加速站只代理 github.com 域名，不能加速微软下载） |
-| 校验 | 有 `.sha256` 资产就校验，不过拒绝安装 | 防止半截包/被替换的包 |
-| 缓存 | `%LOCALAPPDATA%\PPTShapeLibrary\update-check.json`，24h | 避免反复联网与限流 |
-| 当前版本 | 已安装版本(ARP) → 分发包内目录名 `PPTShapeLibrary_x_y_z_w` | 传统 csproj 不生成 AssemblyVersion，读程序集版本恒为 0.0.0.0 |
-| 界面 | 启动自动检查**只被动提示**；手动点「检查更新」才弹下载确认 | 不打断只想安装/修复的用户 |
-| 命令行 | `安装 PPTShapeLibrary.exe --check-update [--download] [--apply] [--out 报告]` | 可脚本化验证 / 定时任务；退出码 0=最新 1=失败 2=有新版（WinExe 的 stdout 常抓不到，故写报告文件） |
+| 线路选择 | **启动时并发测速**（直连 + ghproxy / gh-proxy / ghfast），选最快的记住 | 原来每次从直连开始试，**github.com 被墙要等 20 秒超时**才回退 → 实测检查 17-22s→**1.7s**、下载 4MB 36s→**4.4s** |
+| 下载与安装 | 有 `setupUrl` → 下载单 exe → `--install-local --quiet`；否则回退 zip + `--pending-update` | 前者**不用关 PowerPoint**；后者保住老版本客户端的升级路径 |
+| 校验 | 有 `.sha256` 就校验，不过拒绝安装 | 防止半截包/被替换的包 |
+| 缓存 | `%APPDATA%\PPTShapeLibrary\update-check.json`，24h | 避免反复联网与限流 |
+| 当前版本 | 加载项注册表 `ProductVersion`（安装器写入）→ ARP `DisplayVersion` | 开发模式下 ARP 会陈旧；`-ProductVersion` 还能把开发版注册成旧版来测更新 |
+| 提醒 | 启动后自动查一次 + 每 N 分钟（0/10/30/60 可配）；**有更新才弹窗** | 不打扰没更新的用户 |
+| 界面 | 面板顶部提示条（「更新内容」按钮展开）+ 本地更新弹窗（进度/速度） | 更新内容不再挤在提示条里 |
 
-发版三条**实测踩过的坑**（已写进脚本）：
+发版几条**实测踩过的坑**（已写进脚本）：
 1. **别删带 Release 的 tag 再重建**——GitHub 会把 Release 转成**草稿**，而 `releases/latest` 排除草稿 → 用户端更新静默失效。脚本已自动取消草稿。
 2. **按 tag 查 Release 必须重试**——网络抖动时返回 404，直接当成"没有"就会建出**同 tag 的重复 Release**（`latest` 会指到缺资产的副本上）。脚本改为重试 + 列表兜底 + 去重。
 3. **PowerShell here-string 里反引号是转义符**——写发布说明时 `` `r `` 会变成回车，把 "releases" 吃成 "eleases"。英文/含反引号的正文用**单引号** here-string（`@'…'@`）。
+4. **`.vsto` 的版本号来自 `ApplicationVersion`，不是 AssemblyInfo**，而且**增量构建不会重生成已存在的 `.vsto`** → 打单 exe 前必须删掉旧 `.vsto` 再用 `/p:ApplicationVersion=<版本>` 构建，否则打进包里的是旧版本号。
+5. **zip 资产里不能混进单 exe**——`dist\` 同时放着 setup exe 时，`Compress-Archive dist\*` 会把 4 MB 的 exe 也压进去（实测 4 MB → 16 MB）。脚本已按文件名排除 setup/cer/sha256。
+6. **中文引号会破坏 PowerShell 字符串**——`Write-Host "…"未知发布者"…"` 里的 `"` 会提前结束字符串；用「」或单引号。
 
 
 ### Web UI 前端（shadcn/ui · React + Tailwind v4）

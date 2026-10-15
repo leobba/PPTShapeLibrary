@@ -42,7 +42,14 @@
   <ItemGroup>
     <Compile Include="InstallerForm.cs" />
     <Compile Include="UpdateChecker.cs" />
+    <Compile Include="LocalInstall.cs" />
     <Compile Include="Program.cs" />
+  </ItemGroup>
+  <!-- 单 exe 分发：插件载荷打进 exe（打包脚本生成 payload.zip 后放在本目录再构建） -->
+  <ItemGroup Condition="Exists('payload.zip')">
+    <EmbeddedResource Include="payload.zip">
+      <LogicalName>payload.zip</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

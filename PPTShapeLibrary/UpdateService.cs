@@ -15,8 +15,11 @@ namespace PPTShapeLibrary
         public bool Ok;
         public string Message;
         public string Dir;        // 新版解压目录
-        public string Installer;  // 解压出来的安装器路径
+        public string Installer;  // 解压出来的安装器路径 / 下载好的单文件安装包
         public string Version;    // 新版版本号
+        /// <summary>true = 下载到的是**单文件安装包**（自带载荷），
+        /// 直接 `--install-local --quiet` 静默装即可，**不需要关闭 PowerPoint**。</summary>
+        public bool SelfContained;
     }
 
     /// <summary>下载结果类型。</summary>
@@ -39,6 +42,10 @@ namespace PPTShapeLibrary
         public string Sha256;
         public string Notes;
         public string Error;
+        /// <summary>单文件安装包直链（PPTShapeLibrary-Setup-*.exe）。有它就优先用：
+        /// 下载 → 静默运行 → 换目录+改注册，**不用关 PowerPoint**。</summary>
+        public string SetupUrl;
+        public string SetupSha256;
     }
 
     /// <summary>
@@ -458,6 +465,8 @@ namespace PPTShapeLibrary
                 DownloadUrl = Pick(json, "url"),
                 Sha256 = Pick(json, "sha256"),
                 Notes = Truncate(Pick(json, "notes"), 800),
+                SetupUrl = Pick(json, "setupUrl"),
+                SetupSha256 = Pick(json, "setupSha256"),
             };
             if (rec.LatestVersion == "0.0.0.0" && rec.DownloadUrl.Length == 0) return null;
             return rec;
@@ -488,6 +497,11 @@ namespace PPTShapeLibrary
             public string DownloadUrl { get; set; }
             public string Sha256 { get; set; }
             public string Notes { get; set; }
+            /// <summary>单文件安装包（PPTShapeLibrary-Setup-*.exe）直链。新版本优先用它：
+            /// 下载后静默运行即可完成"本地安装"式升级，**不需要关闭 PowerPoint**。
+            /// 老版本没有这个字段 → 退回 DownloadUrl（zip + ClickOnce 老流程）。</summary>
+            public string SetupUrl { get; set; }
+            public string SetupSha256 { get; set; }
         }
 
         private static CacheRecord LoadCache()
@@ -520,6 +534,8 @@ namespace PPTShapeLibrary
             info.DownloadUrl = rec.DownloadUrl;
             info.Sha256 = rec.Sha256;
             info.Notes = rec.Notes;
+            info.SetupUrl = rec.SetupUrl;
+            info.SetupSha256 = rec.SetupSha256;
             info.HasUpdate = !string.IsNullOrEmpty(info.LatestVersion)
                              && CompareVersions(info.LatestVersion, info.CurrentVersion) > 0;
         }
@@ -658,6 +674,12 @@ namespace PPTShapeLibrary
                             string url = Str(d, "browser_download_url");
                             if (string.IsNullOrEmpty(url)) continue;
                             if (name.EndsWith(".sha256", StringComparison.OrdinalIgnoreCase)) continue;
+                            // 单文件安装包（新流程优先）
+                            if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                            {
+                                if (rec.SetupUrl == null) rec.SetupUrl = url;
+                                continue;
+                            }
                             if (!name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) continue;
                             if (name.IndexOf("dist", StringComparison.OrdinalIgnoreCase) >= 0)
                             {
@@ -727,10 +749,46 @@ namespace PPTShapeLibrary
                 res.Message = info.Ok ? "当前已是最新版本，无需更新。" : ("检查更新失败：" + info.Error);
                 return res;
             }
-            if (string.IsNullOrEmpty(info.DownloadUrl))
+            if (string.IsNullOrEmpty(info.SetupUrl) && string.IsNullOrEmpty(info.DownloadUrl))
             {
                 res.Message = "该版本没有提供下载地址，请到发布页手动下载。";
                 return res;
+            }
+
+            // ---- 首选：单文件安装包（下载后静默运行，不需要关闭 PowerPoint）----
+            if (!string.IsNullOrEmpty(info.SetupUrl))
+            {
+                string exe = null;
+                try
+                {
+                    exe = Path.Combine(Path.GetTempPath(), "PPTShapeLibrary-Setup-" + info.LatestVersion + ".exe");
+                    Log.Write("[update] 下载单文件安装包 " + info.SetupUrl);
+                    say("download", 0, -1);
+                    if (Download(info.SetupUrl, exe, (got, total) => say("download", got, total)) != DownloadStatus.Ok)
+                        throw new Exception("下载失败（直连与加速站都试过了）");
+
+                    say("verify", 0, 0);
+                    if (!string.IsNullOrEmpty(info.SetupSha256))
+                    {
+                        var actual = Sha256(exe);
+                        if (!string.Equals(actual, info.SetupSha256, StringComparison.OrdinalIgnoreCase))
+                            throw new Exception("校验失败，已放弃安装（下载的文件与发布的不一致）");
+                        Log.Write("[update] 安装包 SHA256 校验通过");
+                    }
+
+                    res.Ok = true;
+                    res.Installer = exe;
+                    res.Dir = "";
+                    res.SelfContained = true;      // 调用方据此走"静默本地安装"（不用关 PowerPoint）
+                    res.Message = "新版已准备好：" + info.LatestVersion;
+                    return res;
+                }
+                catch (Exception ex)
+                {
+                    try { if (exe != null && File.Exists(exe)) File.Delete(exe); } catch { }
+                    Log.Write("[update] 单文件安装包流程失败：" + ex.Message + "，回退旧流程");
+                    // 不 return：继续尝试下面的 zip 流程
+                }
             }
 
             string zip = null;

@@ -81,6 +81,13 @@ PPTShapeLibrary-*-dist.zip
 PPTShapeLibrary-*-dist.zip.sha256
 /update.json
 
+# ================= 单 exe 安装包的构建中间产物 =================
+# payload.zip 由 scripts/build-setup.ps1 生成（插件载荷，会被嵌进安装器 exe）
+installer/payload.zip
+PPTShapeLibrary-Setup-*.exe
+PPTShapeLibrary-Setup-*.exe.sha256
+*.cer
+
 # ================= Node / webui-src 前端工程 =================
 **/node_modules/
 **/webui-src/dist/

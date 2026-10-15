@@ -9,6 +9,44 @@ namespace PPTShapeLibraryInstaller
         [STAThread]
         private static int Main(string[] args)
         {
+            // ---- 新增：本地安装模式（不再依赖 ClickOnce/VSTOInstaller）----
+            //   --install-local [--dir <解压好的载荷目录>] [--version x.y.z.w] [--quiet]
+            //   不给 --dir 时用安装器**内嵌的载荷**（单 exe 分发就是这条路）。
+            //   行为：放文件到 %LOCALAPPDATA%\PPTShapeLibrary\addin\<版本>\ + 写 2 个加载项键 + 写卸载项。
+            //   **不需要关闭 PowerPoint**（只改注册表指向，运行中的实例继续用旧目录，下次启动生效）
+            if (args != null && Array.IndexOf(args, "--install-local") >= 0)
+            {
+                Environment.Exit(RunInstallLocal(args));
+            }
+
+            // --uninstall [--quiet]：删键 + 删目录 + 清残留（控制面板卸载项调它）
+            if (args != null && Array.IndexOf(args, "--uninstall") >= 0)
+            {
+                Environment.Exit(RunUninstall(args));
+            }
+
+            // --payload-extract <目标目录>：只把内嵌载荷解出来（打包/排错用）
+            if (args != null && args.Length >= 2 && args[0] == "--payload-extract")
+            {
+                try
+                {
+                    LocalInstall.ExtractPayload(args[1], s => Console.WriteLine(s));
+                    Environment.Exit(0);
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine(ex.Message);
+                    Environment.Exit(1);
+                }
+            }
+
+            // 打印机模式：报告内嵌载荷信息（打包脚本自检用）
+            if (args != null && Array.IndexOf(args, "--payload-info") >= 0)
+            {
+                Console.WriteLine("HasPayload=" + LocalInstall.HasPayload);
+                Environment.Exit(LocalInstall.HasPayload ? 0 : 1);
+            }
+
             // 提权子模式：由「修复加载项注册」以 runas 拉起，只写 HKLM 的加载项注册后立即退出。
             // 不弹 UI，避免用户看到第二个窗口；退出码 0=写入成功。
             if (args != null && args.Length >= 2 && args[0] == "--repair-machine")
@@ -51,6 +89,136 @@ namespace PPTShapeLibraryInstaller
             int i = Array.IndexOf(args, name);
             if (i >= 0 && i + 1 < args.Length && !args[i + 1].StartsWith("--")) return args[i + 1];
             return null;
+        }
+
+        /// <summary>版本号：优先 --version，其次取载荷里的 vsto/程序集版本，最后退回调用方给的默认。</summary>
+        private static string ResolveVersion(string[] args, string payloadDir)
+        {
+            string v = ArgValue(args, "--version");
+            if (!string.IsNullOrEmpty(v)) return v;
+
+            // 从载荷目录里的 PPTShapeLibrary.dll 读文件版本（最可靠）
+            try
+            {
+                if (!string.IsNullOrEmpty(payloadDir))
+                {
+                    string dll = Path.Combine(payloadDir, "PPTShapeLibrary.dll");
+                    if (File.Exists(dll))
+                    {
+                        var fv = System.Diagnostics.FileVersionInfo.GetVersionInfo(dll).FileVersion;
+                        if (!string.IsNullOrEmpty(fv)) return fv;
+                    }
+                }
+            }
+            catch { }
+
+            // 从自己所在目录找（安装器与载荷同级时）
+            try
+            {
+                string dll = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PPTShapeLibrary.dll");
+                if (File.Exists(dll))
+                {
+                    var fv = System.Diagnostics.FileVersionInfo.GetVersionInfo(dll).FileVersion;
+                    if (!string.IsNullOrEmpty(fv)) return fv;
+                }
+            }
+            catch { }
+
+            return "0.0.0.0";
+        }
+
+        private static int RunInstallLocal(string[] args)
+        {
+            string logPath = Path.Combine(Path.GetTempPath(), "pptsl_local_install.log");
+            Action<string> say = m =>
+            {
+                string line = DateTime.Now.ToString("HH:mm:ss") + "  " + m;
+                try { File.AppendAllText(logPath, line + Environment.NewLine, System.Text.Encoding.UTF8); } catch { }
+                try { Console.WriteLine(line); } catch { }
+            };
+            try { File.Delete(logPath); } catch { }
+
+            bool quiet = Array.IndexOf(args, "--quiet") >= 0;
+            try
+            {
+                string dir = ArgValue(args, "--dir");
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                {
+                    say("✗ 载荷目录不存在：" + dir);
+                    if (!quiet) MessageBox.Show("载荷目录不存在：" + dir, "安装失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return 2;
+                }
+
+                string stage = dir;
+                bool tempStage = false;
+                if (string.IsNullOrEmpty(stage))
+                {
+                    // 单 exe：先把内嵌载荷解到临时目录
+                    stage = Path.Combine(Path.GetTempPath(), "pptsl_payload_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+                    say("解出自带载荷 → " + stage);
+                    LocalInstall.ExtractPayload(stage, say);
+                    tempStage = true;
+                }
+
+                string version = ResolveVersion(args, stage);
+                say("版本：" + version);
+
+                say("正在结束可能残留的 PowerPoint 安装记录（清理 ClickOnce/VSTA 残留）…");
+                int cleaned = InstallerForm.CleanLegacyState(say);
+                if (cleaned > 0) say("已清理 " + cleaned + " 条历史残留");
+
+                int n = LocalInstall.Install(version, stage, say);
+                say("✓ 安装成功：" + LocalInstall.VersionDir(version) + "（注册 " + n + " 处）");
+
+                if (tempStage)
+                {
+                    try { Directory.Delete(stage, true); } catch { }
+                }
+
+                if (!quiet)
+                {
+                    MessageBox.Show(
+                        "安装完成。\r\n\r\n" +
+                        "打开 PowerPoint，功能区应出现「素材库」选项卡。\r\n" +
+                        "若没有出现：请先完全退出 PowerPoint 再重新打开；仍没有就运行安装器的「修复加载项注册」。\r\n\r\n" +
+                        "插件目录：" + LocalInstall.VersionDir(version),
+                        "安装完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                say("✗ 安装失败：" + ex.Message);
+                if (!quiet) MessageBox.Show("安装失败：\r\n\r\n" + ex.Message, "安装失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return 1;
+            }
+        }
+
+        private static int RunUninstall(string[] args)
+        {
+            string logPath = Path.Combine(Path.GetTempPath(), "pptsl_local_install.log");
+            Action<string> say = m =>
+            {
+                string line = DateTime.Now.ToString("HH:mm:ss") + "  " + m;
+                try { File.AppendAllText(logPath, line + Environment.NewLine, System.Text.Encoding.UTF8); } catch { }
+                try { Console.WriteLine(line); } catch { }
+            };
+
+            bool quiet = Array.IndexOf(args, "--quiet") >= 0;
+            try
+            {
+                LocalInstall.Uninstall(say);
+                if (!quiet)
+                    MessageBox.Show("已卸载 PPTShapeLibrary。\r\n\r\n（你的素材库数据仍在 %APPDATA%\\PPTShapeLibrary，未删除）",
+                        "卸载完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                say("✗ 卸载失败：" + ex.Message);
+                if (!quiet) MessageBox.Show("卸载失败：\r\n\r\n" + ex.Message, "卸载失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return 1;
+            }
         }
 
         /// <summary>

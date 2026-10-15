@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -59,6 +59,7 @@ namespace PPTShapeLibrary
         System.Windows.Forms.Timer _quitTimer;
         int _quitTries;
         string _installer, _dir;
+        bool _selfContained;    // 下载到的是单文件安装包（新流程：不用关 PowerPoint）
 
         long _lastBytes;
         DateTime _lastTick = DateTime.MinValue;
@@ -375,8 +376,18 @@ namespace PPTShapeLibrary
 
             _installer = res.Installer;
             _dir = res.Dir;
+            _selfContained = res.SelfContained;
             _progress.Value = 100;
             _stage.Text = "下载完成，准备安装…";
+
+            // 单文件安装包流程**不需要关闭 PowerPoint**，所以也**不需要**"检查/保存未保存文稿"
+            // 这一步（那是为了"要关 PowerPoint 才保住改动"而设的）。直接装，少一次打扰。
+            if (_selfContained)
+            {
+                InstallNow();
+                return;
+            }
+
             CheckUnsavedAndAsk();
         }
 
@@ -500,12 +511,84 @@ namespace PPTShapeLibrary
             _saveLabel.Visible = _listBox.Visible = false;
             _saveAll.Visible = _skipSave.Visible = _cancel.Visible = false;
             _notesLabel.Visible = _notesBox.Visible = _progress.Visible = _stage.Visible = _speed.Visible = true;
-            _progress.Indeterminate = true;
             _later.Visible = false;
             _go.Visible = false;
             _close.Visible = true;
             _close.Enabled = false;
 
+            // ---- 新流程：单文件安装包（自带载荷）----
+            // 直接静默运行它：它会解压到 addin\<新版本>\ 并改写注册表指向。
+            // **PowerPoint 完全不用关**：运行中的实例继续用旧目录，下次启动就是新版。
+            if (_selfContained)
+            {
+                _title.Text = "正在更新到 " + _info.LatestVersion;
+                _sub.Text = "无需关闭 PowerPoint —— 更新后重启 PowerPoint 生效";
+                _progress.Indeterminate = true;
+                _stage.Text = "正在安装新版本…";
+                _speed.Text = "";
+
+                try
+                {
+                    var psi = new ProcessStartInfo(_installer, "--install-local --quiet")
+                    {
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                    };
+                    var p = Process.Start(psi);
+                    if (p != null) p.WaitForExit(120000);
+                    int code = p == null ? -1 : p.ExitCode;
+                    Log.Write("[update] 本地安装退出码：" + code);
+
+                    _progress.Indeterminate = false;
+                    _progress.Value = 100;
+
+                    if (code == 0)
+                    {
+                        _title.Text = "更新完成";
+                        _sub.Text = "已安装 " + _info.LatestVersion;
+                        _stage.Text = "重启 PowerPoint 即可使用新版本（当前窗口仍是旧版）";
+                        _close.Enabled = true;
+                        _later.Visible = true;
+                        _later.Text = "关闭";
+                        _later.SetBounds(_go.Left, _go.Top, S(124), S(40));
+
+                        // 问一句要不要现在重启 PowerPoint（可选，不强制）
+                        var r = MessageBox.Show(this,
+                            "已更新到 " + _info.LatestVersion + "。\r\n\r\n" +
+                            "新版本会在**下次启动 PowerPoint** 时生效。\r\n" +
+                            "现在重启 PowerPoint 吗？（建议先保存正在编辑的文稿）",
+                            "更新完成", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+                        if (r == DialogResult.Yes)
+                        {
+                            try
+                            {
+                                var app = Globals.ThisAddIn != null ? Globals.ThisAddIn.Application : null;
+                                if (app != null) app.Quit();
+                            }
+                            catch (Exception ex) { Log.Write("[update] 重启 PowerPoint 失败：" + ex.Message); }
+                        }
+                    }
+                    else
+                    {
+                        _stage.Text = "安装失败（退出码 " + code + "），请到发布页手动下载安装";
+                        _close.Enabled = true;
+                        MessageBox.Show(this,
+                            "安装未成功（退出码 " + code + "）。\r\n\r\n可到发布页手动下载安装包。",
+                            "更新失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Write("[update] 运行本地安装失败：" + ex.Message);
+                    _stage.Text = "安装失败：" + ex.Message;
+                    _close.Enabled = true;
+                    MessageBox.Show(this, "安装失败：" + ex.Message, "更新失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+                return;
+            }
+
+            // ---- 老流程：zip 分发包 + --pending-update（需要等 PowerPoint 退出）----
+            _progress.Indeterminate = true;
             _title.Text = "正在安装 " + _info.LatestVersion;
             _sub.Text = "安装器已启动，PowerPoint 将自动关闭并在后台完成升级";
             _stage.Text = "正在启动安装器…";
