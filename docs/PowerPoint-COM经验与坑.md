@@ -1,4 +1,4 @@
-﻿# PowerPoint COM 经验与踩坑记录（收藏/插入外观一致性）
+# PowerPoint COM 经验与踩坑记录（收藏/插入外观一致性）
 
 > 记录 2026-09-13 这一轮排查的结论。**这些坑都是实际发生过的**，改 `ShapeExporter.cs` 前请先读一遍，
 > 不要重复"逐形状刷属性"这类看起来合理、实际会踩 COM 语义坑的做法。
@@ -270,6 +270,14 @@ VisibilityRoots / Categories / Assemblies` 里**只属于本产品**的条目删
    派生 `cmd /c ping -n 3 127.0.0.1 >nul & rmdir /s /q "<dir>"` 等进程退出后再删。
 4. `dist\` 同时放 setup exe 时，`Compress-Archive dist\*` 会把 4 MB 的 exe 也压进 zip
    （实测 4 MB → 16 MB）→ 打 zip 时要按文件名排除 setup/cer/sha256。
+5. **`package-release.ps1` / `dev-register.ps1` 原来用「Manifest 含 `|vstolocal`」判定开发式注册并删除**。
+   架构改版后正式安装也是 `|vstolocal` → 这条老判据会把用户的**正式注册**删掉，
+   表现为"打完版 PowerPoint 里素材库消失"。已改为**按路径判定**（落在仓库 `bin\Debug|bin\Release`
+   下才是开发式）。连带三个实测坑：
+   - 注册表里的 `Manifest` 是 **URL 格式、全正斜杠**，判据要写 `/bin/debug/`
+   - PowerShell `-like` 的通配符里 **`\` 是转义符**，`*\bin\debug\*` 实际匹配 `*bindebug*`，永远不中
+     → 用 `.Contains()` 做字面量判断
+   - 不能要求必须有 `|vstolocal`：误双击构建产物装成的 ClickOnce 注册（不带该后缀）同样要清
 
 ## 三、排查套路（推荐复用）
 
