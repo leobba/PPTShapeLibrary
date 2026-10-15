@@ -472,3 +472,50 @@ Start-Process "C:\Program Files\Microsoft Office\root\Office16\POWERPNT.EXE" -Ar
 **给未来的通用教训**：把"某 API 不可靠"写进文档时，一定要写清**前提条件**。
 第 2 条旧结论在"设计名不唯一"的时代是对的，但设计唯一改名之后它就成了误导——
 本次差点因此保留一条又慢又不稳的剪贴板主路径。
+
+### 14. 判决性实验：形状插入能否彻底不用剪贴板？（2026-10，结论：**不能**，但可等待恢复）
+
+**背景**：用户在真实环境报「剪贴板被占用」，冲突对象是 **Snipaste** 这类剪贴板工具。
+报错原文（已复现）：
+
+```
+Shapes.Paste : Invalid request. Clipboard is empty or contains data which may not be pasted here.
+```
+
+**实验脚本**：`scripts\test\exp-insert-noclip.ps1`（可复跑；用 `hold-clipboard.ps1` 模拟占用）。
+占用器用 Win32 `OpenClipboard()` 锁住剪贴板（实测：占用期间 `Clipboard.SetText` 抛"所请求的剪贴板操作失败"，释放后立刻成功 → 忠实复现 Snipaste 场景）。
+
+**五条路径在"剪贴板被占用"时的实测结果**：
+
+| 路径 | 做法 | 结果 |
+|---|---|---|
+| **A**（现状形状插入） | 跨文稿 `Shapes.Range().Copy()` → `target.Paste()` | ❌ **失败**（复现用户报错） |
+| **B**（候选：插整页再搬） | `InsertFromFile` 插整页 → **同文稿内** `Copy`→`Paste` 搬形状 | ❌ **失败**（第一步成功且没碰剪贴板，第二步仍失败） |
+| **C**（现有整页插入） | `Slides.InsertFromFile` | ✅ 成功 |
+| **D**（整页 Duplicate） | `InsertFromFile` + `Slide.Duplicate()` − 删临时页 | ✅ 成功（`Duplicate` 不碰剪贴板） |
+| **E**（重试策略） | `Clear` + 等待 + 重试，共 6 次 | ✅ **最终成功**（等到占用者释放的间隙，实测约 3s） |
+
+**三条结论**：
+
+1. **形状插入无法免剪贴板**。
+   `InsertFromFile` 只能插**整页**，不能只插页里的几个形状；
+   而任何"把形状从 A 放到 B"都要 `Copy`/`Paste`——
+   **B 路径证明了：哪怕在**同一文稿内**，`Copy`→`Paste` 仍然依赖剪贴板**（这是本实验最有价值的否定性结果，
+   它否掉了"先插整页再同文稿内搬运"这个看起来很聪明的绕行方案）。
+
+2. **`Slide.Duplicate()` 是唯一不碰剪贴板的复制手段**，但它复制的是**整页**，
+   对"把形状插到当前页"这个语义没有帮助（只能用于整页类操作，如 D）。
+
+3. **剪贴板冲突是"可等待、可恢复"的，不是死局**。
+   Snipaste 这类工具会周期性开合剪贴板（实测模拟占用 3s / 释放 1s）；
+   重试策略能在释放的间隙成功（实测第 2 次尝试即恢复，总耗时约 3s）。
+   所以正确方向是**优化等待/重试**，而不是消灭剪贴板。
+
+**对现有代码的指引**：
+- `ShapeExporter.CopyPasteWithRetry` 的方向是对的（清剪贴板 → 重试 → 快照还原），**保留**。
+- 注意一个细节：`Clipboard.Clear()` 在剪贴板被占用时**自己也会抛异常**
+  （"Requested Clipboard operation did not succeed."）。现有代码用 `try/catch` 吞掉是对的，
+  但这意味着**第一次尝试很可能白费**，不要把 `Clear()` 的成功与否当作"剪贴板可用"的判据。
+- 想进一步提升成功率：把固定 `Sleep` 改成**指数退避 + 更长上限**（Snipaste 占用窗口可能比现在的
+  `40+30*attempt` ms 长得多；实测等约 3s 才恢复）。
+- **不要**为了绕开剪贴板去改 `BackupTo`/收藏格式（形状库必须存 pptx 才能保真，见 §2/§13）。

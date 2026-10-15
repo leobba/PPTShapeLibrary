@@ -2006,8 +2006,11 @@ namespace PPTShapeLibrary
                     // ① 先清掉剪贴板里的陈旧内容：报错 "contains data which may not be pasted here" 往往
                     //    就是因为剪贴板里留着第三方工具（截图/剪贴板管理器，如 Snipaste）放进去的数据，
                     //    PowerPoint 试图粘贴它而失败。调用方已保存用户剪贴板快照，操作结束会还原。
+                    // 清剪贴板在**被占用时自己也会抛异常**（"Requested Clipboard operation did not succeed."），
+                    // 所以这里吞掉它，且**不能**把 Clear 是否成功当作"剪贴板可用"的判据（见 docs §14）。
                     try { System.Windows.Forms.Clipboard.Clear(); } catch { }
-                    System.Threading.Thread.Sleep(40 + 30 * attempt);
+                    // 复制前的短等待：给占用者一点释放的机会（退避 40/90/160/250/360ms）
+                    System.Threading.Thread.Sleep(40 + 50 * attempt);
 
                     // ② 复制。注意：复制与粘贴之间**不读剪贴板**——读剪贴板本身会加锁，
                     //    与第三方剪贴板工具抢锁反而更容易让 Copy 失败（旧实现在这里连读 4 次）。
@@ -2023,14 +2026,14 @@ namespace PPTShapeLibrary
                     string formats = ClipboardFormatsBrief();
                     Log.Write("paste retry " + attempt + "/" + maxAttempts + ": " + ex.Message +
                               " formats=[" + formats + "]");
-                    if (formats == "(读取失败)" && !ClipboardGuard.IsReadable())
-                    {
-                        // 剪贴板被独占且不可读 → 重试无意义，快速失败
-                        throw new Exception(
-                            "剪贴板被另一个程序独占且未响应（常见于截图/剪贴板工具，如 Snipaste）。" +
-                            "请关闭该程序，或在任意程序里复制一次新内容后重试。原始错误：" + ex.Message);
-                    }
-                    try { System.Threading.Thread.Sleep(150); } catch { }
+                    // ⚠️ 这里**不要**因为"剪贴板当前不可读"就提前放弃。
+                    // 2026-10 判决性实验（docs §14）实测：Snipaste 这类工具是**周期性开合**剪贴板的
+                    // （模拟占用 3s / 释放 1s），重试能在释放的间隙成功（实测第 2 次即恢复，总耗时约 3s）。
+                    // 旧代码在此处判断"不可读 → 重试无意义 → 立即失败"，恰好在最该等待的时候放弃了，
+                    // 直接造成用户遇到的「剪贴板被占用」报错。现在改为：一直重试到底，最后再给可操作提示。
+
+                    // 退避：40/90/160/250/360 毫秒（覆盖 Snipaste 典型的占用窗口；见 §14）
+                    try { System.Threading.Thread.Sleep(40 + 50 * attempt); } catch { }
                 }
             }
             throw new Exception(
