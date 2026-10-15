@@ -25,6 +25,15 @@ namespace PPTShapeLibraryInstaller
                 Environment.Exit(RunUninstall(args));
             }
 
+            // --repair [--quiet]：重写加载项注册（GUI 的「修复加载项注册」按钮走同一段核心逻辑）。
+            // 清单来源：先找本目录的 App\/ClickOnce\，找不到就用**已安装**目录里的 .vsto
+            //（单文件包安装后不存在 App\，见 LocalInstall.InstalledManifestPath）。
+            // 加这个 CLI 的另一个目的是**可自动化验证** —— 之前该路径只能手点按钮。
+            if (args != null && Array.IndexOf(args, "--repair") >= 0)
+            {
+                Environment.Exit(RunRepair(args));
+            }
+
             // --payload-extract <目标目录>：只把内嵌载荷解出来（打包/排错用）
             if (args != null && args.Length >= 2 && args[0] == "--payload-extract")
             {
@@ -177,6 +186,45 @@ namespace PPTShapeLibraryInstaller
             {
                 say("✗ 安装失败：" + ex.Message);
                 if (!quiet) MessageBox.Show("安装失败：\r\n\r\n" + ex.Message, "安装失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return 1;
+            }
+        }
+
+        private static int RunRepair(string[] args)
+        {
+            string logPath = Path.Combine(Path.GetTempPath(), "pptsl_local_install.log");
+            Action<string> say = m =>
+            {
+                string line = DateTime.Now.ToString("HH:mm:ss") + "  " + m;
+                try { File.AppendAllText(logPath, line + Environment.NewLine, System.Text.Encoding.UTF8); } catch { }
+                try { Console.WriteLine(line); } catch { }
+            };
+
+            bool quiet = Array.IndexOf(args, "--quiet") >= 0;
+            try
+            {
+                string manifest = InstallerForm.FindDeploymentManifest();
+                if (string.IsNullOrEmpty(manifest))
+                {
+                    say("✗ 找不到可用的部署清单：本目录没有 App\\PPTShapeLibrary.vsto，"
+                        + "已安装目录里也没有（%LOCALAPPDATA%\\PPTShapeLibrary\\addin\\<版本>\\PPTShapeLibrary.vsto）。"
+                        + "请先运行安装器完成安装。");
+                    if (!quiet) MessageBox.Show("找不到可用的部署清单，请先完成安装。", "修复失败",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return 2;
+                }
+                say("用于修复的清单：" + manifest);
+                int n = InstallerForm.RepairAddinRegistrationCore(manifest, say);
+                say("✓ 修复完成（写入 " + n + " 处）");
+                if (!quiet)
+                    MessageBox.Show("已写入 " + n + " 处加载项注册。\r\n\r\n请重新打开 PowerPoint，功能区应出现「素材库」选项卡。",
+                        "修复完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                say("✗ 修复失败：" + ex.Message);
+                if (!quiet) MessageBox.Show("修复失败：\r\n\r\n" + ex.Message, "修复失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return 1;
             }
         }

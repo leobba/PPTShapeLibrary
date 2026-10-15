@@ -49,6 +49,32 @@ namespace PPTShapeLibraryInstaller
             return Path.Combine(VersionDir(version), "PPTShapeLibrary-卸载修复.exe");
         }
 
+        /// <summary>
+        /// 已安装（本地安装形态）的部署清单 **本地路径**（.vsto），找不到返回 null。
+        ///
+        /// 「修复加载项注册」原先只会在自己所在目录找 App\PPTShapeLibrary.vsto —— 但单文件包
+        /// 安装后文件在 addin\&lt;版本&gt;\ 下，根本没有 App\ 目录，于是修复会误报"缺少安装包"。
+        /// 这里从已安装目录里取版本号最大的那份清单。
+        /// </summary>
+        public static string InstalledManifestPath()
+        {
+            try
+            {
+                if (!Directory.Exists(AddinRoot)) return null;
+                string best = null, bestVer = null;
+                foreach (var d in Directory.GetDirectories(AddinRoot))
+                {
+                    string vsto = Path.Combine(d, "PPTShapeLibrary.vsto");
+                    if (!File.Exists(vsto)) continue;
+                    string v = Path.GetFileName(d);
+                    // 版本号字典序比较对 x.y.z.w 形式是够用的
+                    if (bestVer == null || string.CompareOrdinal(v, bestVer) > 0) { best = vsto; bestVer = v; }
+                }
+                return best;
+            }
+            catch { return null; }
+        }
+
         // ---------------- 载荷（内嵌 zip）----------------
 
         private const string PayloadResource = "payload.zip";
@@ -342,8 +368,7 @@ namespace PPTShapeLibraryInstaller
         /// 卸载器就住在待删目录里，自己删自己一定被拒 —— 这是标准做法。
         /// 用 ping 当 sleep（`timeout` 需要控制台，在隐藏窗口里会立刻报错）。
         /// </summary>
-        public static void ScheduleDirectoryDelete(string dir, Action<string> say)
-        {
+        public static void ScheduleDirectoryDelete(string dir, Action<string> say)        {
             try
             {
                 string cmd = "/c ping -n 3 127.0.0.1 >nul & rmdir /s /q \"" + dir + "\"";

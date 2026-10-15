@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -490,11 +490,13 @@ namespace PPTShapeLibraryInstaller
             if (manifest == null)
             {
                 MessageBox.Show(
-                    "未找到 App\\PPTShapeLibrary.vsto，无法修复注册。\r\n" +
-                    "请确认安装目录完整（App\\PPTShapeLibrary.vsto + App\\Application Files\\）。",
+                    "未找到安装包，无法修复注册。\r\n\r\n" +
+                    "· 单文件包安装：请先运行安装器完成安装（文件在 %LOCALAPPDATA%\\PPTShapeLibrary\\addin\\）\r\n" +
+                    "· 目录分发形态：请确认本程序同目录有 App\\PPTShapeLibrary.vsto + App\\Application Files\\",
                     "缺少安装包", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
+            Log("用于修复的清单：" + manifest);
             if (IsPowerPointRunning())
             {
                 MessageBox.Show("请先完全退出 PowerPoint 再修复注册（否则可能被覆盖回去）。",
@@ -505,15 +507,7 @@ namespace PPTShapeLibraryInstaller
             // 修复前先把会让 VSTO 拒绝加载/安装的残留清掉：
             // 光写加载项注册是不够的 —— 实测若 VSTA\Solutions 里还留着本产品记录，
             // 或 ARP 里有指向 bin\Debug 的陈旧卸载项，VSTO 会认为"已安装另一版本"而拒绝加载。
-            ClearVstaRecords(Log);
-            ClearDevArpRecords(Log);
-            // 还要清损坏的 ClickOnce 部署状态（UpdateSkipTime 之类的元数据坏了会让安装永远 -400，
-            // 表现就是"更新一直失败"，用户完全无从下手）
-            int coc = ClearBrokenClickOnceState(Log);
-            if (coc > 0) Log("已清理 " + coc + " 条损坏的 ClickOnce 记录");
-
-            int n = WriteAddinKeys(manifest, true, IsAdmin());
-            Log("修复加载项注册：写入 " + n + " 处（当前用户" + (IsAdmin() ? " + 所有用户" : "") + "）");
+            int n = RepairAddinRegistrationCore(manifest, Log);
 
             string msg = "已写入 " + n + " 处加载项注册（当前用户）。";
             if (!IsAdmin())
@@ -547,6 +541,25 @@ namespace PPTShapeLibraryInstaller
             }
             MessageBox.Show(msg + "\r\n\r\n请重新打开 PowerPoint，功能区应出现「素材库」选项卡。",
                 "修复完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        /// <summary>
+        /// 修复加载项注册的**核心逻辑**（GUI 与 CLI --repair 共用）：
+        /// 清 VSTA 记录 + 清开发式 ARP + 清损坏的 ClickOnce 状态 → 写加载项注册。返回写入处数。
+        /// </summary>
+        internal static int RepairAddinRegistrationCore(string manifestPath, Action<string> say)
+        {
+            // 光写注册不够：实测只要 VSTA\Solutions 里还留着本产品记录，或 ARP 里有指向
+            // bin\Debug 的陈旧卸载项，VSTO 就会认为"已安装另一版本"而拒绝加载/安装。
+            ClearVstaRecords(say);
+            ClearDevArpRecords(say);
+            // 损坏的 ClickOnce 部署状态（如 UpdateSkipTime 元数据坏了）会让安装永远失败 -400
+            int coc = ClearBrokenClickOnceState(say);
+            if (coc > 0) say("已清理 " + coc + " 条损坏的 ClickOnce 记录");
+
+            int n = WriteAddinKeys(manifestPath, true, IsAdmin());
+            say("修复加载项注册：写入 " + n + " 处（当前用户" + (IsAdmin() ? " + 所有用户" : "") + "）");
+            return n;
         }
 
         // ---------------- 检测 ----------------
@@ -2079,7 +2092,7 @@ namespace PPTShapeLibraryInstaller
         }
 
         /// <summary>部署清单(.vsto)：优先 App\（可移植），兼容 ClickOnce\ 与根目录。</summary>
-        private static string FindDeploymentManifest()
+        internal static string FindDeploymentManifest()
         {
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
             string[] candidates =
@@ -2092,7 +2105,9 @@ namespace PPTShapeLibraryInstaller
             {
                 if (File.Exists(c)) return c;
             }
-            return null;
+            // 回退：**已安装**的清单。单文件包（本地安装）把文件放在 addin\<版本>\，
+            // 自己所在目录下永远不会有 App\ —— 不回退的话「修复加载项注册」会误报"缺少安装包"。
+            return LocalInstall.InstalledManifestPath();
         }
 
         private static string FindClickOnceSetup()
