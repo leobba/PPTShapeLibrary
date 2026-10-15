@@ -577,3 +577,62 @@ subset 的 `.codepoints` 并**重新子集化**，否则该图标在 Outlined �
 - ⚠️ 注意 `AppDomain.CurrentDomain.BaseDirectory`：在 PowerShell/独立测试器里加载 DLL 时它指向
   **宿主进程目录**，找不到 `RibbonFonts\`，会让图标工厂全部返回 null —— 这是**测试环境问题，不是代码问题**
   （日志里会出现 `Ribbon fonts missing: ... C:\WINDOWS\System32\WindowsPowerShell\v1.0\\RibbonFonts`）。
+
+### 16. 单文件包的两个部署 bug（2026-10，用户实测反馈）
+
+用户只发了一个 exe，收到两个反馈：**① 运行有卡顿 ② 安装时被要求提供 `离线安装包\` 和 `App\`**。
+
+#### 16.1 GUI 安装没走内嵌载荷（"明明打包成单文件了"）
+
+**根因**：内嵌载荷（`--install-local`）当初**只在 CLI 里实现过**，GUI 的 `StartInstall()`
+始终只会在**同目录**找 `App\PPTShapeLibrary.vsto` / `离线安装包\`；找不到就弹
+"未找到安装包。完整分发目录应包含：…App\Application Files\、离线安装包\"。
+于是"只发一个 exe"的用户等于装不上。
+
+**修法**：把安装流程抽成 **`InstallFlow`（CLI 与 GUI 共用）**，并在 `StartInstall()` 开头判断：
+
+```csharp
+if (LocalInstall.HasPayload) { InstallFromEmbeddedPayload(); return; }   // 单文件包
+// 否则才走旧的"分发目录形态"回退路径
+```
+
+抽成共享类的**额外价值**：两条路径不会再各自跑偏；而且 CLI（`--install-local --quiet`）
+的自动化测试从此能覆盖 GUI 的行为 —— 这类"UI 只能手点"的流程最需要这个。
+
+#### 16.2 卸载时 UI "卡死"最多 5 分钟（真实原因：子进程弹框 + 父进程干等）
+
+**现象**：点「卸载旧版本」后界面长时间无响应。日志里出现过 **74 秒**的间隔。
+
+**根因**：`_existingUninstallString` 是 `"…\PPTShapeLibrary-卸载修复.exe" --uninstall`，
+**不带 `--quiet`**。被调起的卸载器在非 quiet 模式下**自己会弹一个「已卸载 PPTShapeLibrary」MessageBox**，
+而 `RunCommandLine` 用 `WaitForExit(5min)` 等它退出 —— 那个框一旦被主窗口挡住，
+用户看到的就是"卡死"（最长 5 分钟才超时放弃）。
+
+**修法**：
+- 调起前补上 `--quiet`（没有才补，避免重复）；
+- 安装/卸载改到**后台线程**执行，日志用 `SynchronizationContext.Post` 回填界面，
+  按钮置灰 + 等待光标（`SetBusy`），界面全程可响应；
+- `RunCommandLine` 的 5 分钟超时保留作为最后防线。
+
+**教训**：父进程 `WaitForExit` 子进程时，一定要确认子进程**在无人值守模式下不会弹模态框**。
+
+#### 16.3 验证方式（可复跑）
+
+把 exe **单独**放进空目录（确保没有 `App\`、没有 `离线安装包\`），再模拟用户点击：
+
+```powershell
+# 1) 先造干净环境
+& .\PPTShapeLibrary-Setup-x.y.z.exe --uninstall --quiet
+# 2) 单独放一个 exe 到空目录并启动
+# 3) 用 UIA 找窗口（按 PID 定位，别按类名 —— WindowsForms 类名会被别的应用撞上）
+# 4) 点击「开始安装」，然后核对：安装目录 / 注册表 / %TEMP%\pptsl_installer.log
+```
+
+**判定要点**：日志里必须出现「检测到内嵌载荷（单文件包）」，否则说明又走了旧路径。
+
+⚠️ 两个 UIA 坑：
+- **按 PID 找窗口**，不要按 ClassName（`WindowsForms10.Window.8.app.0.…` 这种类名会被其它
+  WinForms 应用撞上，实测撞到过无关程序）；
+- 这个 WinForms 窗体的控件在 UIA 里**全被暴露成 `Pane`**（拿不到 Button 类型，`InvokePattern` 不可用），
+  可靠做法是按元素名找到目标后**用 `BoundingRectangle` 发真实鼠标点击**
+  （`SetCursorPos` + `mouse_event`）。

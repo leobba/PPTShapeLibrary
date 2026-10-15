@@ -91,8 +91,9 @@ namespace PPTShapeLibraryInstaller
             return null;
         }
 
-        /// <summary>版本号：优先 --version，其次取载荷里的 vsto/程序集版本，最后退回调用方给的默认。</summary>
-        private static string ResolveVersion(string[] args, string payloadDir)
+        /// <summary>版本号：优先 --version，其次取载荷里的 vsto/程序集版本，最后退回调用方给的默认。
+        /// 设为 internal 供 InstallerForm 的单文件安装流程复用（避免两处版本判定不一致）。</summary>
+        internal static string ResolveVersion(string[] args, string payloadDir)
         {
             string v = ArgValue(args, "--version");
             if (!string.IsNullOrEmpty(v)) return v;
@@ -150,29 +151,15 @@ namespace PPTShapeLibraryInstaller
                 }
 
                 string stage = dir;
-                bool tempStage = false;
+                string version;
                 if (string.IsNullOrEmpty(stage))
                 {
-                    // 单 exe：先把内嵌载荷解到临时目录
-                    stage = Path.Combine(Path.GetTempPath(), "pptsl_payload_" + Guid.NewGuid().ToString("N").Substring(0, 8));
-                    say("解出自带载荷 → " + stage);
-                    LocalInstall.ExtractPayload(stage, say);
-                    tempStage = true;
+                    // 单 exe：从内嵌载荷安装（与 GUI 共用 InstallFlow，行为一致）
+                    version = InstallFlow.InstallFromEmbedded(say);
                 }
-
-                string version = ResolveVersion(args, stage);
-                say("版本：" + version);
-
-                say("正在结束可能残留的 PowerPoint 安装记录（清理 ClickOnce/VSTA 残留）…");
-                int cleaned = InstallerForm.CleanLegacyState(say);
-                if (cleaned > 0) say("已清理 " + cleaned + " 条历史残留");
-
-                int n = LocalInstall.Install(version, stage, say);
-                say("✓ 安装成功：" + LocalInstall.VersionDir(version) + "（注册 " + n + " 处）");
-
-                if (tempStage)
+                else
                 {
-                    try { Directory.Delete(stage, true); } catch { }
+                    version = InstallFlow.InstallFromDir(stage, say);
                 }
 
                 if (!quiet)

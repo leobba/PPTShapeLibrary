@@ -1267,8 +1267,13 @@ namespace PPTShapeLibraryInstaller
 
             try
             {
-                Log("执行卸载：" + _existingUninstallString);
-                RunCommandLine(_existingUninstallString);
+                // ⚠️ 必须带 --quiet：不带的话被调起的卸载器**自己会弹一个「已卸载」MessageBox**，
+                // 而 RunCommandLine 要等它退出 → 那个框若被主窗口挡住，用户看到的就是
+                // "点完卸载就没反应"（实测日志里出现过 74 秒的等待），误以为卡死。
+                string cmd = _existingUninstallString ?? "";
+                if (cmd.IndexOf("--quiet", StringComparison.OrdinalIgnoreCase) < 0) cmd = cmd.TrimEnd() + " --quiet";
+                Log("执行卸载：" + cmd);
+                RunCommandLine(cmd);
                 TryRemoveStaleVstoLocalKey();
                 Log("卸载命令已执行完毕，并已清理开发式注册残留。");
                 MessageBox.Show("卸载已完成。请点「重新检测」确认，然后再点「开始安装」。",
@@ -1840,6 +1845,83 @@ namespace PPTShapeLibraryInstaller
 
         // ---------------- 安装插件本体 ----------------
 
+        /// <summary>
+        /// 【单文件包】从内嵌载荷安装：解到临时目录 → 清理历史残留 → 装到 %LOCALAPPDATA% → 写注册。
+        /// 全程在**后台线程**执行（解压约 8MB + 拷贝数百个文件，放 UI 线程会明显卡顿），
+        /// 日志通过 SynchronizationContext 回填到界面。
+        /// </summary>
+        private void InstallFromEmbeddedPayload()
+        {
+            SetBusy(true);
+            Log("检测到内嵌载荷（单文件包）→ 完全自包含安装，不需要 App\\ 或 离线安装包\\");
+
+            var ui = System.Threading.SynchronizationContext.Current;
+            var t = new System.Threading.Thread(() =>
+            {
+                bool ok = false;
+                string err = null, ver = null;
+                Action<string> say = m =>
+                {
+                    try
+                    {
+                        if (ui != null) ui.Post(_ => Log(m), null);
+                        else { try { BeginInvoke(new Action(() => Log(m))); } catch { } }
+                    }
+                    catch { }
+                };
+                try
+                {
+                    // 与 CLI（--install-local）**共用**同一段安装逻辑，避免两条路径行为不一致
+                    // （旧 bug：CLI 能用内嵌载荷，GUI 却只找同目录的 App\ / 离线安装包\）
+                    ver = InstallFlow.InstallFromEmbedded(say);
+                    ok = true;
+                }
+                catch (Exception ex)
+                {
+                    err = ex.Message;
+                    say("✗ 安装失败：" + ex.Message);
+                }
+                finally
+                {
+                    // 临时载荷目录由 InstallFlow 自己清理；这里只兜底
+                }
+
+                Action done = () =>
+                {
+                    try { DetectExistingInstall(); UpdateExistingUi(); UpdateSummary(); } catch { }
+                    SetBusy(false);
+                    if (ok)
+                        MessageBox.Show(
+                            "安装完成。\r\n\r\n" +
+                            "打开 PowerPoint，功能区应出现「素材库」选项卡。\r\n" +
+                            "若未出现：请先完全退出 PowerPoint 再重新打开。\r\n\r\n" +
+                            "插件目录：" + LocalInstall.VersionDir(ver),
+                            "安装完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    else
+                        MessageBox.Show("安装失败：\r\n\r\n" + err, "安装失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                };
+                try
+                {
+                    if (ui != null) ui.Post(_ => done(), null);
+                    else { try { BeginInvoke(done); } catch { } }
+                }
+                catch { }
+            });
+            t.IsBackground = true;
+            t.Start();
+        }
+
+        /// <summary>忙碌态：禁按钮 + 等待光标，避免用户重复点击、也让人知道程序在干活。</summary>
+        private void SetBusy(bool busy)
+        {
+            foreach (var b in new[] { _install, _uninstallOld, _repair, _reinstall, _checkUpdate })
+            {
+                try { if (b != null) b.Enabled = !busy; } catch { }
+            }
+            try { UseWaitCursor = busy; } catch { }
+            try { if (busy) _summary.Text = "正在安装…（请勿关闭本窗口）"; } catch { }
+        }
+
         private void StartInstall()
         {
             try
@@ -1868,6 +1950,19 @@ namespace PPTShapeLibraryInstaller
                     }
                 }
 
+                // 【单文件包】自带内嵌载荷 → 完全自包含安装，**不依赖同目录的 App\ 和 离线安装包\**。
+                //
+                // 曾经的 bug：单 exe 里明明带着载荷，但 GUI 的安装流程仍然只会去同目录找
+                // App\PPTShapeLibrary.vsto / 离线安装包\，找不到就弹"完整分发目录应包含…"，
+                // 于是"我只发了一个 exe"的用户装不上。内嵌载荷流程原先只在 CLI
+                // （--install-local）里实现，GUI 没接上。
+                if (LocalInstall.HasPayload)
+                {
+                    InstallFromEmbeddedPayload();
+                    return;
+                }
+
+                // 下面都是**旧的分发目录形态**（App\ + Application Files\ + 离线安装包\）的回退路径。
                 // 优先用部署清单(.vsto)安装：其 codebase 是相对路径(Application Files\...)，
                 // 因此安装源就是本目录，拷到任何机器/路径都能装；
                 // 而 setup.exe 里烤入了发布时的绝对 URL，不适用于分发。
