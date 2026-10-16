@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -450,6 +450,7 @@ namespace PPTShapeLibraryInstaller
         private static int WriteAddinKeys(string manifestPath, bool includeUser, bool includeMachine)
         {
             string manifest = "file:///" + manifestPath.Replace('\\', '/') + "|vstolocal";
+            string derivedVersion = DeriveVersionFromManifest(manifestPath);
             int written = 0;
             foreach (var item in AddinKeyPaths)
             {
@@ -466,6 +467,12 @@ namespace PPTShapeLibraryInstaller
                         key.SetValue("FriendlyName", "PPTShapeLibrary", RegistryValueKind.String);
                         key.SetValue("LoadBehavior", 3, RegistryValueKind.DWord);
                         key.SetValue("Manifest", manifest, RegistryValueKind.String);
+                        // ⚠️ ProductVersion 必须写！插件靠它判断"当前版本"（UpdateService.InstalledVersion
+                        // 的**第一优先**来源）。原先这里漏了它，于是点一次「修复加载项注册」
+                        // 就会把版本号抹掉，版本检测只能退回 ARP DisplayVersion —— 而 ProductVersion
+                        // 是唯一能人为指定版本（dev-register -ProductVersion，用于测试更新流程）的来源。
+                        if (!string.IsNullOrEmpty(derivedVersion))
+                            key.SetValue("ProductVersion", derivedVersion, RegistryValueKind.String);
                         written++;
                     }
                 }
@@ -481,6 +488,36 @@ namespace PPTShapeLibraryInstaller
         public static int WriteMachineAddinKeys(string manifestPath)
         {
             return WriteAddinKeys(manifestPath, false, true);
+        }
+
+        /// <summary>
+        /// 从清单路径推断版本号，供写入注册表 ProductVersion。
+        /// · 本地安装形态：`…\addin\&lt;版本&gt;\PPTShapeLibrary.vsto` → 用父目录名
+        /// · 目录分发形态：清单同目录下的 PPTShapeLibrary.dll 文件版本
+        /// 推断不出返回 null —— 宁可不写，也不要写个错版本让"检查更新"失灵。
+        /// </summary>
+        private static string DeriveVersionFromManifest(string manifestPath)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(manifestPath)) return null;
+                string dir = Path.GetDirectoryName(manifestPath);
+                if (string.IsNullOrEmpty(dir)) return null;
+
+                string dirName = Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar));
+                Version parsed;
+                if (!string.IsNullOrEmpty(dirName) && Version.TryParse(dirName, out parsed))
+                    return dirName;
+
+                string dll = Path.Combine(dir, "PPTShapeLibrary.dll");
+                if (File.Exists(dll))
+                {
+                    var fv = System.Diagnostics.FileVersionInfo.GetVersionInfo(dll).FileVersion;
+                    if (!string.IsNullOrEmpty(fv)) return fv;
+                }
+            }
+            catch { }
+            return null;
         }
 
         /// <summary>「修复加载项注册」：这是"HKCU 版本无关键被清掉 → 功能区没有素材库"的用户级修复入口。</summary>
